@@ -18,6 +18,9 @@ const MAX_LINE = 64 * 1024;
 const LEASE = '/run/mgu-uplink/lease.json';
 const STATE_DIR = '/var/opt/cmocan-tidal/state';
 const SOCK = '/run/cmocan-tidal.sock';
+const CACHE_MS = 5 * 60000;      // a list is asked again after this
+const CACHE_LISTS = 200;
+const CACHE_TRACKS = 5000;
 const NET_UID = 13150;    // component.json "uids": the only uid of this tool mgu-uplink routes
 
 const COMMANDS = ['status', 'login-start', 'login-cancel', 'logout', 'favorites', 'playlists', 'playlist', 'album',
@@ -129,8 +132,16 @@ function createService(opts) {
         l.timer = setTimeout(poll, l.ms);
     }
 
-    /* ---------- the lists' cache ---------- */
+    /* ---------- the lists' cache, and the tracks seen in them (status shows the track playing) ---------- */
+    const cacheMs = o.cacheMs || CACHE_MS;
     const cache = new Map();
+    const tracks = new Map();   // id -> track object
+    function remember(t) {
+        if (!t || !isInt(t.id) || typeof t.title !== 'string' || t.numberOfTracks !== undefined) return;
+        tracks.delete(t.id);
+        tracks.set(t.id, t);
+        while (tracks.size > CACHE_TRACKS) tracks.delete(tracks.keys().next().value);
+    }
 
     /* ---------- status ---------- */
     function player() {
@@ -155,13 +166,37 @@ function createService(opts) {
         mix: (r) => tidal.mix(r.mixId),
         search: (r) => tidal.search(r.query, r.offset || 0, r.limit || 50),
     };
+    /**
+     * A list: from the cache inside cacheMs; else from TIDAL (one request for calls at once). With no lease, or TIDAL
+     * unreachable, the last one fetched comes back marked stale; with none, offline.
+     */
     function list(r) {
         needLogin();
-        return lists[r.cmd](r).then((v) => {
-            const a = { items: (v && v.items) || [] };
+        const key = JSON.stringify([r.cmd, r.kind, r.uuid, r.albumId, r.mixId, r.query, r.offset || 0, r.limit || 50]);
+        const kept = cache.get(key);
+        const stale = () => {
+            if (kept && kept.value) return Object.assign({ stale: true }, kept.value);
+            throw codeError('offline');
+        };
+        if (!leaseOnline(o.leasePath)) return stale();
+        if (kept && kept.value && now() - kept.at < cacheMs) return kept.value;
+        if (kept && kept.pending) return kept.pending;
+        const entry = kept || {};
+        entry.pending = Promise.resolve().then(() => lists[r.cmd](r)).then((v) => {
+            const a = { items: (v && Array.isArray(v.items)) ? v.items : [] };
             if (v && isInt(v.total)) a.total = v.total;
+            a.items.forEach(remember);
+            entry.pending = null; entry.value = a; entry.at = now();
             return a;
+        }, (e) => {
+            entry.pending = null;
+            if (e && e.code === 'offline') return stale();
+            throw e;
         });
+        cache.delete(key);
+        cache.set(key, entry);
+        while (cache.size > CACHE_LISTS) cache.delete(cache.keys().next().value);
+        return entry.pending;
     }
     const handlers = {
         status: () => ({ state: status() }),
