@@ -19,12 +19,22 @@
  *                   buffering (the input ran dry: it goes on once that much is queued again, or the input ended)
  * Told to end (quit, SIGTERM, fd 3 closed) it closes the sound device first and is gone within 2.5 s, exit 0.
  *
+ * Started as root (the service is root), it becomes MGU_RUN_AS with the groups MGU_GROUPS before it opens anything
+ * or reads a byte, and refuses to run as root: the car's sound plugin refuses root and the tools' internet uids.
+ * The device (ALSA) is opened non-blocking; while it cannot be (busy: another app's player has it) it is told in
+ * an audio event and tried again each second, the decoding going on into the queue; 30 s of that is an error.
+ *
  * MGU_AUDIO         alsa:<device> (default alsa:plug:smartx:CarLifeMedia_CF_48_STEREO) | null | wav:<path> (tests)
  * MGU_PREBUFFER_MS  queued before playing starts, and again after the input ran dry (default 1500)
+ * MGU_ALSA_US       the ALSA buffer in us (default 64000: smartx's 3 periods of 1024 frames)
+ * MGU_RUN_AS        the user to become (a name or a number); as root without it the player refuses to run
+ * MGU_GROUPS        its groups (default mgu_alsa,audio); a group the system does not have is skipped and logged
  */
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <grp.h>
+#include <pwd.h>
 #include <math.h>
 #include <poll.h>
 #include <signal.h>
@@ -33,6 +43,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -335,27 +346,117 @@ bool parse_audio(const char *e, Target *t) {
 }
 Target g_target;
 
+/* libasound, opened at run time (tvh-player, mgu_audio.cpp): the unit has it, the binary does not link it */
+typedef struct snd_pcm snd_pcm_t;
+struct Alsa {
+    int (*open)(snd_pcm_t **, const char *, int, int);
+    int (*set_params)(snd_pcm_t *, int, int, unsigned, unsigned, int, unsigned);
+    long (*writei)(snd_pcm_t *, const void *, unsigned long);
+    int (*recover)(snd_pcm_t *, int, int);
+    int (*delay)(snd_pcm_t *, long *);
+    int (*close)(snd_pcm_t *);
+    const char *(*strerror)(int);
+} A;
+const int kPlayback = 0, kS16LE = 2, kRwInterleaved = 3, kNonblock = 1;
+bool alsa_load(std::string *err) {
+    static int loaded = 0;   /* 1 yes, -1 no */
+    static std::string why;
+    if (!loaded) {
+        void *h = dlopen(kAlsaLib, RTLD_NOW);
+        if (!h) { why = std::string("dlopen ") + kAlsaLib + ": " + dlerror(); loaded = -1; }
+        else {
+#define SYM(f, n) (*(void **) &A.f = dlsym(h, n))
+            const bool ok = SYM(open, "snd_pcm_open") && SYM(set_params, "snd_pcm_set_params") && SYM(writei, "snd_pcm_writei") &&
+                            SYM(recover, "snd_pcm_recover") && SYM(delay, "snd_pcm_delay") && SYM(close, "snd_pcm_close") &&
+                            SYM(strerror, "snd_strerror");
+#undef SYM
+            loaded = ok ? 1 : -1;
+            if (!ok) why = std::string(kAlsaLib) + " lacks a symbol";
+        }
+    }
+    if (loaded < 0) *err = why;
+    return loaded > 0;
+}
+unsigned alsa_buffer_us() {
+    const char *e = getenv("MGU_ALSA_US");
+    const long v = e ? atol(e) : 0;
+    return v >= 10000 && v <= 2000000 ? (unsigned) v : 64000;
+}
+
+std::atomic<unsigned long long> g_xruns(0);
+
 class Sink {
 public:
-    /* true: open; else err() says why */
-    bool open() {
+    enum Open { OK, RETRY, FATAL };
+    /* OK: open; RETRY: not now (busy, missing: tried again); FATAL: never. err() and busy() say why */
+    Open open() {
+        busy_ = false;
         if (g_target.kind == WAV) {
             wav_ = fopen(g_target.where.c_str(), "wb");
-            if (!wav_) { err_ = "cannot create " + g_target.where + ": " + strerror(errno); return false; }
+            if (!wav_) { err_ = "cannot create " + g_target.where + ": " + strerror(errno); return FATAL; }
             header(0);
         }
-        return true;
-    }
-    /* writes n frames */
-    void write(const int16_t *s, size_t n) {
-        if (wav_) {
-            if (fwrite(s, 4, n, wav_) == n) bytes_ += (uint32_t) (4 * n);
+        if (g_target.kind == ALSA) {
+            if (!alsa_load(&err_)) return FATAL;
+            int rc = A.open(&pcm_, g_target.where.c_str(), kPlayback, kNonblock);
+            if (rc < 0) {
+                pcm_ = nullptr;
+                busy_ = rc == -EBUSY;
+                err_ = std::string("snd_pcm_open ") + g_target.where + ": " + A.strerror(rc);
+                return RETRY;
+            }
+            rc = A.set_params(pcm_, kS16LE, kRwInterleaved, 2, kRate, 1, alsa_buffer_us());
+            if (rc < 0) {
+                err_ = std::string("snd_pcm_set_params ") + g_target.where + ": " + A.strerror(rc);
+                A.close(pcm_); pcm_ = nullptr;
+                return RETRY;
+            }
         }
+        return OK;
+    }
+    bool is_open() const { return g_target.kind != ALSA || pcm_; }
+    /* seconds of sound the device holds */
+    double delay() {
+        if (!pcm_) return 0;
+        long d = 0;
+        if (A.delay(pcm_, &d) != 0 || d < 0) return 0;
+        return (double) d / kRate;
+    }
+    /* writes n frames; the frames the device did not take (nobody reads it: they are dropped) */
+    size_t write(const int16_t *s, size_t n) {
+        if (wav_) { if (fwrite(s, 4, n, wav_) == n) bytes_ += (uint32_t) (4 * n); return 0; }
+        if (!pcm_) return g_target.kind == ALSA ? n : 0;
+        double waited = 0;
+        while (n > 0 && !g_quit) {
+            const long w = A.writei(pcm_, s, n);
+            if (w == -EAGAIN) {
+                if (waited > 0.25) return n;   /* not read: the speakers not connected (yet) */
+                sleep_s(0.005); waited += 0.005;
+                continue;
+            }
+            if (w < 0) {
+                g_xruns++;
+                if (A.recover(pcm_, (int) w, 1) < 0) {
+                    err_ = std::string("snd_pcm_writei: ") + A.strerror((int) w);
+                    A.close(pcm_); pcm_ = nullptr;   /* lost: opened again */
+                    return n;
+                }
+                continue;
+            }
+            s += w * 2; n -= (size_t) w;
+        }
+        return 0;
+    }
+    /* what the device holds is played (0.5 s at most) */
+    void drain() {
+        for (int i = 0; i < 100 && pcm_ && !g_quit && delay() > 0.001; i++) sleep_s(0.005);
     }
     void close() {
+        if (pcm_) { A.close(pcm_); pcm_ = nullptr; }
         if (wav_) { header(bytes_); fclose(wav_); wav_ = nullptr; }
     }
     const std::string &err() const { return err_; }
+    bool busy() const { return busy_; }
 
 private:
     void header(uint32_t data) {
@@ -369,29 +470,75 @@ private:
         fseek(wav_, 0, SEEK_END);
     }
     FILE *wav_ = nullptr;
+    snd_pcm_t *pcm_ = nullptr;
     uint32_t bytes_ = 0;
     std::string err_;
+    bool busy_ = false;
 };
 
 std::atomic<int> g_volume_milli(1000);
 std::atomic<bool> g_out_done(false);
 std::atomic<unsigned long long> g_written(0);   /* frames given to the device */
 std::atomic<unsigned long long> g_dropped(0);   /* frames lost (the device did not take them) */
-const double kLead = 0.02;                      /* written this far ahead of the clock */
+const double kLead = 0.04;                      /* written this far ahead of the clock (smartx reads 21 ms periods) */
+std::atomic<bool> g_dev_ok(false);              /* the device is open */
+const double kDeviceGiveUpS = 30;               /* a device not opened for this long is an error */
+
+/* audio events: when the device's state or message changes */
+void audio_event(const char *state, const std::string &msg) {
+    static std::string last;
+    const std::string key = std::string(state) + "|" + msg;
+    if (key == last) return;
+    last = key;
+    if (msg.empty()) event(fmt("{\"ev\":\"audio\",\"state\":\"%s\",\"device\":\"%s\"}", state, js(g_target.where).c_str()));
+    else event(fmt("{\"ev\":\"audio\",\"state\":\"%s\",\"device\":\"%s\",\"message\":\"%s\"}", state, js(g_target.where).c_str(), js(msg).c_str()));
+}
 
 void output_thread() {
     Sink sink;
-    if (!sink.open()) {
-        fail("audio", kExitAudio, sink.err());
-        g_quit = true;
-        g_q.wake();
-        g_out_done = true;
-        return;
-    }
+    double retry_at = 0, failing_since = -1;
+    /* opens the device, or says why not; false: not open (yet) */
+    auto device = [&]() -> bool {
+        if (sink.is_open() && g_dev_ok) return true;
+        if (mono() < retry_at) return false;
+        const Sink::Open o = sink.open();
+        if (o == Sink::OK) {
+            g_dev_ok = true;
+            failing_since = -1;
+            logf("audio: %s open", g_target.where.c_str());
+            audio_event("open", "");
+            return true;
+        }
+        g_dev_ok = false;
+        if (o == Sink::FATAL) {
+            fail("audio", kExitAudio, sink.err());
+            g_quit = true;
+            g_q.wake();
+            return false;
+        }
+        const double t = mono();
+        if (failing_since < 0) failing_since = t;
+        logf("audio: %s: trying again in 1 s", sink.err().c_str());
+        audio_event(sink.busy() ? "busy" : "error", sink.err());
+        if (t - failing_since > kDeviceGiveUpS) {
+            fail("audio", kExitAudio, fmt("%s (for %.0f s)", sink.err().c_str(), kDeviceGiveUpS));
+            g_quit = true;
+            g_q.wake();
+            return false;
+        }
+        retry_at = t + 1.0;
+        return false;
+    };
     const size_t kChunk = 1024;
     std::vector<int16_t> buf(kChunk * 2);
     unsigned long long written = 0;
     while (!g_quit) {
+        /* the device: before the start, and after it was lost (the clock stands meanwhile) */
+        if (!device()) {
+            if (g_clock.started() && !g_clock.stalled()) { logf("audio: the device is lost at %.2f s", g_clock.now()); g_clock.set_stalled(true); }
+            sleep_s(0.02);
+            continue;
+        }
         /* the prebuffer: at the start, and after the input ran dry */
         const bool ready = g_q.frames() >= g_pre * kRate || g_q.eof();
         if (!g_clock.started()) {
@@ -406,7 +553,8 @@ void output_thread() {
         }
         if (g_clock.paused()) { sleep_s(0.01); continue; }
         /* on the clock: what is due, and a little more */
-        const double due = (g_clock.now() + kLead) * kRate;
+        /* to the device no faster than it plays: what it holds plays first */
+        const double due = (g_clock.now() + kLead + sink.delay()) * kRate;
         if ((double) written >= due) { sleep_s(0.005); continue; }
         const size_t want = (size_t) std::min<double>(kChunk, due - (double) written + 1);
         const size_t n = g_q.pop(buf.data(), want, 0.01);
@@ -418,12 +566,15 @@ void output_thread() {
         const int v = g_volume_milli.load();
         if (v != 1000)
             for (size_t i = 0; i < n * 2; i++) buf[i] = (int16_t) ((int32_t) buf[i] * v / 1000);
-        sink.write(buf.data(), n);
+        const size_t lost = sink.write(buf.data(), n);
+        if (lost) g_dropped += lost;
+        if (!sink.is_open()) g_dev_ok = false;
         written += n;
         g_written = written;
     }
     /* the last of it is heard before the end */
     while (!g_quit && g_clock.now() * kRate < (double) written) sleep_s(0.005);
+    if (!g_quit) sink.drain();
     sink.close();   /* the device first: an input left open would stay busy for the next player */
     g_out_done = true;
 }
@@ -686,7 +837,7 @@ void control_thread() {
 std::atomic<bool> g_ticks_stop(false);
 const char *state() {
     if (g_clock.started() && g_clock.paused()) return "paused";
-    if (!g_clock.started() || g_clock.stalled()) return "buffering";
+    if (!g_clock.started() || g_clock.stalled() || !g_dev_ok) return "buffering";
     return "playing";
 }
 void tick_thread() {
@@ -717,6 +868,52 @@ void watchdog() {
 
 void on_term(int) { g_quit = true; }
 
+/* As root: becomes MGU_RUN_AS (a name or a number) with MGU_GROUPS (tvh-player's, with a missing group logged and
+ * exit codes); refuses to stay root. Not root: plays as it is. 0, or the exit code to end with. */
+int drop_root() {
+    const char *who = getenv("MGU_RUN_AS");
+    if (getuid() != 0 && geteuid() != 0) {
+        if (who && *who) logf("not root: running as uid %u (MGU_RUN_AS=%s not needed)", (unsigned) getuid(), who);
+        return 0;
+    }
+    if (!who || !*who) { logf("refusing to run as root: MGU_RUN_AS is not set"); return kExitRoot; }
+    uid_t uid;
+    gid_t gid;
+    char *end = nullptr;
+    const unsigned long num = strtoul(who, &end, 10);
+    if (*who >= '0' && *who <= '9' && end && !*end) { uid = (uid_t) num; gid = (gid_t) num; }
+    else {
+        struct passwd *pw = getpwnam(who);
+        if (!pw) { logf("MGU_RUN_AS: no user %s", who); return kExitEnv; }
+        uid = pw->pw_uid; gid = pw->pw_gid;
+    }
+    if (uid == 0) { logf("refusing to run as root: MGU_RUN_AS=%s is root", who); return kExitRoot; }
+    const char *groups = getenv("MGU_GROUPS");
+    std::string list = groups ? groups : "mgu_alsa,audio";
+    std::vector<gid_t> gs;
+    size_t at = 0;
+    while (at <= list.size()) {
+        size_t comma = list.find(',', at);
+        if (comma == std::string::npos) comma = list.size();
+        const std::string g = list.substr(at, comma - at);
+        at = comma + 1;
+        if (g.empty()) continue;
+        struct group *gr = getgrnam(g.c_str());
+        if (gr) gs.push_back(gr->gr_gid);
+        else logf("MGU_GROUPS: no group %s here: skipped", g.c_str());
+    }
+    if (setgroups(gs.size(), gs.empty() ? nullptr : gs.data()) != 0 || setgid(gid) != 0 || setuid(uid) != 0) {
+        logf("refusing to run as root: cannot become %s: %s", who, strerror(errno));
+        return kExitRoot;
+    }
+    if (getuid() == 0 || geteuid() == 0 || getgid() == 0 || getegid() == 0 || setuid(0) == 0) {
+        logf("refusing to run as root: still root after becoming %s", who);
+        return kExitRoot;
+    }
+    logf("running as uid %u gid %u with %zu groups", (unsigned) uid, (unsigned) gid, gs.size());
+    return 0;
+}
+
 /* --version: what is inside, and whether this unit has libasound (opened at run time, never linked) */
 int print_version() {
     std::string dec;
@@ -740,6 +937,12 @@ int print_version() {
 
 int main(int argc, char **argv) {
     if (argc > 1 && !strcmp(argv[1], "--version")) return print_version();
+    /* first of all: no longer root (before the environment is used, a file opened or a byte read) */
+    if (const int rc = drop_root()) {
+        event(fmt("{\"ev\":\"error\",\"code\":\"internal\",\"message\":\"%s\"}",
+                  rc == kExitRoot ? "refusing to run as root" : "MGU_RUN_AS is not a user"));
+        finish(rc);
+    }
     signal(SIGPIPE, SIG_IGN);
     /* no SA_RESTART: a wait for input returns, and the player ends */
     struct sigaction sa;
