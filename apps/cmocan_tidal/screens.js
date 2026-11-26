@@ -200,12 +200,25 @@ function drawToast(c, text) {
     txt(c, text, W / 2, y + 31, 22, c.t.text, { align: 'center', w: w - 40 });
 }
 
+/** the car's volume (the HMI shows no popup of its own on source 287): a bar and the number, or Mute */
+function drawVolume(c, v) {
+    const cv = c.cv, pw = 560, ph = 84, x = (W - pw) / 2, y = BOTTOM - ph - 70, cy = y + ph / 2;
+    cv.roundRect(x, y, pw, ph, 22, '#1e2026e6');
+    const level = typeof v.volume === 'number' && v.max ? Math.max(0, Math.min(1, v.volume / v.max)) : 0;
+    const bx = x + 40, bw = pw - 200;
+    cv.roundRect(bx, cy - 5, bw, 10, 5, BTN);
+    if (!v.muted && level > 0) cv.roundRect(bx, cy - 5, Math.max(10, bw * level), 10, 5, ACCENT);
+    const label = v.muted ? 'Mute' : typeof v.volume === 'number' ? String(Math.round(v.volume)) : '-';
+    cv.text(label, x + pw - 40, cy + 12, 34, v.muted ? c.t.dim : c.t.text, { align: 'right', font: 'bold', literal: true });
+}
+
 const DRAW = { NO_SERVICE: drawNoService, LOGIN: drawLogin, ERROR: drawError, OFFLINE: drawOffline, LIBRARY: drawLibrary, LIST: drawList, NOW_PLAYING: drawNowPlaying };
 
 function draw(cv, t, s, ui) {
     const c = { cv: cv, t: t, s: s, ui: ui || {}, info: { hits: [], qr: null, cover: null, focus: ui && typeof ui.focus === 'number' ? ui.focus : -1, defaultFocus: 0 } };
     const fn = DRAW[s.screen];
     if (fn) fn(c);
+    if (c.ui.volume) drawVolume(c, c.ui.volume);
     if (s.message && (s.screen === 'LIBRARY' || s.screen === 'LIST') && (!c.ui.toastUntil || !c.ui.now || c.ui.now < c.ui.toastUntil)) drawToast(c, s.message);
     return c.info;
 }
