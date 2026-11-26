@@ -117,7 +117,7 @@ function createApp(ctx, kit) {
     }
 
     /* ---------- polling ---------- */
-    let polling = false;
+    let polling = false, qualitySent = false;
     function poll() {
         if (polling || stopped) return;
         polling = true;
@@ -126,6 +126,9 @@ function createApp(ctx, kit) {
             if (a.ok && a.state && typeof a.state === 'object') {
                 dispatch({ type: 'status', state: a.state, id: a.id });
                 progress.update(s.player, a.id, now());
+                // the app's setting is the one that counts: sent once when the service has another
+                const q = ctx.settings.get('quality'), has = s.service.prefs && s.service.prefs.quality;
+                if (!qualitySent && has && QUALITIES.indexOf(q) >= 0 && q !== has) { qualitySent = true; sendQuality(); }
             } else if (a.error === 'no-service') dispatch({ type: 'no-service' });
             audio.update(s.player);
             dispatch({ type: 'tick', now: now() });
