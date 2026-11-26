@@ -13,6 +13,7 @@
  *   h.until(fn, ms) -> Promise         waits for fn() (sync or async) to be truthy
  *   h.pids                             { client: [], player: [] }
  *   h.close() -> Promise               stops the service, checks no child is left, removes the folder
+ *   startService({ files: { 'session.json': text } })   files in the state folder before the service starts
  * Node 8.9.4 syntax.
  */
 const fs = require('fs');
@@ -74,6 +75,8 @@ function startService(opts) {
     const leasePath = path.join(dir, 'lease.json');
     const sock = path.join(dir, 'c.sock');
     if (o.online !== false) writeLease(leasePath);
+    // files to find in the state folder at start: { 'session.json': text }
+    if (o.files) { fs.mkdirSync(stateDir, 0o700); Object.keys(o.files).forEach((n) => fs.writeFileSync(path.join(stateDir, n), o.files[n], { mode: 0o600 })); }
     const cfg = o.tidal || {};
     const pids = { client: [], player: [] };
     const exits = [];

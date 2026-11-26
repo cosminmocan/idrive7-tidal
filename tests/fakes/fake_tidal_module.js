@@ -13,6 +13,7 @@
  *                                  covers: { <coverId>: Buffer }
  *                                  fail: { <method>: code }   every call of that method rejects with code
  *                                  calls: [] (filled: { method, args })
+ *                                  logoutLeavesFiles: true   logout() forgets the session but leaves its files
  *   createFileServer(opts)       a local HTTP server for the track's bytes, with Range, cuts and expired addresses.
  *   pattern(len) / patternAt(i)  the bytes the file server serves: "fLaC" then a counter, so a byte out of place,
  *                                missing or twice is seen.
@@ -80,6 +81,7 @@ function createFakeTidal(cfg) {
             }),
             logout: () => call('logout', [], () => {
                 session = null;
+                if (cfg.logoutLeavesFiles) return;   // to check that the service removes them itself
                 try { fs.unlinkSync(opts.sessionFile); } catch (e) { /* none */ }
                 rmrf(opts.coverDir);
             }),
