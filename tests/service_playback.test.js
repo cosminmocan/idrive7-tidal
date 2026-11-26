@@ -29,6 +29,8 @@ function setup(files, extra) {
 }
 const st = (h) => h.status().then((s) => s.player);
 const recorded = (h, id) => { try { return fs.readFileSync(path.join(h.dir, 'rec-' + id + '.bin')); } catch (e) { return null; } };
+// the fake player writes its recording once it has all its input: wait for the whole file, not the first bytes of it
+const recordedAll = (h, id, size) => { const b = recorded(h, id); return b && b.length >= size ? b : null; };
 const livePlayers = (h) => h.pids.player.filter(alive);
 function checkStatus(s) { assert.deepStrictEqual(P.validateAnswer('status', { id: 1, ok: true, state: s }), [], JSON.stringify(s)); }
 
@@ -61,8 +63,7 @@ test('with the connection cut three times mid-file the player still gets it byte
     const h = await setup(files);
     try {
         await h.req({ cmd: 'play', tracks: [1], index: 0 });
-        await until(() => recorded(h, 1), 15000, 'the recording');
-        const got = recorded(h, 1);
+        const got = await until(() => recordedAll(h, 1, size), 15000, 'the recording');
         assert.strictEqual(got.length, size);
         assert.ok(got.equals(pattern(0, size)), 'byte for byte');
         const ranges = files.requests.map((r) => r.range);
@@ -78,8 +79,8 @@ test('an expired stream address (403) is asked for again once', async () => {
     const h = await setup(files);
     try {
         await h.req({ cmd: 'play', tracks: [2], index: 0 });
-        await until(() => recorded(h, 2), 8000, 'the recording');
-        assert.ok(recorded(h, 2).equals(pattern(0, 300000)));
+        const got = await until(() => recordedAll(h, 2, 300000), 8000, 'the recording');
+        assert.ok(got.equals(pattern(0, 300000)));
         assert.strictEqual(h.cfg.calls.filter((c) => c.method === 'streamUrl').length, 2);
     } finally { await h.close(); await files.close(); }
 });

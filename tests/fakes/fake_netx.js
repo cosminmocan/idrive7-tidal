@@ -21,7 +21,9 @@ function err(code, message, status) { const e = new Error(message); e.code = cod
 
 function createNetx(opts) {
     const o = opts || {};
-    const agent = new http.Agent({ keepAlive: false });
+    // keep-alive, as the real netx: with a server that closes the connection after the answer, Node 8.9.4 drops the
+    // end of an answer that was paused for backpressure ('aborted'); the playback's Range continuation covers that
+    const agent = new http.Agent({ keepAlive: true });
 
     function online() {
         try {
@@ -62,18 +64,34 @@ function createNetx(opts) {
             const expected = res.headers['content-length'] !== undefined ? Number(res.headers['content-length']) : null;
             const { PassThrough } = require('stream');
             const out = new PassThrough();
-            let got = 0, done = false;
-            function fail(why) { if (done) return; done = true; res.destroy(); out.emit('error', err('offline', why)); }
-            let idle = setTimeout(() => fail('idle'), x.timeoutMs);
-            res.on('data', (d) => { got += d.length; clearTimeout(idle); idle = setTimeout(() => fail('idle'), x.timeoutMs);
-                if (!out.write(d)) { clearTimeout(idle); res.pause(); out.once('drain', () => { idle = setTimeout(() => fail('idle'), x.timeoutMs); res.resume(); }); } });
-            res.on('aborted', () => { clearTimeout(idle); fail('connection broken'); });
-            res.on('error', () => { clearTimeout(idle); fail('connection broken'); });
-            res.on('end', () => {
-                clearTimeout(idle);
+            let got = 0, done = false, waiting = false, aborted = false;
+            function fail(why) { if (done) return; done = true; clearTimeout(idle); res.destroy(); out.emit('error', err('offline', why)); }
+            function finish() { if (done) return; done = true; clearTimeout(idle); out.end(); }
+            let idle = null;
+            const arm = () => { clearTimeout(idle); idle = setTimeout(() => fail('idle'), x.timeoutMs); };
+            // Node 8 says 'aborted' when the server closes the socket while the answer is still paused here, every
+            // byte received: the byte count decides, once what was received has been passed on
+            function settle() {
+                if (done || waiting) return;
+                if (expected !== null && got >= expected) return finish();
+                setTimeout(() => { if (!done && !waiting) { if (expected !== null && got >= expected) finish(); else fail('connection broken after ' + got + ' bytes'); } }, 100);
+            }
+            arm();
+            res.on('data', (d) => {
                 if (done) return;
-                if (expected !== null && got < expected) return fail('connection broken after ' + got + ' of ' + expected);
-                done = true; out.end();
+                got += d.length;
+                arm();
+                if (!out.write(d) && !waiting) {
+                    waiting = true; clearTimeout(idle); res.pause();
+                    out.once('drain', () => { waiting = false; if (aborted) return settle(); arm(); res.resume(); });
+                }
+            });
+            res.on('aborted', () => { aborted = true; clearTimeout(idle); settle(); });
+            res.on('error', () => { aborted = true; clearTimeout(idle); settle(); });
+            res.on('end', () => {
+                if (done) return;
+                if (expected !== null && got < expected) { aborted = true; return settle(); }
+                finish();
             });
             const destroy = out.destroy ? out.destroy.bind(out) : null;
             out.destroy = function (e) { clearTimeout(idle); done = true; res.destroy(); if (destroy) destroy(e); };
