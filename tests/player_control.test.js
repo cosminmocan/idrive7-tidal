@@ -103,8 +103,7 @@ test('volume is held between 0 and 1, and volume 0 is silence', () => {
     let at;
     return h.waitEvent((e) => e.ev === 'tick' && e.state === 'playing' && e.pos >= 0.5, 10000)
         .then(() => { h.send('volume 7'); return P.delay(1000); })
-        .then(() => h.waitEvent((e) => e.ev === 'tick' && e.state === 'playing', 2000))
-        .then((e) => { at = e.pos; h.send('volume -3'); return h.done; })
+        .then(() => { at = ticks(h).slice(-1)[0].pos; h.send('volume -3'); return h.done; })
         .then((r) => {
             P.assertClean(r, h);
             const w = P.readWav(out);
