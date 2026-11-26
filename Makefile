@@ -34,7 +34,11 @@ app-preview:
 		    CMOCAN_TIDAL_SOCK=/tmp/cmocan-preview.sock node kit/tools/preview.js dist/cmocan_tidal preview/cmocan_tidal wait=2 render) \
 		&& node tools/screens.js preview/screens >/dev/null && echo "preview/screens: $$(ls preview/screens | wc -l) pictures"'
 
-# the kit's live emulator: http://localhost:8077 (Ctrl-C ends it)
+# the kit's live emulator: http://localhost:8077 (Ctrl-C ends it), the app talking to the fake service (logged in;
+# EMU_LOGIN=logged-out for the login screen)
+EMU_LOGIN ?= logged-in
 emu:
 	@$(KIT_IMAGE_MAKE)
-	@docker run --rm -it -e PYTHONDONTWRITEBYTECODE=1 -p 127.0.0.1:8077:8078 -v "$(CURDIR):/w" -w /w $(KIT_IMAGE) node kit/tools/emu_forward.js 8078 8077 cmocan_tidal --port 8077
+	@docker run --rm $$(test -t 0 && echo -it) --name cmocan-tidal-emu -e PYTHONDONTWRITEBYTECODE=1 -e CMOCAN_TIDAL_SOCK=/tmp/cmocan-emu.sock -p 127.0.0.1:8077:8078 -v "$(CURDIR):/w" -w /w $(KIT_IMAGE) sh -c \
+		'node -e "require(\"./tests/fakes/fake_service\").createFakeService({ socketPath: \"/tmp/cmocan-emu.sock\", state: { login: \"$(EMU_LOGIN)\" } })" & \
+		 exec node kit/tools/emu_forward.js 8078 8077 cmocan_tidal --port 8077'
