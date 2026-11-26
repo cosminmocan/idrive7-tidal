@@ -3,10 +3,11 @@
  * tidal.js - the TIDAL client (docs/INTERNAL-API.md, tasks A2 to A6): a port of the parts of python tidalapi
  * 0.9.0 the car needs. Runs in client.js as the tool's internet uid. Node 8.9.4.
  *
- *   const tidal = createTidal({ netx, sessionFile, coverDir });   // tests: baseUrls, now, pageSize
+ *   const tidal = createTidal({ netx, sessionFile, coverDir });   // tests: baseUrls, now, pageSize, coverCacheBytes
  *   tidal.loggedIn() / loginStart() / loginPoll() / logout()
  *   tidal.favorites(kind, offset, limit) / playlists / playlist / album / mixes / mix / search -> { items, total }
  *   tidal.streamUrl(trackId, quality) -> { url, codec, quality }
+ *   tidal.cover(coverId) -> Buffer (JPEG 320x320, cached)
  *   tidal._get(path, params)   // the raw API GET (diagnostics, tests)
  *
  * Every rejection is an Error with a control-socket code (lib/tidal/errors.js).
@@ -17,16 +18,7 @@ const createLogin = require('./tidal/login').createLogin;
 const createApi = require('./tidal/api').createApi;
 const createLibrary = require('./tidal/library').createLibrary;
 const createStream = require('./tidal/stream').createStream;
-const fs = require('fs');
-const path = require('path');
-
-/** the cover cache's folder and what is in it (one level: the cache has no subfolders) */
-function removeDir(dir) {
-    let names = [];
-    try { names = fs.readdirSync(dir); } catch (e) { return; }
-    names.forEach((n) => { try { fs.unlinkSync(path.join(dir, n)); } catch (e) { /* gone */ } });
-    try { fs.rmdirSync(dir); } catch (e) { /* gone */ }
-}
+const createCovers = require('./tidal/covers').createCovers;
 
 function createTidal(o) {
     const opts = o || {};
@@ -54,11 +46,12 @@ function createTidal(o) {
     const api = createApi(ctx);
     const library = createLibrary(ctx, api, { pageSize: opts.pageSize });
     const stream = createStream(ctx, api);
+    const covers = createCovers(ctx, { dir: coverDir, cacheBytes: opts.coverCacheBytes });
 
     function logout() {
         login.cancel();
         ctx.dropSession();
-        removeDir(coverDir);
+        covers.clear();
         return Promise.resolve();
     }
 
@@ -75,6 +68,7 @@ function createTidal(o) {
         mix: library.mix,
         search: library.search,
         streamUrl: stream.streamUrl,
+        cover: covers.cover,
         // the raw GET the library is built on (tools/live-check.js records fixtures with it)
         _get: (p, params) => api.get(p, params),
     };
