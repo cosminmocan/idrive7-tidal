@@ -51,13 +51,13 @@ function buttonInput(s, info, ev) {
     if (ev.tap) { const h = hitAt(info, ev.tap); return h && h.act ? [h.act] : []; }
     if (ev.tilt === 'W') return s.screen === 'ERROR' || s.screen === 'NOW_PLAYING' ? [{ type: 'back' }] : [{ type: 'leave' }];
     if (!buttons.length) return [];
-    const f = info && typeof info.focus === 'number' ? info.focus : -1;
-    if (typeof ev.knob === 'number' && ev.knob) {
-        const to = Math.max(0, Math.min(buttons.length - 1, (f < 0 ? (info.defaultFocus || 0) : f + ev.knob)));
-        return [{ type: 'focus', index: to }];
-    }
-    if (ev.tilt === 'E' || ev.tilt === 'S') return [{ type: 'focus', index: Math.min(buttons.length - 1, f + 1) }];
-    if (ev.tilt === 'N') return [{ type: 'focus', index: Math.max(0, f - 1) }];
+    // nothing focused yet: the screen's default button (play / pause) is where the controller starts from
+    const f = info && typeof info.focus === 'number' && info.focus >= 0 && info.focus < buttons.length ? info.focus : -1;
+    const from = f < 0 ? Math.min(buttons.length - 1, (info && info.defaultFocus) || 0) : f;
+    const to = (d) => [{ type: 'focus', index: Math.max(0, Math.min(buttons.length - 1, from + d)) }];
+    if (typeof ev.knob === 'number' && ev.knob) return to(ev.knob);
+    if (ev.tilt === 'E' || ev.tilt === 'S') return to(1);
+    if (ev.tilt === 'N') return to(-1);
     if (ev.press) {
         const b = buttons[f >= 0 ? f : (info.defaultFocus || 0)];
         return b && b.act ? [b.act] : [];

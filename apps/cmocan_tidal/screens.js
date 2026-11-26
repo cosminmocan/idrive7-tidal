@@ -15,6 +15,8 @@
 const QR = require('./qr');
 const T = require('./text');
 const L = require('./listview');
+const NP = require('./nowplaying');
+const NP_cmd = NP.playPause;
 
 const W = 1600, H = 520, TOP = 44, BOTTOM = 512;
 const ACCENT = '#33d6ff', RED = '#ff4d4d', ROW_SEL = '#33d6ff2e', BTN = '#ffffff1f';
@@ -137,6 +139,60 @@ function drawList(c) {
     drawRows(c, L.rows(s), L.cursor(s));
 }
 
+/** a square for a missing cover: a dim tile with a note on it */
+function placeholder(c, x, y, size) {
+    const cv = c.cv, k = size / 100, col = '#ffffff40';
+    cv.roundRect(x, y, size, size, 12, '#ffffff14');
+    cv.circle(x + 40 * k, y + 68 * k, 9 * k, col);
+    cv.circle(x + 66 * k, y + 62 * k, 9 * k, col);
+    cv.fillRect(x + 46 * k, y + 28 * k, 3.5 * k, 40 * k, col);
+    cv.fillRect(x + 72 * k, y + 22 * k, 3.5 * k, 40 * k, col);
+    cv.quad([[x + 46 * k, y + 28 * k], [x + 75.5 * k, y + 22 * k], [x + 75.5 * k, y + 30 * k], [x + 46 * k, y + 36 * k]], col);
+}
+function cover(c, coverId, x, y, size) {
+    const img = coverId && typeof c.ui.cover === 'function' ? c.ui.cover(coverId) : null;
+    if (img && typeof c.cv.image === 'function') { c.cv.image(img.id, x, y, size, size); return 'image'; }
+    placeholder(c, x, y, size);
+    return 'placeholder';
+}
+
+const NP_STATE = { buffering: 'Buffering...', loading: 'Loading...', paused: 'Paused' };
+
+function drawNowPlaying(c) {
+    const s = c.s, t = c.t, cv = c.cv, p = s.player;
+    const on = !!(p && p.track && p.state !== 'idle');
+    if (!on) {
+        centred(c, 'Nothing is playing', 'Choose a track in the library.', 210);
+        button(c, W / 2 - 130, 300, 260, 64, 'Library', { type: 'back' }, 'np-library', true);
+        return;
+    }
+    const tr = p.track, size = 400, cx = 60, cy = TOP + 34;
+    c.info.cover = cover(c, tr.coverId, cx, cy, size);
+    const x = cx + size + 60, w = W - 60 - x;
+    txt(c, tr.title, x, TOP + 86, 44, t.text, { font: 'bold', w: w });
+    txt(c, (tr.artists || []).join(', '), x, TOP + 134, 28, t.text, { w: w });
+    if (tr.album && tr.album.title) txt(c, tr.album.title, x, TOP + 172, 22, t.dim, { w: w });
+    let state = NP_STATE[p.state] || '';
+    if (p.state === 'error') state = 'Playback error' + (p.error ? ' (' + p.error + ')' : '');
+    if (state) txt(c, state, x, TOP + 220, 24, p.state === 'error' ? RED : ACCENT, { font: 'bold', w: w });
+    const right = [p.queueLength > 0 && p.queueIndex >= 0 ? 'Track ' + (p.queueIndex + 1) + ' of ' + p.queueLength : '', p.quality || ''].filter(Boolean).join('   ');
+    if (right) txt(c, right, W - 60, TOP + 220, 20, t.dim, { align: 'right' });
+    // the progress
+    const pos = typeof c.ui.position === 'number' ? c.ui.position : p.position;
+    const dur = typeof c.ui.duration === 'number' ? c.ui.duration : (p.duration || tr.duration || null);
+    const by = TOP + 252;
+    cv.roundRect(x, by, w, 8, 4, BTN);
+    if (dur) cv.roundRect(x, by, Math.max(8, w * Math.max(0, Math.min(1, pos / dur))), 8, 4, p.state === 'playing' ? ACCENT : t.dim);
+    txt(c, L.mmss(pos) || '0:00', x, by + 38, 20, t.dim);
+    if (dur) txt(c, L.mmss(dur), x + w, by + 38, 20, t.dim, { align: 'right' });
+    // the controls: previous, play / pause, next (the knob starts on play / pause)
+    const pp = NP_cmd(p), by2 = TOP + 330, mid = x + w / 2;
+    button(c, mid - 290, by2, 170, 76, 'Previous', { type: 'control', cmd: 'prev' }, 'np-prev', false);
+    button(c, mid - 100, by2, 200, 76, pp === 'pause' ? 'Pause' : 'Play', { type: 'control', cmd: pp || 'resume' }, 'np-playpause', true);
+    button(c, mid + 120, by2, 170, 76, 'Next', { type: 'control', cmd: 'next' }, 'np-next', false);
+    c.info.defaultFocus = 1;
+}
+
 /** a message over the bottom of the page for a few seconds (an error that keeps the screen) */
 function drawToast(c, text) {
     const w = Math.min(1200, c.cv.textWidth(T.ascii(text), 22, { literal: true }) + 60), x = (W - w) / 2, y = BOTTOM - 62;
@@ -144,10 +200,10 @@ function drawToast(c, text) {
     txt(c, text, W / 2, y + 31, 22, c.t.text, { align: 'center', w: w - 40 });
 }
 
-const DRAW = { NO_SERVICE: drawNoService, LOGIN: drawLogin, ERROR: drawError, OFFLINE: drawOffline, LIBRARY: drawLibrary, LIST: drawList };
+const DRAW = { NO_SERVICE: drawNoService, LOGIN: drawLogin, ERROR: drawError, OFFLINE: drawOffline, LIBRARY: drawLibrary, LIST: drawList, NOW_PLAYING: drawNowPlaying };
 
 function draw(cv, t, s, ui) {
-    const c = { cv: cv, t: t, s: s, ui: ui || {}, info: { hits: [], qr: null, focus: ui && typeof ui.focus === 'number' ? ui.focus : -1, defaultFocus: 0 } };
+    const c = { cv: cv, t: t, s: s, ui: ui || {}, info: { hits: [], qr: null, cover: null, focus: ui && typeof ui.focus === 'number' ? ui.focus : -1, defaultFocus: 0 } };
     const fn = DRAW[s.screen];
     if (fn) fn(c);
     if (s.message && (s.screen === 'LIBRARY' || s.screen === 'LIST') && (!c.ui.toastUntil || !c.ui.now || c.ui.now < c.ui.toastUntil)) drawToast(c, s.message);
