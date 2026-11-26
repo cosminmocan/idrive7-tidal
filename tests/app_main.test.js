@@ -236,6 +236,19 @@ test('the quality setting is sent to the service when it changes', async () => {
     } finally { app.stop(); await svc.close(); }
 });
 
+test('at start, a quality setting that differs from the service\'s is sent once', async () => {
+    const sock = tmpSock();
+    const svc = await createFakeService({ socketPath: sock, state: { login: 'logged-in' } });
+    const ctx = fakeCtx();
+    ctx.settings.set('quality', 'HIGH');
+    const app = createApp(ctx, { socketPath: sock, pollMs: 150, parked: parkedKit.watch(ctx, ctx.log), setImage() {}, decodeJpeg: decodeJpeg });
+    try {
+        await waitFor(() => svc.state.prefs.quality === 'HIGH', 3000, 'HIGH sent');
+        await sleep(600);
+        assert.strictEqual(cmds(svc).filter((c) => c === 'prefs').length, 1);
+    } finally { app.stop(); await svc.close(); }
+});
+
 test('errors from the service: a list that is not found shows ERROR; back returns', async () => {
     const sock = tmpSock();
     const svc = await createFakeService({ socketPath: sock, state: { login: 'logged-in' } });
