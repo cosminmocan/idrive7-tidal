@@ -210,6 +210,10 @@ function reduce(s, ev) {
             const now = isNum(ev.now) ? ev.now : 0, secs = isNum(ev.expiresIn) && ev.expiresIn > 0 ? ev.expiresIn : 300;
             return assign(s, { login: { requesting: false, url: ev.url, userCode: typeof ev.userCode === 'string' ? ev.userCode : '', expiresAt: now + secs * 1000, expired: false } });
         }
+        case 'login-failed': {
+            const e = ERRORS[ev.code] || UNKNOWN_ERROR;
+            return assign(s, { login: { requesting: false, url: null, userCode: null, expiresAt: null, expired: false, failed: true }, message: e.message || 'Could not get a login code' });
+        }
         case 'tick': {
             if (!isNum(ev.now) || !s.login || !s.login.url || s.login.expired || !(ev.now >= s.login.expiresAt)) return s;
             return assign(s, { login: assign(s.login, { expired: true }) });

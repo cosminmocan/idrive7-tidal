@@ -146,7 +146,7 @@ test('library -> favourite tracks -> play: the right requests, then now playing;
         wheel.statusSearchSwitch1({ operationPushButtonAudioAutomaticTuningSteeringWheel: 'KEINE_AKTION' });
         await waitFor(() => cmds(svc).filter((c) => c === 'next').length === n + 1, 2000, 'wheel next');
         await ctx.loops.MAIN();
-        assert.ok(cmds(svc).indexOf('cover') >= 0, 'the cover asked for');
+        await waitFor(() => cmds(svc).indexOf('cover') >= 0, 2000, 'the cover asked for');
         assert.strictEqual(lastOf(svc, 'cover').coverId, TRACK.coverId);
         svc.requests.forEach((r) => assert.deepStrictEqual(P.validateRequest(r), [], JSON.stringify(r)));
         noErrors(ctx);

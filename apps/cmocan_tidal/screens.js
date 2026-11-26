@@ -63,6 +63,12 @@ function drawLogin(c) {
     const cv = c.cv, t = c.t, s = c.s, l = s.login;
     title(c, 'Log in to TIDAL');
     if (s.message) txt(c, s.message, 60, TOP + 92, 24, ACCENT, { w: 900 });
+    if (l && l.failed) {
+        txt(c, 'Could not get a login code.', 60, TOP + 160, 28, t.text, { font: 'bold' });
+        txt(c, 'Try again in a moment.', 60, TOP + 200, 22, t.dim);
+        button(c, 60, TOP + 240, 300, 64, 'New code', { type: 'login-new' }, 'login-new', true);
+        return;
+    }
     if (!l || l.requesting || !l.url) {
         txt(c, 'Getting a code...', 60, TOP + 160, 26, t.dim);
         return;
