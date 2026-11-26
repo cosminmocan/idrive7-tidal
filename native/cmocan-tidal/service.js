@@ -12,6 +12,8 @@ const net = require('net');
 const path = require('path');
 const { createState, rmrf } = require('./state');
 const { createClientLink } = require('./client');
+const { createPlayback } = require('./playback');
+const { createPlayerProcess } = require('./player');
 
 const VERSION = '0.1.0';
 const MAX_LINE = 64 * 1024;
@@ -143,16 +145,28 @@ function createService(opts) {
         while (tracks.size > CACHE_TRACKS) tracks.delete(tracks.keys().next().value);
     }
 
+    /* ---------- playback: one player per track (as root; it drops to nobody itself) ---------- */
+    const pb = createPlayback({
+        tidal: tidal, netx: netx, log: log, now: now, retryWaits: o.retryWaits, outageMs: o.outageMs,
+        quality: () => prefs.quality,
+        trackInfo: (id) => tracks.get(id) || null,
+        onQueue: (q) => { try { st.write('queue', q); } catch (e) { log('queue.json: ' + e.message); } },
+        startPlayer: (id, onEvent) => createPlayerProcess({
+            spawn: o.spawn || require('child_process').spawn,
+            bin: o.playerBin || path.join(__dirname, 'tidal-player'), args: o.playerArgs || [],
+            env: typeof o.playerEnv === 'function' ? o.playerEnv(id) : o.playerEnv, audio: o.audio, log: log, onEvent: onEvent }),
+    });
+    const savedQueue = st.read('queue');
+    if (savedQueue) pb.restore(savedQueue);
+
     /* ---------- status ---------- */
-    function player() {
-        return { state: 'idle', track: null, position: 0, duration: null, queueIndex: -1, queueLength: 0, quality: null, error: null };
-    }
+    function player() { return pb.status(); }
     function status() {
         return { login: loginState(), online: leaseOnline(o.leasePath), version: VERSION, prefs: { quality: prefs.quality }, player: player(),
             // not in the contract: why the last login went back to logged-out (login-expired), else null
             loginError: loginError,
             // not in the contract: how the service's children are (a child that died, and how often it was started again)
-            children: { client: link ? link.state() : { running: false, inProcess: true } } };
+            children: { client: link ? link.state() : { running: false, inProcess: true }, player: pb.players() } };
     }
 
     /* ---------- the commands ---------- */
@@ -211,6 +225,7 @@ function createService(opts) {
         'login-cancel': () => { endLogin(null); return {}; },
         logout: () => {
             endLogin(null);
+            pb.stop();
             return Promise.resolve().then(() => tidal.logout()).catch((e) => log('logout: ' + e.message)).then(() => {
                 // the TIDAL module removes them; so does the service, whatever it left
                 st.remove('session');
@@ -220,8 +235,12 @@ function createService(opts) {
             });
         },
         cover: (r) => { needLogin(); return tidal.cover(r.coverId).then((b) => ({ mime: 'image/jpeg', data: b.toString('base64') })); },
-        play: () => { needLogin(); return {}; },
-        pause: () => ({}), resume: () => ({}), next: () => ({}), prev: () => ({}), stop: () => ({}),
+        play: (r) => { needLogin(); pb.play(r.tracks, r.index); return {}; },
+        pause: () => { pb.pause(); return {}; },
+        resume: () => { if (!pb.active()) needLogin(); pb.resume(); return {}; },
+        next: () => { pb.next(); return {}; },
+        prev: () => { pb.prev(); return {}; },
+        stop: () => { pb.stop(); return {}; },
         prefs: (r) => {
             if (r.quality && r.quality !== prefs.quality) {
                 prefs = { quality: r.quality };
@@ -296,7 +315,7 @@ function createService(opts) {
             conns.slice().forEach((c) => c.destroy());
             if (server) { try { server.close(); } catch (e) { /* closed */ } }
             resolve();
-        }).then(() => (link ? link.stop() : null)).then(() => { o.exit(code || 0); });
+        }).then(() => pb.close()).then(() => (link ? link.stop() : null)).then(() => { o.exit(code || 0); });
         return stopping;
     }
 

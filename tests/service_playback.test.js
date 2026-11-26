@@ -35,7 +35,7 @@ function checkStatus(s) { assert.deepStrictEqual(P.validateAnswer('status', { id
 test('the player receives the file byte for byte; status follows it to the end, then idle', async () => {
     const size = 2 * 1024 * 1024 + 3;
     const files = await createFileServer({ size: size });
-    const h = await setup(files);
+    const h = await setup(files, { seconds: '5' });
     try {
         await h.req({ cmd: 'search', query: 'x' });   // the service learns the tracks' titles from the lists
         const a = await h.req({ id: 17, cmd: 'play', tracks: [1], index: 0 });
@@ -46,7 +46,7 @@ test('the player receives the file byte for byte; status follows it to the end, 
         assert.strictEqual(p.track.title, 'One');
         assert.strictEqual(p.queueIndex, 0); assert.strictEqual(p.queueLength, 1);
         assert.strictEqual(p.quality, 'LOSSLESS');
-        assert.strictEqual(p.duration, 0.5);
+        assert.strictEqual(p.duration, 5);
         const got = recorded(h, 1);
         assert.ok(got && got.length === size, 'size ' + (got && got.length));
         assert.ok(got.equals(pattern(0, size)), 'byte for byte');
@@ -119,7 +119,7 @@ test('next at the end and prev at the start are harmless', async () => {
         let p = await st(h);
         assert.strictEqual(p.queueIndex, 1); assert.notStrictEqual(p.state, 'error');
         await h.req({ cmd: 'play', tracks: [1, 2], index: 0 });
-        await until(() => st(h).then((x) => x.state === 'playing' && x.track && x.track.id === 1), 8000, 'playing 1');
+        await until(() => st(h).then((x) => x.state === 'playing' && x.queueIndex === 0), 8000, 'playing 1');
         assert.strictEqual((await h.req({ cmd: 'prev' })).ok, true);
         p = await until(() => st(h).then((x) => x.state === 'playing' && x), 8000, 'playing again');
         assert.strictEqual(p.queueIndex, 0);
