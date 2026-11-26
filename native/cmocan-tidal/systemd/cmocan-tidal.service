@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Adapted from aurelm-tvhplayer.service and aurelm-music.service (aurelmarius, GPL-3.0-or-later).
+[Unit]
+Description=cmocan-tidal: TIDAL's music on the head unit, for the app cmocan_tidal
+RequiresMountsFor=/var/opt
+# Started by the app's connection to the socket, never at boot (no [Install]: this unit is never enabled); it ends
+# 10 minutes after the app's last request while nothing plays. Ordered before no head-unit unit, waited for by none.
+Requires=cmocan-tidal.socket
+After=cmocan-tidal.socket
+StartLimitIntervalSec=600
+StartLimitBurst=10
+
+[Service]
+# root: the state (the TIDAL login, 0600) is root's, and the player is started as root so it can take the sound
+# groups (it becomes nobody with mgu_alsa,audio itself). The network runs in client.js as the tool's uid (13150),
+# the only one mgu-uplink routes. Both are children of this service, with its limits and LimitCORE.
+# No "+" commands: every command here runs with the limits below, LimitCORE=1 included.
+Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+Environment=CMOCAN_STATE=/var/opt/cmocan-tidal/state
+ExecStartPre=-/bin/sh -c 'mkdir -p /var/opt/cmocan-tidal/state && chmod 0700 /var/opt/cmocan-tidal/state'
+ExecStart=/usr/bin/node --max-old-space-size=64 /var/opt/cmocan-tidal/current/service.js
+# however the service ended (stop, crash, kill, the out-of-memory killer): half-written files go; the socket stays
+ExecStopPost=-/usr/bin/node /var/opt/cmocan-tidal/current/cleanup.js
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=10
+Nice=5
+IOSchedulingClass=idle
+# FLAC and AAC decoding is light (Music Assistant runs at 100%, nice 5); nice 5 keeps CarPlay and the HMI first.
+# The download's queue is bounded by the pipes (backpressure), so memory stays small: the service, the client and
+# the player share these limits.
+CPUQuota=100%
+MemoryLimit=160M
+TasksMax=32
+# No core dump goes to the crash handler (which restarts the head unit for a program it does not list),
+# so a crash restarts this service and never the head unit.
+LimitCORE=1
+StandardOutput=journal
+StandardError=journal

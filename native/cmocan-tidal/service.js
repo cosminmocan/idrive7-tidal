@@ -347,7 +347,13 @@ if (require.main === module) {
     const svc = createService();
     // systemd passes the socket as fd 3 (LISTEN_FDS); outside it, CMOCAN_SOCK
     const fd = process.env.LISTEN_FDS && Number(process.env.LISTEN_FDS) >= 1 ? 3 : null;
-    svc.listen(fd !== null ? fd : (process.env.CMOCAN_SOCK || SOCK)).then(() => svc.start());
+    const where = fd !== null ? fd : (process.env.CMOCAN_SOCK || SOCK);
+    svc.listen(where).then(() => {
+        // the app installed after the socket was made: its group now (sockgroup.js, as the socket unit does)
+        try { const g = require('./sockgroup').apply(process.env.CMOCAN_SOCK || SOCK); console.log('control socket: ' + (g === null ? 'root only' : 'group ' + g)); }
+        catch (e) { console.log('control socket mode: ' + e.message); }
+        svc.start();
+    });
     process.on('SIGTERM', () => svc.stop(0));
     process.on('SIGINT', () => svc.stop(0));
 }

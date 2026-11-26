@@ -1,0 +1,60 @@
+{
+  "id": "cmocan-tidal",
+  "kind": "tool",
+  "version": "0.1.0",
+  "license": "GPL-3.0-or-later",
+  "title": "TIDAL service",
+  "description": "For the app cmocan_tidal: TIDAL's music on the head unit. Logs in with TIDAL's device login (the phone approves the app's QR code over its own internet) and keeps the login (root's, 0600). The track is played by tidal-player into SmartXbar's CarLife input. Started by the app, never at boot; ends 10 minutes after the app's last request while nothing plays. Its internet goes through mgu-uplink, as uid 13150 only; the player runs as nobody.",
+  "requires": {
+    "mgu-deploy": "0.7.0",
+    "mgu-uplink": "0.7.0"
+  },
+  "uninstallable": true,
+  "mguHmi": [
+    "ID7"
+  ],
+  "internet": true,
+  "uids": [
+    13150
+  ],
+  "files": [
+    { "path": "service.js", "from": "service.js", "mode": "0644" },
+    { "path": "client.js", "from": "client.js", "mode": "0644" },
+    { "path": "player.js", "from": "player.js", "mode": "0644" },
+    { "path": "playback.js", "from": "playback.js", "mode": "0644" },
+    { "path": "state.js", "from": "state.js", "mode": "0644" },
+    { "path": "sockgroup.js", "from": "sockgroup.js", "mode": "0644" },
+    { "path": "cleanup.js", "from": "cleanup.js", "mode": "0644" },
+    { "path": "check.js", "from": "check.js", "mode": "0644" },
+    { "path": "lib/netx.js", "from": "lib/netx.js", "mode": "0644" },
+    { "path": "lib/tidal.js", "from": "lib/tidal.js", "mode": "0644" },
+    { "path": "cacert.pem", "from": "cacert.pem", "mode": "0644" },
+    { "path": "tidal-player", "from": "../tidal-player/build/tidal-player", "mode": "0755" },
+    { "path": "FFMPEG-LICENSE", "from": "../tidal-player/build/FFMPEG-LICENSE", "mode": "0644" },
+    { "path": "README.md", "from": "README.md", "mode": "0644" }
+  ],
+  "check": [
+    "check.js"
+  ],
+  "deactivate": [
+    "node",
+    "cleanup.js",
+    "--remove"
+  ],
+  "crashNames": [
+    "tidal-player"
+  ],
+  "units": [
+    { "name": "cmocan-tidal.socket", "from": "systemd/cmocan-tidal.socket" },
+    { "name": "cmocan-tidal.service", "from": "systemd/cmocan-tidal.service" }
+  ],
+  "enable": [
+    { "unit": "cmocan-tidal.socket", "target": "sockets.target" }
+  ],
+  "recmgr": [
+    "cmocan-tidal"
+  ],
+  "restart": [
+    "cmocan-tidal.socket"
+  ]
+}
