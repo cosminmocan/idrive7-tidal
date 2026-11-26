@@ -5,6 +5,20 @@
  * Started by the app's first connection to /run/cmocan-tidal.sock (systemd socket activation), never at boot.
  * The control socket is docs/PROTOCOL.md section 1: one JSON request a line, one JSON answer a line, by id.
  *
+ *   service.js (root)   the control socket, the state (state.js), the TIDAL module (lib/tidal.js) and the queue
+ *                       (playback.js); TIDAL's requests go through
+ *   client.js           a child as the tool's internet uid (13150): lib/netx.js, the only process with internet
+ *   tidal-player        one per track (player.js), started as root with MGU_RUN_AS=nobody, MGU_GROUPS=mgu_alsa,audio
+ *
+ * The app's watch: 90 s without a request while a track plays (or is paused) stops it (rule R8); 10 minutes without
+ * a request while nothing plays ends the service (exit 0). README.md has the rest.
+ *
+ *   const svc = createService({ stateDir, leasePath, uid, now, log, exit(code), createTidal, netx (no client child),
+ *       forkClient, clientPath, clientEnv, restarts: { max, windowMs, delayMs }, spawn, playerBin, playerArgs,
+ *       playerEnv (object, or (trackId) -> object), audio, retryWaits, outageMs, cacheMs, watchMs, idleMs, tickMs });
+ *   svc.listen(path | fd) -> Promise   svc.start()   svc.stop(code) -> Promise (children ended, then exit(code))
+ *   svc.tick()   (the watch, every tickMs)   svc.status()   svc.netx
+ *
  * Node 8.9.4 syntax. Every path, uid, clock and spawn is an option, so the tests run it unprivileged in a temp folder.
  */
 const fs = require('fs');
