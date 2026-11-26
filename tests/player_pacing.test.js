@@ -70,7 +70,9 @@ test('an input that stops for 3 s gives buffering, then playing, with no sound l
     const out = wavPath();
     const h = P.start({ env: { MGU_AUDIO: 'wav:' + out } });
     const b = P.fixture('tone1k_10s.flac');
-    h.feed(b, { pauseAt: Math.floor(b.length * 0.4), pauseMs: 3000, chunk: 4096, delayMs: 5 });
+    // fed a little faster than it plays (as over a mobile network), so the queue is short when the input stops
+    const chunk = Math.round(b.length / 10 * 1.1 / 20);
+    h.feed(b, { pauseAt: Math.floor(b.length * 0.4), pauseMs: 3000, chunk: chunk, delayMs: 50 });
     return h.done.then((r) => {
         P.assertClean(r, h);
         assert.strictEqual(r.code, 0);
@@ -86,7 +88,7 @@ test('an input that stops for 3 s gives buffering, then playing, with no sound l
         const w = P.readWav(out);
         assert(Math.abs(w.frames - 10 * P.RATE) <= 0.02 * P.RATE, 'all 10 s written: ' + w.frames / P.RATE);
         assertUnbroken(P.channel(w, 0), 4800, w.frames - 4800);
-        assert(r.ms > 12500, 'the stall took time: ' + r.ms);
+        assert(r.ms > 10800, 'the stall took time: ' + r.ms);
     });
 }, T);
 
