@@ -5,17 +5,30 @@
  *
  *   const tidal = createTidal({ netx, sessionFile, coverDir });   // tests: baseUrls: { auth, api, images }, now
  *   tidal.loggedIn() / loginStart() / loginPoll() / logout()
+ *   tidal._get(path, params)   // the raw API GET (diagnostics, tests)
  *
  * Every rejection is an Error with a control-socket code (lib/tidal/errors.js).
  */
 const C = require('./tidal/config');
 const createSessionStore = require('./tidal/session').createSessionStore;
 const createLogin = require('./tidal/login').createLogin;
+const createApi = require('./tidal/api').createApi;
+const fs = require('fs');
+const path = require('path');
+
+/** the cover cache's folder and what is in it (one level: the cache has no subfolders) */
+function removeDir(dir) {
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch (e) { return; }
+    names.forEach((n) => { try { fs.unlinkSync(path.join(dir, n)); } catch (e) { /* gone */ } });
+    try { fs.rmdirSync(dir); } catch (e) { /* gone */ }
+}
 
 function createTidal(o) {
     const opts = o || {};
     if (!opts.netx) throw new Error('createTidal: netx is required');
     const store = createSessionStore(opts.sessionFile || '/var/opt/cmocan-tidal/state/session.json');
+    const coverDir = opts.coverDir || '/var/opt/cmocan-tidal/state/covers';
     const ctx = {
         netx: opts.netx,
         baseUrls: Object.assign({}, C.BASE_URLS, opts.baseUrls || {}),
@@ -24,14 +37,32 @@ function createTidal(o) {
         session: store.load(),
     };
     ctx.loggedIn = () => !!ctx.session;
-    ctx.setSession = (s) => { ctx.session = store.save(s); };
+    ctx.setSession = (s) => {
+        try { ctx.session = store.save(s); } catch (e) {
+            // a disk that refuses the file must not lose the login: keep it in memory for this run
+            ctx.log('tidal: could not save the session: ' + e.message);
+            ctx.session = Object.assign({ version: 1, tokenType: 'Bearer' }, s);
+        }
+    };
+    ctx.dropSession = () => { ctx.session = null; store.remove(); };
 
     const login = createLogin(ctx);
+    const api = createApi(ctx);
+
+    function logout() {
+        login.cancel();
+        ctx.dropSession();
+        removeDir(coverDir);
+        return Promise.resolve();
+    }
 
     return {
         loggedIn: ctx.loggedIn,
         loginStart: () => login.start(),
         loginPoll: () => login.poll(),
+        logout: logout,
+        // the raw GET the library is built on (tools/live-check.js records fixtures with it)
+        _get: (p, params) => api.get(p, params),
     };
 }
 
