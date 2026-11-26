@@ -8,3 +8,5 @@ build/
 preview/
 node_modules/
 .DS_Store
+# the agents' git worktrees (Claude Code)
+.claude/worktrees/
