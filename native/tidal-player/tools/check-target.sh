@@ -25,8 +25,9 @@ docker run --rm --platform linux/amd64 -v "$here:/w:ro" -w /w "$IMAGE" sh -c '
     other=$(objdump -T "$bin" | grep -o "\(GLIBCXX\|CXXABI\|GCC\)_[0-9.]*" | sort -u | tr "\n" " ")
     if [ -z "$other" ]; then good "no libstdc++ or libgcc symbol versions"; else bad "needs $other"; fi
     needed=$(readelf -d "$bin" | sed -n "s/.*(NEEDED).*\[\(.*\)\]/\1/p")
+    # ld-linux-x86-64.so.2 is the loader itself (__tls_get_addr), always there
     for l in $needed; do
-        case "$l" in libc.so.6|libm.so.6|libdl.so.2|libpthread.so.0|librt.so.1) ;; *) bad "needs $l (the unit may not have it)";; esac
+        case "$l" in ld-linux-x86-64.so.2|libc.so.6|libm.so.6|libdl.so.2|libpthread.so.0|librt.so.1) ;; *) bad "needs $l (the unit may not have it)";; esac
     done
     good "shared libraries: $(echo $needed)"
     if grep -q "libasound.so.2" "$bin"; then good "libasound.so.2 is opened at run time"; else bad "no libasound.so.2 to dlopen"; fi
