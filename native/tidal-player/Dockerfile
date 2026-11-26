@@ -11,4 +11,6 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends build-e
 FROM build AS test
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends nodejs ffmpeg libasound2 libasound2-data \
         alsa-utils procps \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -s /lib/x86_64-linux-gnu/ld-2.27.so /lib/ld-linux-x86-64.so.2
+# (the player asks for the unit's loader path, /lib/ld-linux-x86-64.so.2; ubuntu has it in /lib64)
