@@ -3,8 +3,9 @@
  * tidal.js - the TIDAL client (docs/INTERNAL-API.md, tasks A2 to A6): a port of the parts of python tidalapi
  * 0.9.0 the car needs. Runs in client.js as the tool's internet uid. Node 8.9.4.
  *
- *   const tidal = createTidal({ netx, sessionFile, coverDir });   // tests: baseUrls: { auth, api, images }, now
+ *   const tidal = createTidal({ netx, sessionFile, coverDir });   // tests: baseUrls, now, pageSize
  *   tidal.loggedIn() / loginStart() / loginPoll() / logout()
+ *   tidal.favorites(kind, offset, limit) / playlists / playlist / album / mixes / mix / search -> { items, total }
  *   tidal._get(path, params)   // the raw API GET (diagnostics, tests)
  *
  * Every rejection is an Error with a control-socket code (lib/tidal/errors.js).
@@ -13,6 +14,7 @@ const C = require('./tidal/config');
 const createSessionStore = require('./tidal/session').createSessionStore;
 const createLogin = require('./tidal/login').createLogin;
 const createApi = require('./tidal/api').createApi;
+const createLibrary = require('./tidal/library').createLibrary;
 const fs = require('fs');
 const path = require('path');
 
@@ -48,6 +50,7 @@ function createTidal(o) {
 
     const login = createLogin(ctx);
     const api = createApi(ctx);
+    const library = createLibrary(ctx, api, { pageSize: opts.pageSize });
 
     function logout() {
         login.cancel();
@@ -61,6 +64,13 @@ function createTidal(o) {
         loginStart: () => login.start(),
         loginPoll: () => login.poll(),
         logout: logout,
+        favorites: library.favorites,
+        playlists: library.playlists,
+        playlist: library.playlist,
+        album: library.album,
+        mixes: library.mixes,
+        mix: library.mix,
+        search: library.search,
         // the raw GET the library is built on (tools/live-check.js records fixtures with it)
         _get: (p, params) => api.get(p, params),
     };
