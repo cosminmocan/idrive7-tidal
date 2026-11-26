@@ -38,7 +38,7 @@ function rootTest(name, fn) {
 /** /proc/<pid>/status of the running player: {uid: [...], gid: [...], groups: [...]} */
 function ids(pid) {
     const s = fs.readFileSync('/proc/' + pid + '/status', 'utf8');
-    const line = (k) => (s.match(new RegExp('^' + k + ':\\s*(.*)$', 'm')) || [null, ''])[1].trim().split(/\s+/).filter(Boolean).map(Number);
+    const line = (k) => (s.match(new RegExp('^' + k + ':[ \\t]*(.*)$', 'm')) || [null, ''])[1].trim().split(/\s+/).filter(Boolean).map(Number);
     return { uid: line('Uid'), gid: line('Gid'), groups: line('Groups') };
 }
 
