@@ -107,8 +107,8 @@ test('dnsFromResolvConf takes the IPv4 name servers, with a fallback', () => {
 test('the whole check against the fake TIDAL: login, ten favourites, both stream addresses, 256 KiB of each, fixtures', () =>
     F.createFakeTidal({ loginInterval: 1 }).then((fake) => {
         const dir = F.tmpDir('live-check');
-        fake.files['17927864.flac'] = Buffer.concat([Buffer.from('fLaC'), Buffer.alloc(300 * 1024, 7)]);
-        fake.files['17927864.m4a'] = Buffer.concat([box('ftyp', Buffer.from('M4A isom')), box('moov', box('trak')), bigBoxHead('mdat', 400 * 1024), Buffer.alloc(300 * 1024)]);
+        fake.files['77777703.flac'] = Buffer.concat([Buffer.from('fLaC'), Buffer.alloc(300 * 1024, 7)]);
+        fake.files['77777703.m4a'] = Buffer.concat([box('ftyp', Buffer.from('M4A isom')), box('moov', box('trak')), bigBoxHead('mdat', 400 * 1024), Buffer.alloc(300 * 1024)]);
         const out = [];
         const approveSoon = setTimeout(() => fake.approve(), 300);
         return L.main({
