@@ -175,6 +175,28 @@ test('the iDrive controller (FrontCCU events) and a tap move and act', async () 
     } finally { app.stop(); await svc.close(); }
 });
 
+test('without the GPU renderer (the HMI\'s own bar): Up, Down and Select move through lists; where the kit runs the screen they are hidden', async () => {
+    const sock = tmpSock();
+    const svc = await createFakeService({ socketPath: sock, state: { login: 'logged-in' } });
+    const hidden = [];
+    const ctx0 = fakeCtx();
+    ctx0.hideButton = (id) => hidden.push(id);
+    const app = createApp(ctx0, { socketPath: sock, pollMs: 150, parked: parkedKit.watch(ctx0, ctx0.log), setImage() {}, decodeJpeg: decodeJpeg });
+    try {
+        assert.deepStrictEqual(hidden.sort(), ['BTN_DOWN', 'BTN_OK', 'BTN_UP']);
+        const spec = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'apps', 'cmocan_tidal', 'app.json'), 'utf8'));
+        const ids = spec.screens[0].buttons.map((b) => b[0]);
+        ['BTN_UP', 'BTN_DOWN', 'BTN_OK', 'BTN_PLAY', 'BTN_PREV', 'BTN_NEXT', 'BTN_LIBRARY', 'BTN_SETTINGS'].forEach((b) => assert.ok(ids.indexOf(b) >= 0, b));
+        await waitFor(() => app.state().screen === 'LIBRARY', 3000, 'LIBRARY');
+        await ctx0.handlers.BTN_DOWN(); await ctx0.handlers.BTN_DOWN(); await ctx0.handlers.BTN_DOWN(); await ctx0.handlers.BTN_UP();
+        assert.strictEqual(app.state().library.sel, 2);
+        await ctx0.handlers.BTN_OK();
+        await waitFor(() => app.state().screen === 'LIST' && app.state().stack[0].source.cmd === 'playlists', 2000, 'playlists');
+        await ctx0.handlers.BTN_LIBRARY();
+        assert.strictEqual(app.state().screen, 'LIBRARY');
+    } finally { app.stop(); await svc.close(); }
+});
+
 test('the controller decoder: knob steps (16-bit counter wrapping), press and push on their edges, no controller', () => {
     const out = [];
     const c = createCcu((e) => out.push(e));
