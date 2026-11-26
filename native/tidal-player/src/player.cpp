@@ -10,8 +10,13 @@
  * fixed at 48 kHz, ALSA's plug is not relied on), an input that can seek back within what it holds (an MP4 whose
  * index comes after its audio), errors with codes and exit codes.
  *
- *   main thread    stdin -> libavformat -> libavcodec -> stereo float -> libswresample 48 kHz S16 -> the queue
- *   output thread  the queue -> the volume -> the sound device (ALSA, a WAV file, or nothing)
+ *   main thread     stdin -> libavformat -> libavcodec -> stereo float -> libswresample 48 kHz S16 -> the queue
+ *   output thread   the queue -> the volume -> the sound device (ALSA, a WAV file, or nothing), on the clock
+ *   control thread  fd 3, one command a line: pause | resume | volume <0..1> | quit (anything else is ignored);
+ *                   fd 3 closed (the service gone) is quit
+ *   tick thread     every 500 ms after open: MGU {"ev":"tick",...}
+ *   the clock       monotonic, from the first sound; stands while paused
+ * Told to end (quit, SIGTERM, fd 3 closed) it closes the sound device first and is gone within 2.5 s, exit 0.
  *
  * MGU_AUDIO   alsa:<device> (default alsa:plug:smartx:CarLifeMedia_CF_48_STEREO) | null | wav:<path> (tests)
  */
@@ -102,6 +107,39 @@ void sleep_s(double s) {
 }
 
 std::atomic<bool> g_quit(false);
+
+/* ---------- the clock (tvh-player's): seconds of sound played; stands before the start and while paused ---------- */
+class Clock {
+public:
+    double now() {
+        std::lock_guard<std::mutex> l(mu_);
+        return running_locked() ? base_ + (mono() - t0_) : base_;
+    }
+    bool started() { std::lock_guard<std::mutex> l(mu_); return started_; }
+    bool paused() { std::lock_guard<std::mutex> l(mu_); return paused_; }
+    void start() {
+        std::lock_guard<std::mutex> l(mu_);
+        if (started_) return;
+        started_ = true;
+        base_ = 0;
+        t0_ = mono();
+    }
+    void set_paused(bool p) { set(&paused_, p); }
+
+private:
+    bool running_locked() const { return started_ && !paused_; }
+    void set(bool *flag, bool v) {
+        std::lock_guard<std::mutex> l(mu_);
+        if (*flag == v) return;
+        if (running_locked()) base_ += mono() - t0_;   /* freeze where it is */
+        *flag = v;
+        if (running_locked()) t0_ = mono();
+    }
+    std::mutex mu_;
+    bool started_ = false, paused_ = false;
+    double base_ = 0, t0_ = 0;
+};
+Clock g_clock;
 
 /* the one error the player ends with: the first one set wins */
 std::mutex g_err_mu;
@@ -225,7 +263,7 @@ public:
     bool push(const int16_t *s, size_t n) {
         while (n > 0) {
             std::unique_lock<std::mutex> l(mu_);
-            cv_.wait(l, [&] { return len_ < cap_ || g_quit.load(); });
+            if (!cv_.wait_for(l, std::chrono::milliseconds(100), [&] { return len_ < cap_ || g_quit.load(); })) continue;
             if (g_quit) return false;
             const size_t k = std::min(n, cap_ - len_);
             for (size_t i = 0; i < k; i++) {
@@ -321,6 +359,9 @@ private:
 
 std::atomic<int> g_volume_milli(1000);
 std::atomic<bool> g_out_done(false);
+std::atomic<unsigned long long> g_written(0);   /* frames given to the device */
+std::atomic<unsigned long long> g_dropped(0);   /* frames lost (the device did not take them) */
+const double kLead = 0.02;                      /* written this far ahead of the clock */
 
 void output_thread() {
     Sink sink;
@@ -333,14 +374,28 @@ void output_thread() {
     }
     const size_t kChunk = 1024;
     std::vector<int16_t> buf(kChunk * 2);
+    unsigned long long written = 0;
     while (!g_quit) {
-        const size_t n = g_q.pop(buf.data(), kChunk, 0.1);
+        if (!g_clock.started()) {
+            if (g_q.frames() > 0 || g_q.drained()) g_clock.start();
+            else { sleep_s(0.005); continue; }
+        }
+        if (g_clock.paused()) { sleep_s(0.01); continue; }
+        /* on the clock: what is due, and a little more */
+        const double due = (g_clock.now() + kLead) * kRate;
+        if ((double) written >= due) { sleep_s(0.005); continue; }
+        const size_t want = (size_t) std::min<double>(kChunk, due - (double) written + 1);
+        const size_t n = g_q.pop(buf.data(), want, 0.01);
         if (!n) { if (g_q.drained()) break; continue; }
         const int v = g_volume_milli.load();
         if (v != 1000)
             for (size_t i = 0; i < n * 2; i++) buf[i] = (int16_t) ((int32_t) buf[i] * v / 1000);
         sink.write(buf.data(), n);
+        written += n;
+        g_written = written;
     }
+    /* the last of it is heard before the end */
+    while (!g_quit && g_clock.now() * kRate < (double) written) sleep_s(0.005);
     sink.close();   /* the device first: an input left open would stay busy for the next player */
     g_out_done = true;
 }
@@ -438,8 +493,11 @@ private:
     unsigned long long out_frames_ = 0;
 };
 
+void start_ticks();
+
 /* the input is not usable: why, as an error code */
 void fail_input(const std::string &what) {
+    if (g_quit) return;   /* told to end: whatever the input was, it is no error */
     if (g_in.total() == 0) fail("input", kExitInput, "empty input");
     else if (g_in.too_big()) fail("decode", kExitDecode, "the MP4 index (moov) is more than 64 MiB after its start");
     else if (g_in.looks_like_audio() && g_in.eof()) fail("input", kExitInput, "the input ended before any sound (" + what + ")");
@@ -484,6 +542,7 @@ void decode() {
         logf("%s (%s), %d Hz, %d channels, %.3f s", codec, fc->iformat->name, rate, chans, dur);
         event(fmt("{\"ev\":\"open\",\"codec\":\"%s\",\"rate\":%d,\"channels\":%d,\"duration\":%s}", codec, rate, chans,
                   dur >= 0 ? fmt("%.3f", dur).c_str() : "null"));
+        start_ticks();
         const AVCodec *dec = avcodec_find_decoder(cp->codec_id);
         ctx = dec ? avcodec_alloc_context3(dec) : nullptr;
         if (!ctx || avcodec_parameters_to_context(ctx, cp) < 0 || avcodec_open2(ctx, dec, nullptr) < 0) {
@@ -540,6 +599,83 @@ out:
     if (io) { av_freep(&io->buffer); avio_context_free(&io); }
 }
 
+/* ---------- control ---------- */
+/* one command; anything else is ignored */
+void command(const std::string &line) {
+    if (line == "pause") g_clock.set_paused(true);
+    else if (line == "resume") g_clock.set_paused(false);
+    else if (line == "quit") { g_quit = true; g_q.wake(); }
+    else if (!line.compare(0, 7, "volume ")) {
+        const char *a = line.c_str() + 7;
+        char *end = nullptr;
+        const double v = strtod(a, &end);
+        if (end == a || *end || v != v) { logf("control: %s: not a volume", line.c_str()); return; }
+        g_volume_milli = (int) lrint((v < 0 ? 0 : v > 1 ? 1 : v) * 1000);
+    } else { logf("control: ignored a line of %zu bytes", line.size()); return; }
+    logf("control: %s", line.c_str());
+}
+
+void control_thread() {
+    /* read(2), not stdio: a FILE locked in fgets would hold exit()'s flush of every stream (tvh-player) */
+    std::string buf;
+    bool skipping = false;   /* inside a line too long to be a command */
+    char chunk[512];
+    while (!g_quit) {
+        struct pollfd p = {3, POLLIN, 0};
+        const int pr = poll(&p, 1, 200);
+        if (pr < 0 && errno != EINTR) break;
+        if (pr <= 0) continue;
+        const ssize_t n = read(3, chunk, sizeof chunk);
+        if (n < 0 && (errno == EINTR || errno == EAGAIN)) continue;
+        if (n <= 0) { if (!g_quit) logf("control: fd 3 closed: quitting"); g_quit = true; g_q.wake(); return; }
+        buf.append(chunk, (size_t) n);
+        size_t i;
+        while ((i = buf.find('\n')) != std::string::npos) {
+            std::string line = buf.substr(0, i);
+            buf.erase(0, i + 1);
+            if (skipping) { skipping = false; continue; }
+            if (!line.empty() && line[line.size() - 1] == '\r') line.erase(line.size() - 1);
+            command(line);
+        }
+        if (buf.size() > 4096) { buf.clear(); skipping = true; }
+    }
+}
+
+/* ---------- ticks ---------- */
+std::atomic<bool> g_ticks_stop(false);
+const char *state() {
+    if (g_clock.started() && g_clock.paused()) return "paused";
+    if (!g_clock.started()) return "buffering";
+    return "playing";
+}
+void tick_thread() {
+    double next = mono() + 0.5;
+    while (!g_ticks_stop && !g_quit) {
+        const double d = next - mono();
+        if (d > 0) { sleep_s(std::min(d, 0.05)); continue; }
+        next += 0.5;
+        if (next < mono()) next = mono() + 0.5;   /* held up for a while (a slow machine): no burst */
+        const double pos = std::min(g_clock.now(), (double) g_written.load() / kRate);
+        event(fmt("{\"ev\":\"tick\",\"pos\":%.3f,\"state\":\"%s\",\"buffered\":%.2f,\"dropped\":%llu}",
+                  pos < 0 ? 0 : pos, state(), (double) g_q.frames() / kRate, g_dropped.load()));
+    }
+}
+std::thread g_ticker;
+void start_ticks() { if (!g_ticker.joinable()) g_ticker = std::thread(tick_thread); }
+void stop_ticks() { g_ticks_stop = true; if (g_ticker.joinable()) g_ticker.join(); }
+
+/* told to end: 2.5 s at most, then gone however far it got (tvh-player: a player not ended after 6 s in the car was
+ * killed by the service) */
+void watchdog() {
+    while (!g_quit) sleep_s(0.05);
+    for (int i = 0; i < 44; i++) { if (g_out_done) return; sleep_s(0.05); }
+    logf("still closing the sound device after 2.2 s: exiting now");
+    fflush(stderr);
+    _exit(kExitOk);
+}
+
+void on_term(int) { g_quit = true; }
+
 /* --version: what is inside, and whether this unit has libasound (opened at run time, never linked) */
 int print_version() {
     std::string dec;
@@ -564,16 +700,25 @@ int print_version() {
 int main(int argc, char **argv) {
     if (argc > 1 && !strcmp(argv[1], "--version")) return print_version();
     signal(SIGPIPE, SIG_IGN);
+    /* no SA_RESTART: a wait for input returns, and the player ends */
+    struct sigaction sa;
+    memset(&sa, 0, sizeof sa);
+    sa.sa_handler = on_term;
+    sigaction(SIGTERM, &sa, nullptr);
+    sigaction(SIGINT, &sa, nullptr);
     if (!parse_audio(getenv("MGU_AUDIO"), &g_target)) {
         logf("MGU_AUDIO not understood: %s (alsa:<device>, null or wav:<path>)", getenv("MGU_AUDIO"));
         event(fmt("{\"ev\":\"error\",\"code\":\"internal\",\"message\":\"MGU_AUDIO not understood: %s\"}", js(getenv("MGU_AUDIO")).c_str()));
         finish(kExitEnv);
     }
+    std::thread(watchdog).detach();
+    if (fcntl(3, F_GETFD) != -1) std::thread(control_thread).detach();   /* still in poll at the end: _exit ends it */
     std::thread out(output_thread);
     decode();
     g_q.end();
     if (failed()) { g_quit = true; g_q.wake(); }
     out.join();
+    stop_ticks();
     if (failed()) {
         std::string code, msg;
         int ex;
@@ -581,6 +726,7 @@ int main(int argc, char **argv) {
         event(fmt("{\"ev\":\"error\",\"code\":\"%s\",\"message\":\"%s\"}", code.c_str(), js(msg).c_str()));
         finish(ex);
     }
+    if (g_quit) { logf("quit"); finish(kExitOk); }   /* told to end: neither end nor error */
     event("{\"ev\":\"end\"}");
     finish(kExitOk);
 }
