@@ -30,10 +30,11 @@ docker run --rm --platform linux/amd64 -v "$here:/w:ro" -w /w "$IMAGE" sh -c '
     done
     good "shared libraries: $(echo $needed)"
     if grep -q "libasound.so.2" "$bin"; then good "libasound.so.2 is opened at run time"; else bad "no libasound.so.2 to dlopen"; fi
+    echo "check-target: size $(wc -c < "$bin") bytes"
     # the unit has the loader at /lib/ld-linux-x86-64.so.2 only
-    ln -sf /lib/x86_64-linux-gnu/ld-2.27.so /lib/ld-linux-x86-64.so.2 && rm -f /lib64/ld-linux-x86-64.so.2
+    ln -sf /lib/x86_64-linux-gnu/ld-2.27.so /lib/ld-linux-x86-64.so.2 && rm -f /lib64/ld-linux-x86-64.so.2   # from here on, only builtins and the player
     out=$("$bin" --version 2>&1) || true
     case "$out" in "tidal-player "[0-9]*) good "starts on glibc 2.27: $out";; *) bad "does not start on glibc 2.27: $out";; esac
-    echo "check-target: size $(wc -c < "$bin") bytes"
+    case "$out" in *"decoders: flac aac"*) good "FFmpeg inside, with the flac and aac decoders";; *) bad "the flac and aac decoders are not in it";; esac
     if [ $fail -eq 0 ]; then echo "check-target: passed"; else echo "check-target: FAILED"; exit 1; fi
 ' check-target "$bin"
