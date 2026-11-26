@@ -6,6 +6,7 @@
  *   const tidal = createTidal({ netx, sessionFile, coverDir });   // tests: baseUrls, now, pageSize
  *   tidal.loggedIn() / loginStart() / loginPoll() / logout()
  *   tidal.favorites(kind, offset, limit) / playlists / playlist / album / mixes / mix / search -> { items, total }
+ *   tidal.streamUrl(trackId, quality) -> { url, codec, quality }
  *   tidal._get(path, params)   // the raw API GET (diagnostics, tests)
  *
  * Every rejection is an Error with a control-socket code (lib/tidal/errors.js).
@@ -15,6 +16,7 @@ const createSessionStore = require('./tidal/session').createSessionStore;
 const createLogin = require('./tidal/login').createLogin;
 const createApi = require('./tidal/api').createApi;
 const createLibrary = require('./tidal/library').createLibrary;
+const createStream = require('./tidal/stream').createStream;
 const fs = require('fs');
 const path = require('path');
 
@@ -51,6 +53,7 @@ function createTidal(o) {
     const login = createLogin(ctx);
     const api = createApi(ctx);
     const library = createLibrary(ctx, api, { pageSize: opts.pageSize });
+    const stream = createStream(ctx, api);
 
     function logout() {
         login.cancel();
@@ -71,6 +74,7 @@ function createTidal(o) {
         mixes: library.mixes,
         mix: library.mix,
         search: library.search,
+        streamUrl: stream.streamUrl,
         // the raw GET the library is built on (tools/live-check.js records fixtures with it)
         _get: (p, params) => api.get(p, params),
     };
