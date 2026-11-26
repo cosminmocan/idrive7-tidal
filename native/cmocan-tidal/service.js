@@ -23,6 +23,9 @@ const SOCK = '/run/cmocan-tidal.sock';
 const CACHE_MS = 5 * 60000;      // a list is asked again after this
 const CACHE_LISTS = 200;
 const CACHE_TRACKS = 5000;
+const WATCH_MS = 90 * 1000;        // playing and no request from the app for this long: stopped (rule R8)
+const IDLE_MS = 10 * 60 * 1000;    // nothing playing and no request for this long: the service ends (exit 0)
+const TICK_MS = 5000;
 const NET_UID = 13150;    // component.json "uids": the only uid of this tool mgu-uplink routes
 
 const COMMANDS = ['status', 'login-start', 'login-cancel', 'logout', 'favorites', 'playlists', 'playlist', 'album',
@@ -254,6 +257,7 @@ function createService(opts) {
 
     /** one request line -> Promise<answer> */
     function handleLine(line) {
+        lastReq = now();   // any line from the app: it is alive
         let r;
         try { r = JSON.parse(line); } catch (e) { r = undefined; }
         const c = check(r);
@@ -307,11 +311,29 @@ function createService(opts) {
 
     /* ---------- start and end ---------- */
     let stopping = null;
-    function start() { log('cmocan-tidal ' + VERSION); if (link) link.start(); }
+    let lastReq = now();
+    let ticker = null;
+    const watchMs = o.watchMs || WATCH_MS, idleMs = o.idleMs || IDLE_MS;
+    /** the app's watch and the idle end; every tickMs */
+    function tick() {
+        if (stopping) return;
+        const quiet = now() - lastReq;
+        if (pb.active()) {
+            if (quiet > watchMs) { log('the app has not asked for ' + Math.round(quiet / 1000) + ' s: stopping playback'); pb.stop(); }
+            return;
+        }
+        if (!login && quiet > idleMs) { log('idle for ' + Math.round(quiet / 60000) + ' minutes: ending'); stop(0); }
+    }
+    function start() {
+        log('cmocan-tidal ' + VERSION);
+        if (link) link.start();
+        ticker = setInterval(tick, o.tickMs || TICK_MS);
+    }
     function stop(code) {
         if (stopping) return stopping;
         stopping = new Promise((resolve) => {
             endLogin(null);
+            clearInterval(ticker);
             conns.slice().forEach((c) => c.destroy());
             if (server) { try { server.close(); } catch (e) { /* closed */ } }
             resolve();
@@ -319,7 +341,7 @@ function createService(opts) {
         return stopping;
     }
 
-    return { listen: listen, start: start, stop: stop, status: status, handleLine: handleLine, netx: netx };
+    return { listen: listen, start: start, stop: stop, tick: tick, status: status, handleLine: handleLine, netx: netx };
 }
 
 if (require.main === module) {
