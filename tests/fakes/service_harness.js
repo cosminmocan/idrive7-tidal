@@ -14,6 +14,7 @@
  *   h.pids                             { client: [], player: [] }
  *   h.close() -> Promise               stops the service, checks no child is left, removes the folder
  *   startService({ files: { 'session.json': text } })   files in the state folder before the service starts
+ *   startService({ record: true })     each player records its input in <dir>/rec-<track id>.bin
  * Node 8.9.4 syntax.
  */
 const fs = require('fs');
@@ -92,6 +93,8 @@ function startService(opts) {
         playerEnv: { FAKE_TICK_MS: '20', FAKE_SECONDS: '1' },
         retryWaits: [20, 40, 80], outageMs: 3000,
     }, o.client ? {} : { netx: createNetx({ leasePath: leasePath }) }, o.service || {});
+    // record: each player writes the bytes it received to <dir>/rec-<track id>.bin (the fake player's FAKE_RECORD)
+    if (o.record) { const base = so.playerEnv; so.playerEnv = (id) => Object.assign({}, base, { FAKE_RECORD: path.join(dir, 'rec-' + id + '.bin') }); }
     const svc = createService(so);
     const h = {
         svc: svc, dir: dir, stateDir: stateDir, leasePath: leasePath, sock: sock, cfg: cfg, pids: pids, exits: exits, logs: logs,
