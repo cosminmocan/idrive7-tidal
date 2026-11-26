@@ -94,7 +94,7 @@ test('the tone through the decoder is unbroken when fed at once too (the check i
     const out = wavPath();
     return P.play(P.fixture('tone1k_10s.flac'), { env: { MGU_AUDIO: 'wav:' + out } }).then((r) => {
         P.assertClean(r);
-        const x = P.channel(P.readWav(out));
+        const x = P.channel(P.readWav(out), 0);
         assertUnbroken(x, 4800, x.length - 4800);
         // and a sample cut out is found
         const y = new Float64Array(x.length - 1);
