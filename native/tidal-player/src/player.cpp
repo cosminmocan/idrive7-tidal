@@ -15,10 +15,12 @@
  *   control thread  fd 3, one command a line: pause | resume | volume <0..1> | quit (anything else is ignored);
  *                   fd 3 closed (the service gone) is quit
  *   tick thread     every 500 ms after open: MGU {"ev":"tick",...}
- *   the clock       monotonic, from the first sound; stands while paused
+ *   the clock       monotonic; starts once MGU_PREBUFFER_MS of sound is queued; stands while paused and while
+ *                   buffering (the input ran dry: it goes on once that much is queued again, or the input ended)
  * Told to end (quit, SIGTERM, fd 3 closed) it closes the sound device first and is gone within 2.5 s, exit 0.
  *
- * MGU_AUDIO   alsa:<device> (default alsa:plug:smartx:CarLifeMedia_CF_48_STEREO) | null | wav:<path> (tests)
+ * MGU_AUDIO         alsa:<device> (default alsa:plug:smartx:CarLifeMedia_CF_48_STEREO) | null | wav:<path> (tests)
+ * MGU_PREBUFFER_MS  queued before playing starts, and again after the input ran dry (default 1500)
  */
 #include <dlfcn.h>
 #include <errno.h>
@@ -117,6 +119,7 @@ public:
     }
     bool started() { std::lock_guard<std::mutex> l(mu_); return started_; }
     bool paused() { std::lock_guard<std::mutex> l(mu_); return paused_; }
+    bool stalled() { std::lock_guard<std::mutex> l(mu_); return stalled_; }
     void start() {
         std::lock_guard<std::mutex> l(mu_);
         if (started_) return;
@@ -125,9 +128,10 @@ public:
         t0_ = mono();
     }
     void set_paused(bool p) { set(&paused_, p); }
+    void set_stalled(bool s) { set(&stalled_, s); }
 
 private:
-    bool running_locked() const { return started_ && !paused_; }
+    bool running_locked() const { return started_ && !paused_ && !stalled_; }
     void set(bool *flag, bool v) {
         std::lock_guard<std::mutex> l(mu_);
         if (*flag == v) return;
@@ -136,10 +140,11 @@ private:
         if (running_locked()) t0_ = mono();
     }
     std::mutex mu_;
-    bool started_ = false, paused_ = false;
+    bool started_ = false, paused_ = false, stalled_ = false;
     double base_ = 0, t0_ = 0;
 };
 Clock g_clock;
+double g_pre = 1.5;   /* MGU_PREBUFFER_MS */
 
 /* the one error the player ends with: the first one set wins */
 std::mutex g_err_mu;
@@ -155,15 +160,19 @@ void fail(const char *code, int exit_code, const std::string &msg) {
 }
 bool failed() { std::lock_guard<std::mutex> l(g_err_mu); return g_failed; }
 
-/* ---------- the input: stdin, seekable within what is held ----------
- * TIDAL's bytes come once, from the first, through a pipe. FLAC and an MP4 with its index (moov) first read
- * straight through; the bytes behind are let go (1 MiB is kept for short seeks back). An MP4 whose index comes after
- * its audio needs a seek forward to the index and back to the audio: the bytes in between are held (64 MiB at
- * most, some 25 minutes of AAC 320) until the demuxer comes back. */
+/* ---------- the input: stdin, seekable back within what is held ----------
+ * TIDAL's bytes come once, from the first, through a pipe; the demuxer sees a stream it cannot seek (so it never
+ * reads ahead for nothing), and a seek back within what is held is served all the same. Everything is held while the
+ * header is read. Then FLAC and an MP4 with its index (moov) first read straight through, and the bytes behind are let
+ * go (1 MiB is kept for short seeks back). An MP4 whose index came after its audio has been read whole to reach the
+ * index (64 MiB at most, some 25 minutes of AAC 320): it stays held until the demuxer seeks back to the audio. */
 class Input {
 public:
     int read(uint8_t *dst, int size) {
-        if (pos_ == end() && fill(std::max(size, 65536)) <= 0) return AVERROR_EOF;
+        if (pos_ == end()) {
+            if (hold_ && buf_.size() >= kHoldMax) { too_big_ = true; logf("input: more than %zu MiB held: giving up", kHoldMax >> 20); return AVERROR(ENOMEM); }
+            if (fill(std::max(size, 65536)) <= 0) return AVERROR_EOF;
+        }
         const size_t at = (size_t) (pos_ - base_);
         const int n = (int) std::min((size_t) size, buf_.size() - at);
         memcpy(dst, buf_.data() + at, (size_t) n);
@@ -187,10 +196,17 @@ public:
             pos_ = std::min(target, end());
             return pos_;
         }
-        if (target < pos_ && hold_) { hold_ = false; logf("input: back to %lld; %zu KiB held", (long long) target, buf_.size() >> 10); }
+        if (target < pos_ && hold_ && released_) { hold_ = false; logf("input: back to %lld; %zu KiB held", (long long) target, buf_.size() >> 10); }
         pos_ = target;
         return pos_;
     }
+    /* the header is read: let go of the bytes behind (now, or once the demuxer came back to the audio) */
+    void release(bool now) {
+        released_ = true;
+        if (now) { hold_ = false; trim(); }
+        else logf("input: the index came after the audio: %zu KiB held until it seeks back", buf_.size() >> 10);
+    }
+    int64_t pos() const { return pos_; }
     int64_t total() const { return total_; }
     bool eof() const { return eof_; }
     bool too_big() const { return too_big_; }
@@ -247,7 +263,7 @@ private:
     static const size_t kKeepBehind = 1u << 20, kHoldMax = 64u << 20;
     std::vector<uint8_t> buf_;   /* the bytes [base_, base_ + size) */
     int64_t base_ = 0, pos_ = 0, total_ = 0;
-    bool eof_ = false, hold_ = false, too_big_ = false;
+    bool eof_ = false, hold_ = true, released_ = false, too_big_ = false;
     uint8_t head_[16];
     size_t head_n_ = 0;
 };
@@ -376,9 +392,17 @@ void output_thread() {
     std::vector<int16_t> buf(kChunk * 2);
     unsigned long long written = 0;
     while (!g_quit) {
+        /* the prebuffer: at the start, and after the input ran dry */
+        const bool ready = g_q.frames() >= g_pre * kRate || g_q.eof();
         if (!g_clock.started()) {
-            if (g_q.frames() > 0 || g_q.drained()) g_clock.start();
-            else { sleep_s(0.005); continue; }
+            if (!ready) { sleep_s(0.005); continue; }
+            logf("playing: %.2f s queued", (double) g_q.frames() / kRate);
+            g_clock.start();
+        }
+        if (g_clock.stalled()) {
+            if (!ready) { sleep_s(0.005); continue; }
+            logf("buffered again: %.2f s queued", (double) g_q.frames() / kRate);
+            g_clock.set_stalled(false);
         }
         if (g_clock.paused()) { sleep_s(0.01); continue; }
         /* on the clock: what is due, and a little more */
@@ -386,7 +410,11 @@ void output_thread() {
         if ((double) written >= due) { sleep_s(0.005); continue; }
         const size_t want = (size_t) std::min<double>(kChunk, due - (double) written + 1);
         const size_t n = g_q.pop(buf.data(), want, 0.01);
-        if (!n) { if (g_q.drained()) break; continue; }
+        if (!n) {
+            if (g_q.drained()) break;
+            if (!g_q.eof() && !g_quit) { logf("the input ran dry at %.2f s: buffering", g_clock.now()); g_clock.set_stalled(true); }
+            continue;
+        }
         const int v = g_volume_milli.load();
         if (v != 1000)
             for (size_t i = 0; i < n * 2; i++) buf[i] = (int16_t) ((int32_t) buf[i] * v / 1000);
@@ -513,7 +541,7 @@ void decode() {
     const int iosz = 64 * 1024;
     AVIOContext *io = avio_alloc_context((unsigned char *) av_malloc(iosz), iosz, 0, nullptr, read_cb, nullptr, seek_cb);
     if (!fc || !io) { fail("internal", kExitDecode, "out of memory"); return; }
-    io->seekable = AVIO_SEEKABLE_NORMAL;   /* within what Input holds */
+    io->seekable = 0;   /* a pipe: a seek back within what Input holds is served all the same */
     fc->pb = io;
     fc->flags |= AVFMT_FLAG_CUSTOM_IO;
     fc->probesize = 1 << 20;
@@ -521,12 +549,24 @@ void decode() {
     AVCodecContext *ctx = nullptr;
     AVStream *st = nullptr;
     if (rc < 0) { fail_input(averr(rc)); goto out; }
-    if ((rc = avformat_find_stream_info(fc, nullptr)) < 0) logf("stream info: %s", averr(rc).c_str());
+    {
+        /* FLAC's STREAMINFO and MP4's index say the rate and channels: open is told at once, before any sound has
+         * to come (the stream analysis would wait for seconds of it). ADTS says them only in its frames. */
+        bool known = fc->nb_streams > 0;
+        for (unsigned i = 0; i < fc->nb_streams; i++)
+            if (fc->streams[i]->codecpar->sample_rate <= 0 || fc->streams[i]->codecpar->ch_layout.nb_channels <= 0) known = false;
+        if (!known && (rc = avformat_find_stream_info(fc, nullptr)) < 0) logf("stream info: %s", averr(rc).c_str());
+    }
     {
         const int si = av_find_best_stream(fc, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
         st = si >= 0 ? fc->streams[si] : nullptr;
     }
     if (!st) { fail_input("no sound in it"); goto out; }
+    {
+        /* the header is read; an MP4 whose first sound lies behind (its index came last) keeps what is held */
+        const AVIndexEntry *first = avformat_index_get_entry(st, 0);
+        g_in.release(!(first && first->pos < avio_tell(fc->pb)));
+    }
     if (st->codecpar->codec_id != AV_CODEC_ID_FLAC && st->codecpar->codec_id != AV_CODEC_ID_AAC) {
         fail("decode", kExitDecode, fmt("the sound is %s: only FLAC and AAC play here", avcodec_get_name(st->codecpar->codec_id)));
         goto out;
@@ -535,8 +575,9 @@ void decode() {
         const AVCodecParameters *cp = st->codecpar;
         const int rate = cp->sample_rate, chans = cp->ch_layout.nb_channels;
         if (rate < 8000 || rate > 384000 || chans < 1 || chans > 8) { fail_input(fmt("%d Hz, %d channels", rate, chans)); goto out; }
-        double dur = -1;
-        if (fc->duration != AV_NOPTS_VALUE && fc->duration > 0) dur = fc->duration / (double) AV_TIME_BASE;
+        double dur = -1;   /* ADTS says no length (FFmpeg's guess from the first bytes' bit rate is no use) */
+        if (!strcmp(fc->iformat->name, "aac")) {}
+        else if (fc->duration != AV_NOPTS_VALUE && fc->duration > 0) dur = fc->duration / (double) AV_TIME_BASE;
         else if (st->duration != AV_NOPTS_VALUE && st->duration > 0) dur = st->duration * av_q2d(st->time_base);
         const char *codec = cp->codec_id == AV_CODEC_ID_FLAC ? "flac" : "aac";
         logf("%s (%s), %d Hz, %d channels, %.3f s", codec, fc->iformat->name, rate, chans, dur);
@@ -645,7 +686,7 @@ void control_thread() {
 std::atomic<bool> g_ticks_stop(false);
 const char *state() {
     if (g_clock.started() && g_clock.paused()) return "paused";
-    if (!g_clock.started()) return "buffering";
+    if (!g_clock.started() || g_clock.stalled()) return "buffering";
     return "playing";
 }
 void tick_thread() {
@@ -710,6 +751,12 @@ int main(int argc, char **argv) {
         logf("MGU_AUDIO not understood: %s (alsa:<device>, null or wav:<path>)", getenv("MGU_AUDIO"));
         event(fmt("{\"ev\":\"error\",\"code\":\"internal\",\"message\":\"MGU_AUDIO not understood: %s\"}", js(getenv("MGU_AUDIO")).c_str()));
         finish(kExitEnv);
+    }
+    if (const char *pb = getenv("MGU_PREBUFFER_MS")) {
+        char *end = nullptr;
+        const long ms = strtol(pb, &end, 10);
+        if (*pb && !*end && ms >= 0 && ms <= 10000) g_pre = std::min(ms / 1000.0, kQueueS - 0.5);
+        else logf("MGU_PREBUFFER_MS %s not understood: %.0f ms", pb, g_pre * 1000);
     }
     std::thread(watchdog).detach();
     if (fcntl(3, F_GETFD) != -1) std::thread(control_thread).detach();   /* still in poll at the end: _exit ends it */
