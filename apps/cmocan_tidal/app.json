@@ -11,6 +11,9 @@
       "_instances": "1",
       "statusSearchSwitch1": "rs"
     },
+    "de.bmw.infotainment.vehicle.Vehicle2": {
+      "statusCarSpeed2": "rs"
+    },
     "org.genivi.am.commandinterface.CommandControl": {
       "_instances": "1",
       "_methods": ["connect", "disconnect", "getListMainConnections", "getListMainSinks"],

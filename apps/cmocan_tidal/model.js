@@ -23,6 +23,8 @@ const SCREENS = ['NO_SERVICE', 'OFFLINE', 'LOGIN', 'LIBRARY', 'LIST', 'NOW_PLAYI
 const LOGINS = ['logged-out', 'login-pending', 'logged-in'];
 const PLAYER_STATES = ['idle', 'loading', 'playing', 'paused', 'buffering', 'error'];
 const NO_SERVICE_TEXT = 'The TIDAL service is not installed or not running';
+const MOVING_TEXT = 'Search can be typed only while the car is parked';
+const MAX_QUERY = 200;
 
 /** what each error code does: the screen it leads to (null: the screen stays) and the message shown */
 const ERRORS = {
@@ -160,6 +162,9 @@ function onBack(s) {
             return assign(s, { screen: to, back: null });
         }
         case 'LIST': {
+            const f = top(s);
+            // the keyboard over results that are there: back closes the keyboard only
+            if (s.search.keyboard && f && f.kind === 'search' && f.source.params.query) return assign(s, { search: assign(s.search, { keyboard: false }) });
             const st = s.stack.slice(0, -1);
             return assign(s, { stack: st, screen: st.length ? 'LIST' : 'LIBRARY', search: assign(s.search, { keyboard: false }) });
         }
@@ -173,6 +178,23 @@ function newFrame(ev) {
         source: { cmd: ev.source.cmd, params: isObj(ev.source.params) ? ev.source.params : {} },
         items: [], total: null, loading: true, error: null, stale: false, sel: 0, top: 0,
     };
+}
+/** the search page: results of `query` (none before the first search) */
+function searchFrame(query) {
+    return {
+        key: 'search', title: query ? 'Search: ' + query : 'Search', kind: 'search',
+        source: { cmd: 'search', params: { query: query } },
+        items: [], total: null, loading: !!query, error: null, stale: false, sel: 0, top: 0,
+    };
+}
+function submitSearch(s) {
+    const q = s.search.query.trim();
+    if (!s.search.keyboard || s.moving || !q || q.length > MAX_QUERY) return s;
+    const f = top(s);
+    if (!f || f.kind !== 'search') return s;
+    const nf = searchFrame(q);
+    nf.key = 'search:' + q;
+    return withTop(assign(s, { search: assign(s.search, { keyboard: false }) }), nf);
 }
 function frameIndex(s, key) { for (let i = s.stack.length - 1; i >= 0; i--) if (s.stack[i].key === key) return i; return -1; }
 
@@ -222,6 +244,33 @@ function reduce(s, ev) {
         case 'dismiss':
             if (s.screen === 'ERROR') return onBack(s);
             return s.message == null ? s : assign(s, { message: null });
+        case 'driving': {
+            const moving = ev.moving === true;
+            if (moving === s.moving) return s;
+            if (moving && s.search.keyboard) return assign(s, { moving: true, search: assign(s.search, { keyboard: false }), message: MOVING_TEXT });
+            return assign(s, { moving: moving });
+        }
+        case 'open-search': {
+            if (s.service.login !== 'logged-in') return s;
+            if (s.moving) return assign(s, { message: MOVING_TEXT });
+            const f = top(s);
+            const stack = f && f.kind === 'search' ? s.stack : s.stack.concat([searchFrame('')]);
+            return assign(s, { screen: 'LIST', stack: stack, message: null, search: assign(s.search, { keyboard: true }) });
+        }
+        case 'open-keyboard': {
+            const f = top(s);
+            if (!f || f.kind !== 'search' || s.screen !== 'LIST') return s;
+            if (s.moving) return assign(s, { message: MOVING_TEXT });
+            return assign(s, { search: assign(s.search, { keyboard: true }), message: null });
+        }
+        case 'key': {
+            if (!s.search.keyboard || s.moving || typeof ev.key !== 'string') return s;
+            const q = s.search.query;
+            if (ev.key === 'SEARCH') return submitSearch(s);
+            const next = ev.key === 'DEL' ? q.slice(0, -1) : ev.key === 'CLEAR' ? '' : (q + ev.key).slice(0, MAX_QUERY);
+            return next === q ? s : assign(s, { search: assign(s.search, { query: next }) });
+        }
+        case 'search-submit': return submitSearch(s);
         case 'cursor': {
             if (!isNum(ev.sel) || !isNum(ev.top)) return s;
             if (s.screen === 'LIST' && s.stack.length) return withTop(s, assign(top(s), { sel: ev.sel, top: ev.top }));

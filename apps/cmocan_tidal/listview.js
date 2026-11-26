@@ -67,7 +67,8 @@ function rows(s) {
     if (s.screen === 'LIBRARY') return libraryRows(s).map((r) => ({ label: r.label, sub: r.sub || '', right: '', acts: [r.act], kind: 'menu' }));
     const f = frameOf(s);
     if (s.screen !== 'LIST' || !f) return [];
-    return f.items.map((it, i) => {
+    const head = f.kind === 'search' ? [{ label: 'New search', sub: f.source.params.query ? 'now: ' + f.source.params.query : '', right: '', kind: 'menu', acts: [{ type: 'open-keyboard' }] }] : [];
+    return head.concat(f.items.map((it, i) => {
         const o = it && typeof it === 'object' ? it : {};
         const base = { label: String(o.title || ''), sub: '', right: '', kind: f.kind, item: o, index: i };
         if (f.kind === 'tracks' || f.kind === 'search') {
@@ -78,14 +79,16 @@ function rows(s) {
         else if (f.kind === 'playlists') base.right = typeof o.numberOfTracks === 'number' ? o.numberOfTracks + ' tracks' : '';
         else if (f.kind === 'mixes') base.sub = typeof o.subTitle === 'string' ? o.subTitle : '';
         return base;
-    });
+    }));
 }
 
 /** what a press on row i of the screen shown does (model events and acts for main.js) */
 function rowActs(s, i) {
     if (s.screen === 'LIBRARY') { const r = libraryRows(s)[i]; return r ? [r.act] : []; }
     const f = frameOf(s);
-    return s.screen === 'LIST' && f ? itemActs(s, f, i) : [];
+    if (s.screen !== 'LIST' || !f) return [];
+    if (f.kind === 'search') return i === 0 ? [{ type: 'open-keyboard' }] : itemActs(s, f, i - 1);
+    return itemActs(s, f, i);
 }
 
 function cursor(s) {

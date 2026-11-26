@@ -107,7 +107,7 @@ function drawRows(c, rows, cur) {
         const row = rows[i], y = L.Y0 + (i - r.first) * L.ROW_H, mid = y + L.ROW_H / 2 + 8;
         if (i === cur.sel) cv.roundRect(40, y + 3, W - 100, L.ROW_H - 6, 10, ROW_SEL);
         const col = row.dim ? t.dim : t.text;
-        if (row.kind === 'tracks' || row.kind === 'search') txt(c, String(i + 1), L.COLS.num.x + L.COLS.num.w, mid, 20, t.dim, { align: 'right' });
+        if (row.kind === 'tracks' || row.kind === 'search') txt(c, String((row.index != null ? row.index : i) + 1), L.COLS.num.x + L.COLS.num.w, mid, 20, t.dim, { align: 'right' });
         txt(c, row.label, L.COLS.title.x, mid, 24, col, { font: row.kind === 'menu' ? 'bold' : 'label', w: L.COLS.title.w });
         if (row.sub) txt(c, row.sub, L.COLS.sub.x, mid, 20, t.dim, { w: L.COLS.sub.w });
         if (row.right) txt(c, row.right, L.COLS.right.x, mid, 20, t.dim, { align: 'right', w: L.COLS.right.w });
@@ -126,10 +126,36 @@ function drawLibrary(c) {
     drawRows(c, L.rows(c.s), L.cursor(c.s));
 }
 
+/** the search keyboard (only while parked: the model closes it when the car moves) */
+const KEY_ROWS = ['1234567890', 'QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'];
+function drawKeyboard(c) {
+    const t = c.t, q = c.s.search.query;
+    c.cv.roundRect(60, TOP + 14, W - 120, 56, 12, BTN);
+    txt(c, (q || '') + '_', 84, TOP + 52, 28, q ? t.text : t.dim, { font: 'bold', w: W - 200 });
+    const kw = 112, kh = 58, gap = 10, y0 = TOP + 84;
+    KEY_ROWS.forEach((row, ri) => {
+        const x0 = 60 + ri * (kw / 2), y = y0 + ri * (kh + gap);
+        row.split('').forEach((ch, i) => button(c, x0 + i * (kw + gap), y, kw, kh, ch, { type: 'key', key: ch }, 'key-' + ch, false));
+    });
+    const y = y0 + KEY_ROWS.length * (kh + gap);
+    let x = 60 + kw;
+    [['Space', 360, ' '], ['Delete', 200, 'DEL'], ['Clear', 180, 'CLEAR'], ['Search', 260, 'SEARCH']].forEach((k) => {
+        button(c, x, y, k[1], kh, k[0], { type: 'key', key: k[2] }, 'key-' + k[2], k[2] === 'SEARCH');
+        x += k[1] + gap;
+    });
+    c.info.defaultFocus = 10;           // Q
+}
+
 function drawList(c) {
     const s = c.s, f = s.stack[s.stack.length - 1], t = c.t;
+    if (f.kind === 'search' && s.search.keyboard) return drawKeyboard(c);
     const count = f.total != null && f.total > f.items.length ? f.items.length + ' of ' + f.total : '';
     title(c, f.title, [f.stale ? 'not up to date (offline)' : '', count].filter(Boolean).join('   '));
+    if (f.kind === 'search') {
+        drawRows(c, L.rows(s), L.cursor(s));
+        if (!f.items.length) txt(c, f.loading ? 'Searching...' : f.error ? 'The search failed (' + f.error + ').' : f.source.params.query ? 'No tracks found.' : '', W / 2, L.Y0 + L.ROW_H * 2 + 20, 24, t.dim, { align: 'center' });
+        return;
+    }
     if (!f.items.length) {
         if (f.loading) txt(c, 'Loading...', W / 2, 280, 26, t.dim, { align: 'center' });
         else if (f.error) txt(c, 'Could not load this list (' + f.error + ').', W / 2, 280, 26, t.dim, { align: 'center' });
