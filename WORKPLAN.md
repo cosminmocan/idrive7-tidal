@@ -17,15 +17,14 @@ has not seen the earlier discussion can pick up any task.
 | K0 | assumed passed, not tested | the owner chose to proceed as if the sound path works (2026-11-27); test it before K1 |
 | A1–A6 | done, reviewed | branch `stream-a-tidal-client` (06c4b15), pushed; 119 tests green on both Node versions |
 | A7 | done | run 2026-11-27 with the owner's account: `docs/live-check-results.md`. Session for further live runs: `reference/live-check/session.json` (local only, 0600, git-ignored) |
-| B1–B3 | done (not yet reviewed) | branch `stream-b-player`, pushed; B4 in progress, B5 tests started when work stopped on 2026-11-27 |
+| B1–B5 | done, reviewed | branch `stream-b-player` (aee35ff), pushed; `make player` (check-target) and `make test-player` green; binary 1.6 MB, glibc ≤ 2.27, libasound by dlopen |
 | C1–C8 | done, reviewed | branch `stream-c-service` (778a5f1), pushed; 89 tests green |
 | D0–D8 | done, reviewed | branch `stream-d-app` (5e5484a), pushed; 37 screen pictures wait for the owner's approval (D8), QR scan with a phone (D3) |
 | D9 | waiting for S4 | needs the car's `someip-interfaces.json` |
 
 ### Resume here (next session)
 
-1. **Stream B:** read its final report (or `git log stream-b-player`); finish B4 and B5 on that branch, test first;
-   review as the others (commit order, `make test`, `make test-player`), push.
+1. **All four streams are done and pushed.** Not yet merged.
 2. **Merge** into `main`, in order A, C, D, B (each with `make test` green after it):
    - add `.claude/worktrees/` to `.gitignore`;
    - C's `component.json`: list A's real files (`lib/tidal/*.js`) and B's real binary path; `tests/tool_package.test.js`
@@ -34,7 +33,10 @@ has not seen the earlier discussion can pick up any task.
      `status.login` details while pending (`url`, `userCode`, `expiresAt`) so the app can show the code again after a
      restart (D); `status.loginError`, `status.children`, `status.player.skipped` (C added them); `offset`/`limit` for
      `album`, `mix`, `mixes` (D); a separate field for the player's own error codes (D); `login-denied` or say that
-     a refused login is `login-expired` (C);
+     a refused login is `login-expired` (C); player (B): closing fd 3 makes the player quit (the service must keep
+     it open for the player's life), exits 2 and 3 send `error` with code `internal`, the device is retried for
+     30 s then `audio` error and exit 6, ticks say `buffering` before playing starts, sound the device does not take
+     within 250 ms is dropped and counted;
    - **`docs/INTERNAL-API.md`:** the TIDAL module runs in the root service; `client.js` (uid 13150) only does the
      network calls, over IPC with the bytes on fd 4 (C's design, agreed); add `loginCancel()`; say that
      `openStream` resolves with any HTTP status and follows up to 3 redirects (A); add a way to look up one track by
