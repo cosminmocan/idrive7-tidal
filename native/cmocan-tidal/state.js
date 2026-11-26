@@ -6,6 +6,7 @@
  *
  *   const st = createState(dir);
  *   st.read(name)          -> the object, or null when missing, not JSON, or not version 1 / not valid
+ *   st.load(name, fallback) -> read(name), or fallback; a file that is there but not valid is replaced by fallback
  *   st.write(name, obj)    written whole: a temporary file in the folder, then a rename (0600)
  *   st.remove(name)
  *   st.file(name)          the file's path, always inside dir
@@ -53,8 +54,15 @@ function createState(dir) {
         fs.chmodSync(tmp, 0o600);
         fs.renameSync(tmp, f);
     }
+    /** the file, or `fallback` when it is missing; one that is there but unreadable, or of another version, is replaced by it */
+    function load(name, fallback) {
+        const v = read(name);
+        if (v) return v;
+        if (fs.existsSync(file(name))) { try { write(name, fallback); } catch (e) { /* read-only: the next write replaces it */ } }
+        return fallback;
+    }
     function remove(name) { try { fs.unlinkSync(file(name)); } catch (e) { /* none */ } }
-    return { dir: dir, file: file, read: read, write: write, remove: remove };
+    return { dir: dir, file: file, read: read, load: load, write: write, remove: remove };
 }
 
 /** removes a folder and what is in it (Node 8: no recursive rmdir) */

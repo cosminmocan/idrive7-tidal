@@ -91,7 +91,7 @@ function createService(opts) {
 
     /* ---------- state ---------- */
     const st = createState(o.stateDir);
-    let prefs = st.read('prefs') || { quality: 'LOSSLESS' };
+    let prefs = st.load('prefs', { quality: 'LOSSLESS' });
 
     /* ---------- the client (internet uid): every request goes through it; tests may give a netx instead ---------- */
     const link = o.netx ? null : createClientLink({ fork: o.forkClient, file: o.clientPath || path.join(__dirname, 'client.js'),
@@ -159,8 +159,7 @@ function createService(opts) {
             bin: o.playerBin || path.join(__dirname, 'tidal-player'), args: o.playerArgs || [],
             env: typeof o.playerEnv === 'function' ? o.playerEnv(id) : o.playerEnv, audio: o.audio, log: log, onEvent: onEvent }),
     });
-    const savedQueue = st.read('queue');
-    if (savedQueue) pb.restore(savedQueue);
+    pb.restore(st.load('queue', { tracks: [], index: -1, position: 0 }));
 
     /* ---------- status ---------- */
     function player() { return pb.status(); }
