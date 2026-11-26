@@ -11,3 +11,26 @@ test-node-current:
 
 e2e:
 	@echo "make e2e: not written yet (task I1)"; exit 1
+
+# ---- the car app (stream D): the kit's build.py, preview.js and emu.js in Docker (Python 3 + Node 22) ----
+# The image is made once from node:22-slim with python3 added. Without oap-sdk/ (BMW's SDK, never in the repository)
+# the build is --preview-only: a staged app in dist/cmocan_tidal, no installable package.
+.PHONY: app app-preview emu
+KIT_IMAGE = cmocan-tidal-kit
+KIT_IMAGE_MAKE = printf 'FROM node:22-slim\nRUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*\n' | docker build -q -t $(KIT_IMAGE) - >/dev/null
+KIT_RUN = docker run --rm -e PYTHONDONTWRITEBYTECODE=1 -v "$(CURDIR):/w" -w /w $(KIT_IMAGE)
+APP_BUILD = if [ -f oap-sdk/index.js ]; then python3 kit/tools/build.py cmocan_tidal; else python3 kit/tools/build.py --preview-only cmocan_tidal; fi
+
+app:
+	@$(KIT_IMAGE_MAKE)
+	@$(KIT_RUN) sh -c '$(APP_BUILD)'
+
+# preview/cmocan_tidal/main_gfx-*.png: the app on the kit's stubbed head unit
+app-preview:
+	@$(KIT_IMAGE_MAKE)
+	@$(KIT_RUN) sh -c 'python3 kit/tools/build.py --preview-only cmocan_tidal && rm -rf preview/cmocan_tidal && node kit/tools/preview.js dist/cmocan_tidal preview/cmocan_tidal render'
+
+# the kit's live emulator: http://localhost:8077 (Ctrl-C ends it)
+emu:
+	@$(KIT_IMAGE_MAKE)
+	@docker run --rm -it -e PYTHONDONTWRITEBYTECODE=1 -p 127.0.0.1:8077:8078 -v "$(CURDIR):/w" -w /w $(KIT_IMAGE) node kit/tools/emu_forward.js 8078 8077 cmocan_tidal --port 8077

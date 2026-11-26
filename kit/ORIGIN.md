@@ -11,7 +11,8 @@ root `LICENSE`).
 | `platform/` | `permissions.json`, the template `build.py` puts in each package | MIT |
 | `emu/` | the emulator's web page and the draw engine as WebAssembly (`emu.js` serves it) | page MIT; `emu/wasm`, `emu/web/gfx` GPL-3.0-or-later (built from mgu-render) |
 
-Copied **unchanged**. Not copied (not needed by this app): `kit/renderd` (the GPU renderer's C source and
+Copied **unchanged**. One file is ours, not the kit's: `tools/emu_forward.js` (runs `emu.js` inside Docker:
+`emu.js` listens on 127.0.0.1 only, so it passes the container's published port on to it; `make emu`). Not copied (not needed by this app): `kit/renderd` (the GPU renderer's C source and
 prebuilt binary: it comes with the MGU Store on the car), `kit/localization` (non-English fonts and
 catalogues: this app is built in English only), `kit/icons` (the kit's own apps' icons).
 

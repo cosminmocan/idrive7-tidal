@@ -1,0 +1,14 @@
+{
+  "id": "cmocan_tidal",
+  "title": "TIDAL",
+  "description": "A personal TIDAL player: your favourites, playlists, mixes and search, played on the car's speakers. Sign in once from the phone (QR code). Needs the cmocan-tidal service.",
+  "version": "0.1.0",
+  "vendor": "custom",
+  "loggingId": "OAT1",
+  "iconGlyph": "TDL",
+  "screens": [
+    { "name": "MAIN", "kind": "canvas", "title": "TIDAL",
+      "buttons": [["BTN_PLAY", "Play / Pause"], ["BTN_SETTINGS", "Settings"]] }
+  ],
+  "settings": []
+}
