@@ -1,0 +1,10 @@
+# BMW's SDK: never commit (extract it from your own unit)
+oap-sdk/
+# the unit's service catalog and anything else copied off the car
+reference/
+# build output (packages contain the SDK)
+dist/
+build/
+preview/
+node_modules/
+.DS_Store
