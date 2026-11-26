@@ -25,10 +25,14 @@ app:
 	@$(KIT_IMAGE_MAKE)
 	@$(KIT_RUN) sh -c '$(APP_BUILD)'
 
-# preview/cmocan_tidal/main_gfx-*.png: the app on the kit's stubbed head unit
+# preview/cmocan_tidal/main_gfx-*.png: the built app on the kit's stubbed head unit, talking to the fake service
+# (tests/fakes/fake_service.js, logged in); preview/screens/screen-*.png: every screen in every state (tools/screens.js)
 app-preview:
 	@$(KIT_IMAGE_MAKE)
-	@$(KIT_RUN) sh -c 'python3 kit/tools/build.py --preview-only cmocan_tidal && rm -rf preview/cmocan_tidal && node kit/tools/preview.js dist/cmocan_tidal preview/cmocan_tidal render'
+	@$(KIT_RUN) sh -c 'python3 kit/tools/build.py --preview-only cmocan_tidal && rm -rf preview/cmocan_tidal preview/screens \
+		&& (node -e "require(\"./tests/fakes/fake_service\").createFakeService({ socketPath: \"/tmp/cmocan-preview.sock\", state: { login: \"logged-in\" } })" & sleep 1; \
+		    CMOCAN_TIDAL_SOCK=/tmp/cmocan-preview.sock node kit/tools/preview.js dist/cmocan_tidal preview/cmocan_tidal wait=2 render) \
+		&& node tools/screens.js preview/screens >/dev/null && echo "preview/screens: $$(ls preview/screens | wc -l) pictures"'
 
 # the kit's live emulator: http://localhost:8077 (Ctrl-C ends it)
 emu:

@@ -234,8 +234,9 @@ function drawToast(c, text) {
 
 /** the car's volume (the HMI shows no popup of its own on source 287): a bar and the number, or Mute */
 function drawVolume(c, v) {
-    const cv = c.cv, pw = 560, ph = 84, x = (W - pw) / 2, y = BOTTOM - ph - 70, cy = y + ph / 2;
-    cv.roundRect(x, y, pw, ph, 22, '#1e2026e6');
+    const cv = c.cv, pw = 520, ph = 80, x = W - pw - 40, y = TOP + 6, cy = y + ph / 2;
+    cv.roundRect(x - 2, y - 2, pw + 4, ph + 4, 24, '#ffffff30');
+    cv.roundRect(x, y, pw, ph, 22, '#1e2026fa');
     const level = typeof v.volume === 'number' && v.max ? Math.max(0, Math.min(1, v.volume / v.max)) : 0;
     const bx = x + 40, bw = pw - 200;
     cv.roundRect(bx, cy - 5, bw, 10, 5, BTN);
