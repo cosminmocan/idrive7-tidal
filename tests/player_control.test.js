@@ -99,7 +99,7 @@ test('volume 0.5 halves the peak of the output', () => {
 test('volume is held between 0 and 1, and volume 0 is silence', () => {
     const out = wavPath();
     const h = P.start({ env: { MGU_AUDIO: 'wav:' + out } });
-    h.feed(P.fixture('tone1k_5s_48k.flac'));
+    h.feed(P.fixture('tone1k_10s.flac'));
     let at;
     return h.waitEvent((e) => e.ev === 'tick' && e.state === 'playing' && e.pos >= 0.5, 10000)
         .then(() => { h.send('volume 7'); return P.delay(1000); })
@@ -109,7 +109,7 @@ test('volume is held between 0 and 1, and volume 0 is silence', () => {
             const w = P.readWav(out);
             const full = P.peak(P.channel(w, 0, 0.1 * P.RATE, 0.3 * P.RATE));
             assert(full > 0.3, 'loud at first: ' + full);
-            const silent = P.peak(P.channel(w, 0, (at + 1.5) * P.RATE, P.RATE));
+            const silent = P.peak(P.channel(w, 0, Math.round((at + 1) * P.RATE), P.RATE));
             assert.strictEqual(silent, 0, 'silent after volume -3 (held at 0)');
         });
 }, T);

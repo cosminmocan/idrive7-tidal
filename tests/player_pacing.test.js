@@ -53,10 +53,10 @@ test('a 10 s file fed at once still takes 10 s to play', () => {
 }, T);
 
 test('it starts after the prebuffer, MGU_PREBUFFER_MS of sound queued', () => {
-    const h = P.start({ env: { MGU_PREBUFFER_MS: '1000' } });
+    const h = P.start({ env: { MGU_PREBUFFER_MS: '3000' } });
     const b = P.fixture('tone1k_10s.flac');
-    // the first 0.5 s of sound, then nothing for 2 s: not enough to start
-    const half = Math.floor(b.length * 0.05) + 4096;
+    // the first 1.4 s of sound, then nothing for 2 s: not enough to start
+    const half = 30000;
     h.feed(b, { pauseAt: half, pauseMs: 2000 });
     return P.delay(1800).then(() => {
         const t = ticks(h);
