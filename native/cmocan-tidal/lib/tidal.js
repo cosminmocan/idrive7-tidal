@@ -1,0 +1,38 @@
+'use strict';
+/**
+ * tidal.js - the TIDAL client (docs/INTERNAL-API.md, tasks A2 to A6): a port of the parts of python tidalapi
+ * 0.9.0 the car needs. Runs in client.js as the tool's internet uid. Node 8.9.4.
+ *
+ *   const tidal = createTidal({ netx, sessionFile, coverDir });   // tests: baseUrls: { auth, api, images }, now
+ *   tidal.loggedIn() / loginStart() / loginPoll() / logout()
+ *
+ * Every rejection is an Error with a control-socket code (lib/tidal/errors.js).
+ */
+const C = require('./tidal/config');
+const createSessionStore = require('./tidal/session').createSessionStore;
+const createLogin = require('./tidal/login').createLogin;
+
+function createTidal(o) {
+    const opts = o || {};
+    if (!opts.netx) throw new Error('createTidal: netx is required');
+    const store = createSessionStore(opts.sessionFile || '/var/opt/cmocan-tidal/state/session.json');
+    const ctx = {
+        netx: opts.netx,
+        baseUrls: Object.assign({}, C.BASE_URLS, opts.baseUrls || {}),
+        now: opts.now || Date.now,
+        log: opts.log || function () {},
+        session: store.load(),
+    };
+    ctx.loggedIn = () => !!ctx.session;
+    ctx.setSession = (s) => { ctx.session = store.save(s); };
+
+    const login = createLogin(ctx);
+
+    return {
+        loggedIn: ctx.loggedIn,
+        loginStart: () => login.start(),
+        loginPoll: () => login.poll(),
+    };
+}
+
+module.exports = { createTidal: createTidal };

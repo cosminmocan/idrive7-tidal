@@ -243,8 +243,8 @@ function createFakeTidal(o) {
 
     function route(req, res, body) {
         const u = urlMod.parse(req.url);
-        const q = querystring.parse(u.query || '');
-        const form = /x-www-form-urlencoded/.test(req.headers['content-type'] || '') ? querystring.parse(body.toString()) : null;
+        const q = Object.assign({}, querystring.parse(u.query || ''));
+        const form = /x-www-form-urlencoded/.test(req.headers['content-type'] || '') ? Object.assign({}, querystring.parse(body.toString())) : null;
         const p = decodeURIComponent(u.pathname || '');
         const entry = { method: req.method, path: p, query: q, headers: req.headers, form: form, at: Date.now() };
         fake.log.push(entry);
