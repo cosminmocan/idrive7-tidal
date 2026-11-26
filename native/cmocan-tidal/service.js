@@ -10,7 +10,7 @@
 const fs = require('fs');
 const net = require('net');
 const path = require('path');
-const { createState } = require('./state');
+const { createState, rmrf } = require('./state');
 const { createClientLink } = require('./client');
 
 const VERSION = '0.1.0';
@@ -95,8 +95,42 @@ function createService(opts) {
     const tidal = createTidal({ netx: netx, sessionFile: path.join(o.stateDir, 'session.json'), coverDir: path.join(o.stateDir, 'covers') });
 
     /* ---------- login ---------- */
-    let login = null;   // a pending device login: { timer }
+    let login = null;        // a pending device login: { timer, until }
+    let loginError = null;   // why the last login ended without one (login-expired), for the app's screen
     function loginState() { return login ? 'login-pending' : (tidal.loggedIn() ? 'logged-in' : 'logged-out'); }
+    function endLogin(why) {
+        if (!login) return;
+        clearTimeout(login.timer);
+        login = null;
+        loginError = why || null;
+    }
+    /** polls TIDAL every `interval` seconds until the code is approved, refused or past its time */
+    function startLogin(v) {
+        const l = { timer: null, until: now() + Math.max(1, Number(v.expiresIn) || 300) * 1000, ms: Math.max(10, (Number(v.interval) || 5) * 1000) };
+        login = l;
+        loginError = null;
+        const poll = () => {
+            if (login !== l) return;
+            if (now() >= l.until) { log('login: the code expired'); return endLogin('login-expired'); }
+            Promise.resolve().then(() => tidal.loginPoll()).then((r) => {
+                if (login !== l) return;
+                const state = r && r.state;
+                if (state === 'authorized') { log('login: done'); endLogin(null); cache.clear(); return; }
+                if (state === 'expired') { log('login: the code expired'); return endLogin('login-expired'); }
+                if (state === 'denied') { log('login: refused'); return endLogin('login-expired'); }
+                l.timer = setTimeout(poll, l.ms);
+            }, (e) => {
+                // a network error while polling is "pending": try again at the next interval
+                if (login !== l) return;
+                log('login poll: ' + e.message);
+                l.timer = setTimeout(poll, l.ms);
+            });
+        };
+        l.timer = setTimeout(poll, l.ms);
+    }
+
+    /* ---------- the lists' cache ---------- */
+    const cache = new Map();
 
     /* ---------- status ---------- */
     function player() {
@@ -104,6 +138,8 @@ function createService(opts) {
     }
     function status() {
         return { login: loginState(), online: leaseOnline(o.leasePath), version: VERSION, prefs: { quality: prefs.quality }, player: player(),
+            // not in the contract: why the last login went back to logged-out (login-expired), else null
+            loginError: loginError,
             // not in the contract: how the service's children are (a child that died, and how often it was started again)
             children: { client: link ? link.state() : { running: false, inProcess: true } } };
     }
@@ -131,10 +167,23 @@ function createService(opts) {
         status: () => ({ state: status() }),
         'login-start': () => {
             if (login) throw codeError('busy', 'a login is already running');
-            return tidal.loginStart().then((v) => ({ url: v.url, userCode: v.userCode, expiresIn: v.expiresIn }));
+            return tidal.loginStart().then((v) => {
+                if (login) throw codeError('busy', 'a login is already running');
+                startLogin(v);
+                return { url: v.url, userCode: v.userCode, expiresIn: v.expiresIn };
+            });
         },
-        'login-cancel': () => ({}),
-        logout: () => Promise.resolve(tidal.logout()).then(() => ({})),
+        'login-cancel': () => { endLogin(null); return {}; },
+        logout: () => {
+            endLogin(null);
+            return Promise.resolve().then(() => tidal.logout()).catch((e) => log('logout: ' + e.message)).then(() => {
+                // the TIDAL module removes them; so does the service, whatever it left
+                st.remove('session');
+                rmrf(path.join(o.stateDir, 'covers'));
+                cache.clear();
+                return {};
+            });
+        },
         cover: (r) => { needLogin(); return tidal.cover(r.coverId).then((b) => ({ mime: 'image/jpeg', data: b.toString('base64') })); },
         play: () => { needLogin(); return {}; },
         pause: () => ({}), resume: () => ({}), next: () => ({}), prev: () => ({}), stop: () => ({}),
@@ -208,7 +257,7 @@ function createService(opts) {
     function stop(code) {
         if (stopping) return stopping;
         stopping = new Promise((resolve) => {
-            if (login) { clearTimeout(login.timer); login = null; }
+            endLogin(null);
             conns.slice().forEach((c) => c.destroy());
             if (server) { try { server.close(); } catch (e) { /* closed */ } }
             resolve();
