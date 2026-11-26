@@ -56,8 +56,7 @@ test('the client is never started as root', async () => {
         const s = await h.status();
         assert.strictEqual(s.children.client.running, false);
         assert.ok(/root/.test(s.children.client.error), JSON.stringify(s.children));
-        const a = await h.req({ cmd: 'login-start' });
-        assert.strictEqual(a.ok, false); assert.strictEqual(a.error, 'offline');
+        await h.svc.netx.request({ url: 'http://127.0.0.1:9/' }).then(() => assert.fail('no client'), (e) => assert.strictEqual(e.code, 'offline'));
     } finally { await h.close(); }
 });
 
@@ -121,15 +120,13 @@ test('a client that keeps dying is started again at most N times in M minutes', 
 });
 
 test('the service ends the client before it exits', async () => {
-    const h = await startService({ client: true });
-    let at = null;
-    h.svc.onExit = () => { at = h.pids.client.map(alive); };
+    let atExit = null;
+    const h = await startService({ client: true, service: { exit: (code) => { atExit = { code: code, alive: h.pids.client.map(alive) }; } } });
     try {
         await until(() => h.status().then((s) => s.children.client.running), 5000, 'the client');
         await h.req({ cmd: 'exit' });
-        await until(() => h.exits.length === 1, 5000, 'exit');
-        assert.deepStrictEqual(h.exits, [0]);
-        assert.deepStrictEqual(h.pids.client.map(alive), [false], 'the client is gone when exit is called');
+        await until(() => atExit, 5000, 'exit');
+        assert.deepStrictEqual(atExit, { code: 0, alive: [false] }, 'the client is gone when exit is called');
     } finally { await h.close(); }
 });
 

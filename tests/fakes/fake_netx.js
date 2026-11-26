@@ -65,7 +65,8 @@ function createNetx(opts) {
             let got = 0, done = false;
             function fail(why) { if (done) return; done = true; res.destroy(); out.emit('error', err('offline', why)); }
             let idle = setTimeout(() => fail('idle'), x.timeoutMs);
-            res.on('data', (d) => { got += d.length; clearTimeout(idle); idle = setTimeout(() => fail('idle'), x.timeoutMs); out.write(d); });
+            res.on('data', (d) => { got += d.length; clearTimeout(idle); idle = setTimeout(() => fail('idle'), x.timeoutMs);
+                if (!out.write(d)) { clearTimeout(idle); res.pause(); out.once('drain', () => { idle = setTimeout(() => fail('idle'), x.timeoutMs); res.resume(); }); } });
             res.on('aborted', () => { clearTimeout(idle); fail('connection broken'); });
             res.on('error', () => { clearTimeout(idle); fail('connection broken'); });
             res.on('end', () => {

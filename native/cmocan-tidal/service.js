@@ -11,12 +11,14 @@ const fs = require('fs');
 const net = require('net');
 const path = require('path');
 const { createState } = require('./state');
+const { createClientLink } = require('./client');
 
 const VERSION = '0.1.0';
 const MAX_LINE = 64 * 1024;
 const LEASE = '/run/mgu-uplink/lease.json';
 const STATE_DIR = '/var/opt/cmocan-tidal/state';
 const SOCK = '/run/cmocan-tidal.sock';
+const NET_UID = 13150;    // component.json "uids": the only uid of this tool mgu-uplink routes
 
 const COMMANDS = ['status', 'login-start', 'login-cancel', 'logout', 'favorites', 'playlists', 'playlist', 'album',
     'mixes', 'mix', 'search', 'cover', 'play', 'pause', 'resume', 'next', 'prev', 'stop', 'prefs', 'exit'];
@@ -73,6 +75,8 @@ function createService(opts) {
         log: (l) => console.log(l),
         exit: (code) => process.exit(code),
         createTidal: null,
+        uid: NET_UID,
+        clientEnv: {},
     }, opts || {});
     const now = o.now;
     const log = o.log;
@@ -81,8 +85,12 @@ function createService(opts) {
     const st = createState(o.stateDir);
     let prefs = st.read('prefs') || { quality: 'LOSSLESS' };
 
+    /* ---------- the client (internet uid): every request goes through it; tests may give a netx instead ---------- */
+    const link = o.netx ? null : createClientLink({ fork: o.forkClient, file: o.clientPath || path.join(__dirname, 'client.js'),
+        env: o.clientEnv, uid: o.uid, leasePath: o.leasePath, log: log, restarts: o.restarts, now: now });
+    const netx = o.netx || link.netx;
+
     /* ---------- TIDAL ---------- */
-    const netx = o.netx;
     const createTidal = o.createTidal || require('./lib/tidal').createTidal;
     const tidal = createTidal({ netx: netx, sessionFile: path.join(o.stateDir, 'session.json'), coverDir: path.join(o.stateDir, 'covers') });
 
@@ -95,7 +103,9 @@ function createService(opts) {
         return { state: 'idle', track: null, position: 0, duration: null, queueIndex: -1, queueLength: 0, quality: null, error: null };
     }
     function status() {
-        return { login: loginState(), online: leaseOnline(o.leasePath), version: VERSION, prefs: { quality: prefs.quality }, player: player() };
+        return { login: loginState(), online: leaseOnline(o.leasePath), version: VERSION, prefs: { quality: prefs.quality }, player: player(),
+            // not in the contract: how the service's children are (a child that died, and how often it was started again)
+            children: { client: link ? link.state() : { running: false, inProcess: true } } };
     }
 
     /* ---------- the commands ---------- */
@@ -194,7 +204,7 @@ function createService(opts) {
 
     /* ---------- start and end ---------- */
     let stopping = null;
-    function start() { log('cmocan-tidal ' + VERSION); }
+    function start() { log('cmocan-tidal ' + VERSION); if (link) link.start(); }
     function stop(code) {
         if (stopping) return stopping;
         stopping = new Promise((resolve) => {
@@ -202,11 +212,11 @@ function createService(opts) {
             conns.slice().forEach((c) => c.destroy());
             if (server) { try { server.close(); } catch (e) { /* closed */ } }
             resolve();
-        }).then(() => { o.exit(code || 0); });
+        }).then(() => (link ? link.stop() : null)).then(() => { o.exit(code || 0); });
         return stopping;
     }
 
-    return { listen: listen, start: start, stop: stop, status: status, handleLine: handleLine };
+    return { listen: listen, start: start, stop: stop, status: status, handleLine: handleLine, netx: netx };
 }
 
 if (require.main === module) {
@@ -218,4 +228,4 @@ if (require.main === module) {
     process.on('SIGINT', () => svc.stop(0));
 }
 
-module.exports = { createService: createService, VERSION: VERSION, check: check, leaseOnline: leaseOnline };
+module.exports = { createService: createService, VERSION: VERSION, NET_UID: NET_UID, check: check, leaseOnline: leaseOnline };
