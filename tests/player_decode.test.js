@@ -63,7 +63,8 @@ test('a 10 s 1 kHz FLAC (16-bit 44.1 kHz) gives 10 s of 48 kHz stereo at 1 kHz',
     assertFormat(x.wav); assertSeconds(x.wav, 10);
     assert.deepStrictEqual(freqs(x.wav, 1), [1000, 1000]);
     assert.deepStrictEqual(freqs(x.wav, 9.5), [1000, 1000]);
-    assert(P.peak(P.channel(x.wav, 0, 48000, 48000)) > 0.4, 'the tone is at -6 dBFS');
+    const pk = P.peak(P.channel(x.wav, 0, 48000, 48000));
+    assert(pk > 0.33 && pk < 0.38, 'the level is kept (the fixture peaks at -9 dBFS): ' + pk);
 }), T);
 
 test('a 10 s 1 kHz AAC in MP4 (index first) gives 10 s of 48 kHz stereo at 1 kHz', () => decode('tone1k_10s.m4a').then((x) => {
@@ -85,7 +86,9 @@ test('an MP4 with its index (moov) after the audio still plays: it is held in me
 test('AAC in fragmented MP4 plays', () => decode('tone1k_5s_frag.m4a').then((x) => {
     assertEnded(x);
     assert.strictEqual(x.open.codec, 'aac');
-    assertFormat(x.wav); assertSeconds(x.wav, 5);
+    assertFormat(x.wav);
+    // ffmpeg 3.4 writes no edit list into a fragmented MP4: the encoder's priming and padding (about 40 ms) stay
+    assert(Math.abs(x.wav.frames / P.RATE - 5) < 0.05, 'length ' + x.wav.frames / P.RATE);
     assert.deepStrictEqual(freqs(x.wav, 2.5), [1000, 1000]);
 }), T);
 
@@ -104,7 +107,7 @@ test('a mono file plays on both channels', () => decode('tone440_mono_5s.flac').
     assert.deepStrictEqual(freqs(x.wav, 2), [440, 440]);
     const l = P.channel(x.wav, 0, 48000, 48000), r = P.channel(x.wav, 1, 48000, 48000);
     for (let i = 0; i < l.length; i++) assert.strictEqual(l[i], r[i], 'left equals right at ' + i);
-    assert(P.peak(l) > 0.4, 'not quieter than the input (-6 dBFS): ' + P.peak(l));
+    assert(P.peak(l) > 0.47, 'as loud as the input (-6 dBFS), not 3 dB less: ' + P.peak(l));
 }), T);
 
 test('left stays left and right stays right', () => decode('lr_5s.flac').then((x) => {
