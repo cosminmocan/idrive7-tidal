@@ -161,6 +161,12 @@ function createApp(ctx, kit) {
     ctx.ui.onClick('BTN_PREV', () => act({ type: 'control', cmd: 'prev' }));
     ctx.ui.onClick('BTN_NEXT', () => act({ type: 'control', cmd: 'next' }));
     ctx.ui.onClick('BTN_LIBRARY', () => act({ type: 'open-library' }));
+    // the HMI's own bar (no GPU renderer: the knob goes along the bar's buttons, the picture takes no touch): Up,
+    // Down and Select stand in for the knob on the page; where the kit runs the screen they are left out
+    ctx.ui.onClick('BTN_UP', () => input({ knob: -1 }));
+    ctx.ui.onClick('BTN_DOWN', () => input({ knob: 1 }));
+    ctx.ui.onClick('BTN_OK', () => input({ press: true }));
+    if (ctx.hideButton) ['BTN_UP', 'BTN_DOWN', 'BTN_OK'].forEach((id) => ctx.hideButton(id));
 
     /* ---------- the car: speakers, volume, wheel, controller, touch ---------- */
     // one proxy per interface for the speakers and the volume (both use the audio manager)
