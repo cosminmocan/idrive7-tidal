@@ -33,7 +33,7 @@ const { createPlayback } = require('./playback');
 const { createPlayerProcess } = require('./player');
 const { createLog } = require('./log');
 
-const VERSION = '0.1.1';
+const VERSION = '0.1.2';
 const MAX_LINE = 64 * 1024;
 const LEASE = '/run/mgu-uplink/lease.json';
 const STATE_DIR = '/var/opt/cmocan-tidal/state';
