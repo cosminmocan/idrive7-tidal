@@ -474,6 +474,42 @@ test('openStream: a reader that pauses longer than timeoutMs is not an idle conn
     })).then((buf) => { assert.ok(buf.equals(FILE)); env.done(); return closeServer(server); });
 });
 
+// Found by the end-to-end test (I1): on Node 8 the http client emits 'aborted' when the server closes a connection
+// whose answer has all arrived but is not read yet (the reader paused: the player was full). That is not a break.
+test('openStream: an answer that has all arrived while the reader pauses is not a break', () => {
+    const server = http.createServer((req, res) => {
+        res.writeHead(200, { 'Content-Length': FILE.length, 'Content-Type': 'audio/flac' });
+        res.end(FILE);
+    });
+    server.conns = [];
+    server.on('connection', (c) => server.conns.push(c));
+    const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, 'lease.json'), '{"ip":"10.0.0.2","dns":["192.0.2.53"]}');
+    const netx = createNetx({ leasePath: path.join(dir, 'lease.json'), ca: CA });
+    const broken = [];
+    let port;
+    // the reader pauses for a moment at one point of the file; every point, one stream each
+    function once(at) {
+        return netx.openStream({ url: 'http://127.0.0.1:' + port + '/f.flac', timeoutMs: 5000 }).then((r) => new Promise((resolve) => {
+            const chunks = [];
+            let got = 0, paused = false;
+            r.stream.on('data', (d) => {
+                chunks.push(d); got += d.length;
+                if (!paused && got >= at) { paused = true; r.stream.pause(); setTimeout(() => r.stream.resume(), 150); }
+            });
+            r.stream.on('end', () => { if (!Buffer.concat(chunks).equals(FILE)) broken.push(at + ': wrong bytes'); resolve(); });
+            r.stream.on('error', (e) => { broken.push(at + ': ' + e.message); resolve(); });
+        }));
+    }
+    let chain = listen(server).then((p) => { port = p; });
+    for (let at = 1000; at < FILE.length; at += 6000) { const a = at; chain = chain.then(() => once(a)); }
+    return chain.then(() => {
+        netx.close();
+        assert.deepStrictEqual(broken, [], 'streams reported broken');
+        return closeServer(server);
+    });
+}, { timeout: 60000 });
+
 test('openStream: destroying the stream ends the download', () => {
     const server = fileServer('stall');
     let env;
