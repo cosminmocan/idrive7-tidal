@@ -31,6 +31,15 @@ iDrive 7 head unit. The app talks to it on `/run/cmocan-tidal.sock`; the contrac
   `Range: bytes=<n>-`, after 1, 2, 4, 8, then every 10 s, for 2 minutes from the break; then the track ends in
   `error` / `offline`. A server that answers 200 to a Range is skipped forward. A 401/403/410 asks TIDAL for a new
   stream address once.
+- **Seek** (`seek {position}`, contract 3): the track's player is ended and a new one started for the same track
+  with `MGU_START_MS=<position in ms>`; the download starts again at the file's first byte (with the stream address
+  the track already has; one that expired meanwhile is asked for again, and a break continues with Range as ever)
+  and the player throws away the sound before the position. `status.player.position` is the position at once and
+  the state is `loading` until the new player plays; a paused track stays `paused` at the new position. A position
+  at the track's end or past it starts the next track (after the last one playback ends); when the service does not
+  know the length yet, the player says `end` at once and the same happens. With nothing playing (idle, stopped,
+  `error`) seek is `bad-request`. Several seeks in a row end with one player: each new one starts only once the one
+  before has ended. The cost is the download of the part skipped (3 minutes of AAC 320 are 7 MB).
 - **The children**: the client is started again when it dies, at most 5 times in 10 minutes (then
   `status.children.client.gaveUp`); a new player starts only once the one before has ended (it holds the sound
   device). When the service ends, the player and the client are ended first (quit, SIGTERM, SIGKILL).
@@ -56,6 +65,33 @@ iDrive 7 head unit. The app talks to it on `/run/cmocan-tidal.sock`; the contrac
 - `album`, `mixes` and `mix` are paged like the other lists (`offset`, `limit`, `total`). TIDAL sends the mixes and a
   mix's tracks whole in one page; `lib/tidal` pages them itself, and `total` is what it can give.
 
+## The log (contract 3, `log`)
+
+`log.js`: every line the service logs goes to the journal and into a ring of the newest 200, each with its time of
+day (`hh:mm:ss`, the unit's local time), at most 300 characters. `log {lines}` returns the newest `lines` (all 200
+without it), oldest first: the app shows them in its QR log, so a problem in the car can be read without a computer.
+
+No line holds a token, in the ring or in the journal. Before a line is kept: the session's access and refresh token
+are cut out wherever they stand (`session.json` is read again when it changes; lines kept before are cleaned again
+when they are returned); of an address only the scheme, host and path stay (no user, no query, no fragment: TIDAL's
+stream addresses carry a token in the query); the value after a name that holds a secret (`authorization`, `*token`,
+`client_secret`, `password`, ...), a `Bearer` or `Basic` value and anything that looks like a JWT become `***`.
+
+| Line | When |
+|---|---|
+| `cmocan-tidal <version>`, `login: logged in` or `logged out`, `internet: online` or `offline` | at the start; `internet:` again whenever the uplink's lease comes or goes |
+| `login: started (...)`, `login: done`, `login: the code expired`, `login: refused`, `login: cancelled`, `logout` | the login's changes (the code itself is never logged) |
+| `play: track 17927864 (2 of 14)`, also `next:`, `prev:`, `resume:`, `queue:` | a track is started, and why (`queue`: the one before ended or was skipped) |
+| `seek: track 17927864 to 92.5 s` | a seek |
+| `playing track 17927864 (HIGH, aac)`, with ` from 92.5 s` after a seek | the player's sound starts |
+| `pause: track ...`, `resume: track ...`, `stop: track ...`, `queue: the last track is over` | |
+| `track 17927870: not available, skipped` | a track passed over |
+| `track 17927864: offline (the download broke 121 s ago: ...)` | a track ended with an error: its code (`docs/PROTOCOL.md`), and why |
+| `track ...: download broke at byte ... (...); again in ... ms`, `track ...: downloaded, ... bytes` | the download |
+| `player 1234: {"ev":"open",...}`, `player: tidal-player: ...` | the player's events (not its ticks) and its own log |
+| `player 1234: exited, code 0` | each player's end: its exit code (`docs/PROTOCOL.md` section 2) or the signal |
+| `the app has not asked for 91 s: stopping playback`, `idle for 10 minutes: ending` | the watch |
+
 ## Removal leaves nothing
 
 | What | Gone by |
@@ -72,8 +108,8 @@ internet.
 
 In Docker, `make test` (Node 8.9.4 x86-64 and Node 22): `tests/service_socket.test.js` (C1),
 `service_children.test.js` (C2), `service_login.test.js` (C3), `service_library.test.js` (C4),
-`service_playback.test.js` (C5), `service_watch.test.js` (C6), `service_state.test.js` (C7),
-`tool_package.test.js` (C8). They run the real service in a temp folder, unprivileged, with
+`service_playback.test.js` (C5, and seek), `service_watch.test.js` (C6), `service_state.test.js` (C7),
+`tool_package.test.js` (C8), `service_log.test.js` (the log). They run the real service in a temp folder, unprivileged, with
 `tests/fakes/fake_tidal_module.js` (TIDAL and a file server that cuts, refuses and serves Range),
 `tests/fakes/fake_netx.js` (plain HTTP, in the client child) and `tests/fakes/fake_player.js`;
 `tests/fakes/service_harness.js` starts them and fails a test that leaves a child running.
@@ -94,5 +130,5 @@ bmw-test-apps `511c5e0`; see `docs/reference-notes.md`):
 | `systemd/*` | `aurelm-tvhplayer.socket`, `.service` and `aurelm-music.service` (limits) |
 | `component.json` | `aurelm-tvhplayer/component.json`, in mgu-store's format (`deploy/README.md`, "Artifacts") |
 
-`state.js` is new. `lib/`, `cacert.pem` are stream A's; `tidal-player` and `FFMPEG-LICENSE` are stream B's
+`state.js` and `log.js` are new. `lib/`, `cacert.pem` are stream A's; `tidal-player` and `FFMPEG-LICENSE` are stream B's
 (`native/tidal-player/build/`).
