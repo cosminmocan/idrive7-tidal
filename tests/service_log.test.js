@@ -35,7 +35,7 @@ function setup(files, extra) {
     const x = extra || {};
     let h = null;
     const service = x.say ? { playerArgs: ['-e', SAYER], playerEnv: () => ({ SAY_FILE: path.join(h.dir, 'say.json') }) }
-        : { playerEnv: { FAKE_TICK_MS: '20', FAKE_SECONDS: x.seconds || '1000' } };
+        : { playerEnv: { FAKE_TICK_MS: x.tickMs || '20', FAKE_SECONDS: x.seconds || '1000' } };
     return startService({ client: true, files: x.files === undefined ? { 'session.json': session(ACCESS, REFRESH) } : x.files,
         tidal: Object.assign({ library: { search: [track(1, 'One'), track(2, 'Two'), track(3, 'Three')] },
             streamUrl: (id, quality) => ({ url: files.url('t' + id), codec: 'flac', quality: quality }) }, x.tidal || {}),
@@ -178,7 +178,8 @@ test('a token the session got after the service started is kept out too, also fr
 
 test('what a driver needs: play, skip, seek, next, prev, pause, resume, stop and errors with the track id; each player\'s exit code', async () => {
     const files = await createFileServer({ size: 50000 });
-    const h = await setup(files, { tidal: { streamUrl: (id, q) => (id === 1 ? { error: 'not-available' } : id === 9 ? { error: 'tidal-error' } : { url: files.url('t' + id), codec: 'flac', quality: q }) } });
+    // 0.5 s of the track every 250 ms: prev comes within the track's first 3 s, so it goes back one
+    const h = await setup(files, { tickMs: '250', tidal: { streamUrl: (id, q) => (id === 1 ? { error: 'not-available' } : id === 9 ? { error: 'tidal-error' } : { url: files.url('t' + id), codec: 'flac', quality: q }) } });
     try {
         await h.req({ cmd: 'play', tracks: [1, 2, 3, 9], index: 0 });
         await until(() => st(h).then((x) => x.state === 'playing' && x.queueIndex === 1), 8000, 'track 2 playing');
