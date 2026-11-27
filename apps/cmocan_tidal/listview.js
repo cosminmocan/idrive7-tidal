@@ -7,7 +7,7 @@
  *   cursor(state)          { sel, top } of the screen shown
  *   move(cur, d, count)    one row per knob step, stopping at both ends; the selected row kept in view
  *   needMore(frame)        the next page to ask for ({ key, cmd, params }) when the selection nears the end of what
- *                          is loaded (paged commands only: favorites, playlists, playlist, search), else null
+ *                          is loaded (every list command is paged: favorites, playlists, playlist, album, mixes, mix, search), else null
  * Node 8.9.4 syntax.
  */
 
@@ -15,7 +15,7 @@ const TOP = 44, BOTTOM = 512;
 const Y0 = TOP + 78, ROW_H = 62;
 const VISIBLE = Math.floor((BOTTOM - Y0) / ROW_H);
 const COLS = { num: { x: 60, w: 56 }, title: { x: 130, w: 760 }, sub: { x: 920, w: 460 }, right: { x: 1540, w: 120 } };
-const PAGED = { favorites: true, playlists: true, playlist: true, search: true };
+const PAGED = { favorites: true, playlists: true, playlist: true, album: true, mixes: true, mix: true, search: true };
 const PAGE = 50, MAX_PLAY = 1000;
 
 function mmss(sec) {
