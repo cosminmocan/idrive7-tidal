@@ -306,6 +306,22 @@ built('the app package unpacks: package.json names the id and version of the fil
     });
 });
 
+// docs/first-start.md: the SDK the head unit generates from its donor reads the app's config from the package. A newer
+// donor's SDK (27.x) makes the app's screens and entry point only with these two on (kit/tools/build.py, issue #39 of
+// idrive7-apps): the package built without the SDK must carry them as a build with the SDK does
+built('the app package carries config/base.json with rhmiLoadingEnabled and entryPointLoadingEnabled on', () => {
+    const p = pkgs();
+    const files = filesOf(p.app);
+    assert.ok(files['package/config/base.json'], 'config/base.json is in the package');
+    const cfg = JSON.parse(files['package/config/base.json'].toString('utf8'));
+    assert.strictEqual(cfg.rhmiLoadingEnabled, true, 'rhmiLoadingEnabled');
+    assert.strictEqual(cfg.entryPointLoadingEnabled, true, 'entryPointLoadingEnabled');
+    assert.deepStrictEqual(Object.keys(cfg).sort(), ['entryPointLoadingEnabled', 'rhmiLoadingEnabled', 'settings']);
+    assert.deepStrictEqual(Object.keys(cfg.settings), ['cmocan_tidal'], 'the settings of this app only');
+    assert.ok(!p.app.some((m) => /^package\/config\//.test(m.name) && m.name !== 'package/config/base.json'),
+        'no other config file (none that could turn them off again)');
+});
+
 built('R10: no oap-sdk path, no file with an oap-sdk module\'s name, no app.js linked with the SDK, in either package', () => {
     const p = pkgs();
     checkNoSdk('tool kit', p.tool);
