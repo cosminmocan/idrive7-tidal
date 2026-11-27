@@ -323,7 +323,7 @@ function drawNowPlaying(c) {
     const by = 372, seekable = !!dur && p.state !== 'error';
     const seeking = seekable && c.ui.seeking === true, onLine = seekable && P.area(s) === 'progress';
     c.info.barFocus = onLine;
-    if (onLine) focusPlate(c, 'progress', x - 18, by - 22, w + 36, 50, 14);
+    if (onLine) focusPlate(c, 'progress', x - 18, by - 17, w + 36, 40, 12);
     cv.roundRect(x, by, w, 6, 3, c.p.track);
     const f = dur ? Math.max(0, Math.min(1, pos / dur)) : 0;
     if (dur) cv.roundRect(x, by, Math.max(6, w * f), 6, 3, p.state === 'playing' || seeking ? c.p.text : c.p.dim);
