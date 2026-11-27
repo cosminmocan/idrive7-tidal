@@ -24,11 +24,10 @@ has not seen the earlier discussion can pick up any task.
 
 ### Resume here (next session)
 
-1. **All four streams are done and pushed.** Not yet merged.
-2. **Merge** into `main`, in order A, C, D, B (each with `make test` green after it):
-   - add `.claude/worktrees/` to `.gitignore`;
-   - C's `component.json`: list A's real files (`lib/tidal/*.js`) and B's real binary path; `tests/tool_package.test.js`
-     must then pass without its "not merged yet" allowance;
+1. **All four streams are merged into `main`** (2026-11-27, A, C, D, B, `make test` green after each;
+   `make player` and `make test-player` green after B). `component.json` ships A's real modules and B's real binary
+   (`build/out/tidal-player`); the package test now allows only the player's build output to be missing.
+2. **Still to do from the merge:**
    - **contract updates** (`docs/PROTOCOL.md` + `tests/fakes/protocol.js` + examples together):
      `status.login` details while pending (`url`, `userCode`, `expiresAt`) so the app can show the code again after a
      restart (D); `status.loginError`, `status.children`, `status.player.skipped` (C added them); `offset`/`limit` for
