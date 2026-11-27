@@ -111,7 +111,7 @@ test('the app on mgu-render/1: the cover is uploaded as a picture (message 10) a
         const later = frames(rd.msgs.slice(up.at));
         assert.ok(later.length >= 1, 'a frame after the upload');
         const ops = G.imageOps(later[later.length - 1].p, 'native');
-        assert.deepStrictEqual(ops, [{ x: 60, y: 78, w: 400, h: 400, r: 0, id: up.id }]);
+        assert.deepStrictEqual(ops, [{ x: 56, y: 76, w: 400, h: 400, r: 0, id: up.id }], 'U1: the cover where a-now-playing.png has it');
         // every frame parses as draw ops, and none draws a picture before it was uploaded
         frames(rd.msgs.slice(0, up.at)).forEach((f) => assert.deepStrictEqual(G.imageOps(f.p, 'native'), []));
 
