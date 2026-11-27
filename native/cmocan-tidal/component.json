@@ -23,6 +23,7 @@
     { "path": "player.js", "from": "player.js", "mode": "0644" },
     { "path": "playback.js", "from": "playback.js", "mode": "0644" },
     { "path": "state.js", "from": "state.js", "mode": "0644" },
+    { "path": "log.js", "from": "log.js", "mode": "0644" },
     { "path": "sockgroup.js", "from": "sockgroup.js", "mode": "0644" },
     { "path": "cleanup.js", "from": "cleanup.js", "mode": "0644" },
     { "path": "check.js", "from": "check.js", "mode": "0644" },

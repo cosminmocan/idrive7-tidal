@@ -31,6 +31,8 @@ const MAX_START_MS = 24 * 3600 * 1000;   // the player's limit for MGU_START_MS;
 const ACTIVE = ['loading', 'playing', 'buffering', 'paused'];
 
 function codeError(code, message) { const e = new Error(message || code); e.code = code; return e; }
+/** seconds for the log: at most one decimal */
+function secs(s) { return String(Math.round(Number(s) * 10) / 10); }
 
 function createPlayback(opts) {
     const o = opts || {};
@@ -65,20 +67,23 @@ function createPlayback(opts) {
     }
     /**
      * The queue's track i, in a new player (the one before is ended first). `from` (a seek, or the track after one):
-     * { position (s), paused, and of the same track: url, quality, duration }.
+     * { position (s), paused, and of the same track: url, quality, duration }. `why`, for the log: play, next, prev,
+     * resume, queue (the track before ended or was skipped), seek.
      */
-    function startTrack(i, from) {
+    function startTrack(i, why, from) {
         const f = from || {};
         const old = cur;
         endTrack(old);
         index = i;
         const id = tracks[i];
+        if (why === 'seek') log('seek: track ' + id + ' to ' + secs(f.position) + ' s');
+        else log(why + ': track ' + id + ' (' + (i + 1) + ' of ' + tracks.length + ')');
         const info = (o.trackInfo && o.trackInfo(id)) || null;
         const position = f.position > 0 ? f.position : 0;
         const c = { gen: ++gen, id: id, index: i, info: info, state: f.paused ? 'paused' : 'loading', position: position,
             startMs: Math.min(Math.round(position * 1000), MAX_START_MS),
             duration: typeof f.duration === 'number' ? f.duration : (info && info.duration ? info.duration : null),
-            quality: f.quality || null, url: null, error: null, player: null, stream: null, timer: null, paused: !!f.paused, over: false, ended: false, playerError: null };
+            quality: f.quality || null, url: null, codec: null, said: false, error: null, player: null, stream: null, timer: null, paused: !!f.paused, over: false, ended: false, playerError: null };
         cur = c;
         idle = { state: 'idle', error: null };
         saveQueue();
@@ -119,23 +124,29 @@ function createPlayback(opts) {
     }
     function onEvent(c, ev) {
         if (!live(c)) return;
-        if (ev.ev === 'open') { if (typeof ev.duration === 'number') c.duration = ev.duration; }
+        if (ev.ev === 'open') { if (typeof ev.duration === 'number') c.duration = ev.duration; if (typeof ev.codec === 'string') c.codec = ev.codec; }
         else if (ev.ev === 'tick') {
             if (typeof ev.pos === 'number' && ev.pos >= 0) c.position = ev.pos;
             if (c.paused) c.state = 'paused';
             else if (ev.state === 'buffering' || ev.state === 'playing') c.state = ev.state;
+            // once for each player, when its sound starts: what plays, and how
+            if (ev.state === 'playing' && !c.said) {
+                c.said = true;
+                log('playing track ' + c.id + ' (' + c.quality + (c.codec ? ', ' + c.codec : '') + ')' + (c.startMs ? ' from ' + secs(c.startMs / 1000) + ' s' : ''));
+            }
         } else if (ev.ev === 'end') c.ended = true;
         else if (ev.ev === 'error') c.playerError = ev.code || 'internal';
     }
     function fail(c, code, message) {
         if (!live(c)) return;
-        log('track ' + c.id + ': ' + code + (message ? ' (' + message + ')' : ''));
+        log('track ' + c.id + ': ' + code + (message && message !== code ? ' (' + message + ')' : ''));
         c.state = 'error'; c.error = code;
         endTrack(c);
     }
     function advance(c, from) {
         if (!live(c)) return;
-        if (c.index + 1 < tracks.length) return startTrack(c.index + 1, from);
+        if (c.index + 1 < tracks.length) return startTrack(c.index + 1, 'queue', from);
+        log('queue: the last track is over');
         endTrack(c);
         cur = null;
         idle = { state: 'idle', error: null };
@@ -223,13 +234,14 @@ function createPlayback(opts) {
     function play(list, i) {
         tracks = list.slice();
         skipped = [];
-        startTrack(i);
+        startTrack(i, 'play');
     }
     function pause() {
         const c = cur;
         if (!c || ACTIVE.indexOf(c.state) < 0 || c.paused) return;
         c.paused = true;
         c.state = 'paused';
+        log('pause: track ' + c.id);
         if (c.player) c.player.ctl('pause');
         saveQueue();
     }
@@ -238,31 +250,37 @@ function createPlayback(opts) {
         if (c && c.paused && c.state === 'paused') {
             c.paused = false;
             c.state = c.player ? 'playing' : 'loading';
+            log('resume: track ' + c.id);
             if (c.player) c.player.ctl('resume');
             return;
         }
         if (c && ACTIVE.indexOf(c.state) >= 0) return;
-        if (tracks.length && index >= 0) startTrack(index);   // stopped, ended, or failed: the queue's track again
+        if (tracks.length && index >= 0) startTrack(index, 'resume');   // stopped, ended, or failed: the queue's track again
     }
-    function next() { if (tracks.length && index + 1 < tracks.length) startTrack(index + 1); }
+    function next() { if (tracks.length && index + 1 < tracks.length) startTrack(index + 1, 'next'); }
     function prev() {
         if (!tracks.length || index < 0) return;
         const active = cur && ACTIVE.indexOf(cur.state) >= 0;
-        if (active && (cur.position > PREV_RESTART_S || index === 0)) return startTrack(index);
-        if (index > 0) startTrack(index - 1);
+        if (active && (cur.position > PREV_RESTART_S || index === 0)) return startTrack(index, 'prev');
+        if (index > 0) startTrack(index - 1, 'prev');
     }
     function seek(position) {
         const c = cur;
         if (!c || ACTIVE.indexOf(c.state) < 0) return false;
         // at the end or past it: the next track (after the last one playback ends), paused if this one was
-        if (c.duration !== null && position >= c.duration) { advance(c, { paused: c.paused }); return true; }
+        if (c.duration !== null && position >= c.duration) {
+            log('seek: track ' + c.id + ' to ' + secs(position) + ' s, its end (' + secs(c.duration) + ' s)');
+            advance(c, { paused: c.paused });
+            return true;
+        }
         // a length not known yet: the player says `end` at once when the position is past it
-        startTrack(c.index, { position: position, paused: c.paused, url: c.url, quality: c.quality, duration: c.duration });
+        startTrack(c.index, 'seek', { position: position, paused: c.paused, url: c.url, quality: c.quality, duration: c.duration });
         return true;
     }
     function stop() {
         if (!cur) return;
         const c = cur;
+        log('stop: track ' + c.id);
         endTrack(c);
         gen++;
         cur = null;
