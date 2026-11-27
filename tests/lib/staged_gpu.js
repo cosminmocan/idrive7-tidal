@@ -59,6 +59,10 @@ const log = { info: keep('info'), warn: keep('warn'), error: keep('error'), debu
 console.error = log.error; console.warn = log.warn; console.log = () => {}; console.info = () => {};
 process.on('uncaughtException', (e) => errors.push('uncaught: ' + (e && e.stack || e)));
 process.on('unhandledRejection', (e) => errors.push('unhandled: ' + (e && e.stack || e)));
+// (also when the start throws and nothing keeps the process alive: the errors must reach the test)
+let frames = 0, printed = false;
+const covers = [];
+process.on('exit', () => { if (!printed) { printed = true; require('fs').writeSync(1, JSON.stringify({ logs, errors, covers, frames }) + '\\n'); } });
 const { headUnit } = require(hustub);
 const hu = headUnit(stageDir, { dataDir, fresh: true, log, image: () => Promise.resolve() });
 hu.ui.isVisible = (n) => n === 'MAIN';
@@ -68,18 +72,16 @@ const sleep = (t) => new Promise((r) => setTimeout(r, t));
 const ccu = (df) => hu.display.onCcu && hu.display.onCcu({ frontSequenceNumberOperatingElement: 0, frontRotaryEncoderOperation: 0, frontRotaryEncoderPushButton: 0, frontRotaryEncoderDeflection: df });
 (async () => {
     const end = Date.now() + Number(ms);
-    let frames = 0, after = 0;
+    let after = 0;
     await sleep(300);
     while (Date.now() < end && after < 4) {
         if (!rec.imageById.size) { ccu(0); ccu(4); } else after++;
         try { await hu.loopFn(); frames++; } catch (e) { errors.push('loop: ' + (e && e.stack || e)); }
         await sleep(120);
     }
-    const covers = [];
     rec.imageById.forEach((im, id) => covers.push({ id, w: im.w, h: im.h, ver: im.ver }));
     await sleep(200);
     if (hu.display.gpu) hu.display.gpu.close();
-    process.stdout.write(JSON.stringify({ logs, errors, covers, frames }) + '\\n');
     process.exit(0);
 })();
 `;

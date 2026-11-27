@@ -36,7 +36,8 @@ docker run --rm -v "$SRC:/src" -w /src -u "$(id -u):$(id -g)" "$IMAGE" make -s i
 [ -x "$SRC/build/host/mgu-render" ] || { echo "mgu-render was not built" >&2; exit 1; }
 
 OUT=$ROOT/build/test-render
-rm -rf "$OUT"; mkdir -p "$OUT"
+# (emptied, not made anew: Docker Desktop loses a mounted folder that was removed and made again a moment before)
+mkdir -p "$OUT"; rm -f "$OUT"/now-playing.* "$OUT"/mgu-render.log
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$ROOT:/w:ro" -v "$SRC/build/host:/render:ro" -v "$OUT:/out" -w /w \
     -e MGU_RENDER=/render/mgu-render -e MGU_RENDER_OUT=/out "$IMAGE" sh -c '
     echo "== mgu-render (llvmpipe), Node $(node --version)"
