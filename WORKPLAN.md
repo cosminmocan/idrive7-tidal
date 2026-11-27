@@ -811,7 +811,7 @@ cluster, lossless, video. Only the commit email matters for privacy.
 | **L1a** | Lossless, step 1: what TIDAL gives a PKCE login | nothing | everything | 5 minutes at the Mac (a browser login) |
 | **U1** | The interface made to look and work like BMW's own iDrive 7 apps: **pictures first, for the owner's approval**, then the build | E0 for the design; the build after S2, C1 and K5 are merged (same files) | the design runs beside everything | says what feels wrong; approves the pictures; car check |
 | **L1b** | Lossless, step 2: build it | L1a (its result decides the design), S1 merged | V1 | car check |
-| **V1** | Video | S1, C1, L1a's facts; planned in detail when its turn comes | L1b | car check |
+| **V1** | Video: the design and tasks V0 to V1e below | S1, C1 (done) | L1a, L1b | car check |
 
 ```
 E0 ─┬─ Q0 ─┬─ S1 ──┬─ D1 (service) ─┐
@@ -965,11 +965,36 @@ Five agents can work at once after Q0: **C1**, **S1 then D1's service part**, **
 - **Success:** the owner's approval of the pictures; then green tests and a car check of every screen with knob,
   touch and wheel.
 
-### L1b and V1
+### L1b
 
-Planned in detail after L1a, S1 and C1. V1 (video) needs: TIDAL's video stream (HLS, `videos/<id>/urlpostpaywall`),
-hardware decoding into mgu-render's frame file (as `tvh-player` and `uxplay-mgu/player/mgu_hls.cpp`), the picture
-only while parked, and sound and picture in step.
+Planned in detail after L1a.
+
+### V1. Video (planned 2026-11-27, from the live check in docs/live-check-results.md "Video")
+
+**Facts:** TIDAL gives this login video as unencrypted HLS: MPEG-TS segments of 6 s, H.264 + AAC-LC, 180p to 1080p;
+and `AUDIO_ONLY` gives the video's sound as one MP4 file. aurelmarius' `tvh-player` (bmw-apps, GPL-3.0) already plays
+MPEG-TS H.264 + AAC in the car: the car's Intel Media SDK decodes into mgu-render's frame file
+(`/dev/shm/mgu-video-<name>`), the sound goes to the CarLife input.
+
+**The design:**
+- **Parked:** the picture full screen with its sound; **driving: the sound only** (`AUDIO_ONLY`, played exactly as a
+  track, nothing new in the player). Changing between them (car starts or stops) restarts at the same position
+  (seek, S1).
+- The service downloads the HLS segments itself (playlist, then segment after segment, through client.js and the
+  uplink as the track bytes are) and pipes one continuous MPEG-TS to the player; the player does not touch the network.
+- Quality: 720p by default (3.1 Mbit/s on LTE), a setting for 480p / 1080p; no automatic switching in version 1.
+
+| Task | What | Depends on | In parallel with |
+|---|---|---|---|
+| **V0** | Contract 4: video items in lists (`kind: video`), `play` of a video, `status.player.video` (`picture` / `audio-only`), the player's video options (frame file name, size); fakes | — | — |
+| **V1a** | Player: MPEG-TS in, H.264 out to the frame file (Intel Media SDK in the car; a software decoder for the tests on the Mac), AAC to ALSA as now, picture and sound in step. Start from `tvh-player` (`decoder_msdk.cpp`, `mgvf.cpp`, `player.cpp`) | V0 | V1b, V1c |
+| **V1b** | Service + TIDAL module: favourite videos and the videos in playlists and mixes; the HLS address; segment download with retry and Range, as tracks; `AUDIO_ONLY` while driving (the app says so); the switch with seek | V0 | V1a, V1c |
+| **V1c** | App: video rows (a film mark, the length), the picture page (mgu-render's video op over the page, controls on touch or knob), parked only (kit/parked), the switch to sound only when the car moves | V0 | V1a, V1b |
+| **V1d** | e2e: a fake HLS video (generated test picture + tone) through the real service and player (software decode): frames in the frame file, sound equal to the reference; parked to driving and back | V1a, V1b, V1c | — |
+| **V1e** | Car: the picture on screen (hardware decode), sound in step, driving = sound only, the CPU and memory limits enough (`CPUQuota` may need 200% as tvh-player) | V1d, release | — |
+
+**Tests first** in each task as in section 3. **What only the car can prove:** the Intel Media SDK decode, the
+frame file shown by the real mgu-render (a replay test as C1's covers the drawing), smoothness, the CPU budget.
 
 ### Releases and car checks in this phase
 

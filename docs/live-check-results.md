@@ -28,3 +28,20 @@ session (one refresh). Recorded answers, scrubbed: `reference/live-check/fixture
   the file can be piped, and a break can be continued with `Range`.
 - Lossless is a separate step: try a PKCE login once (on the Mac), and see which stream format TIDAL gives it
   (a plain FLAC, or an MPEG-DASH manifest of FLAC segments, which the player would also have to read).
+
+## Video (run 2026-11-27, same session, read-only)
+
+One of the owner's 23 favourite videos (a 175 s music video tagged `MP4_1080P`), `videos/<id>/urlpostpaywall` with
+`urlusagemode=STREAM`, `assetpresentation=FULL`:
+
+| `videoquality` | Answer |
+|---|---|
+| `HIGH` | an HLS master playlist (`application/vnd.apple.mpegurl`) on `im-fa.manifest.tidal.com`, **no `#EXT-X-KEY`: not encrypted**. Five variants, all `avc1` (H.264) + `mp4a.40.2` (AAC-LC): 320x180 (0.46 Mbit/s), 640x360 (0.72), 854x480 (1.5), 1280x720 (3.1), 1920x1080 (6.4) |
+| variant | `#EXT-X-PLAYLIST-TYPE:VOD`, `#EXT-X-TARGETDURATION:6`, 30 segments for 175 s, **MPEG-TS** segments (`.ts`, `video/mp2t`, first byte 0x47); the first 1080p segment 3.6 MB |
+| `MEDIUM`, `LOW` | the same kind of HLS address |
+| `AUDIO_ONLY` | an MP4 address on `amz-pr-fa.audio.tidal.com`: **the video's sound alone**, as a track |
+
+What it means: the device (QR) login gets video, unencrypted, as MPEG-TS with H.264 and AAC: the same format
+aurelmarius' `tvh-player` already plays in the car (MPEG-TS in, H.264 decoded by the car's Intel Media SDK into
+mgu-render's frame file, AAC to the CarLife input). And while driving, a video can be played as `AUDIO_ONLY`, like a
+track, with no picture at all.
