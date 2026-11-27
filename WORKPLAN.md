@@ -15,11 +15,11 @@ has not seen the earlier discussion can pick up any task.
 | S3 | done | `docs/PROTOCOL.md`; validator `tests/fakes/protocol.js`; fakes `tests/fakes/fake_service.js`, `fake_player.js` |
 | S4 | waiting for the owner | commands in `docs/car-facts.md` |
 | K0 | assumed passed, not tested | the owner chose to proceed as if the sound path works (2026-11-27); test it before K1 |
-| A1–A6 | done, reviewed | branch `stream-a-tidal-client` (06c4b15), pushed; 119 tests green on both Node versions |
+| A1–A6 | done, reviewed | branch `stream-a-tidal-client` ((old id)), pushed; 119 tests green on both Node versions |
 | A7 | done | run 2026-11-27 with the owner's account: `docs/live-check-results.md`. Session for further live runs: `reference/live-check/session.json` (local only, 0600, git-ignored) |
-| B1–B5 | done, reviewed | branch `stream-b-player` (aee35ff), pushed; `make player` (check-target) and `make test-player` green; binary 1.6 MB, glibc ≤ 2.27, libasound by dlopen |
-| C1–C8 | done, reviewed | branch `stream-c-service` (778a5f1), pushed; 89 tests green |
-| D0–D8 | done, reviewed | branch `stream-d-app` (5e5484a), pushed; 37 screen pictures wait for the owner's approval (D8), QR scan with a phone (D3) |
+| B1–B5 | done, reviewed | branch `stream-b-player` ((old id)), pushed; `make player` (check-target) and `make test-player` green; binary 1.6 MB, glibc ≤ 2.27, libasound by dlopen |
+| C1–C8 | done, reviewed | branch `stream-c-service` ((old id)), pushed; 89 tests green |
+| D0–D8 | done, reviewed | branch `stream-d-app` ((old id)), pushed; 37 screen pictures wait for the owner's approval (D8), QR scan with a phone (D3) |
 | D9 | waiting for S4 | needs the car's `someip-interfaces.json` |
 
 ### Resume here (next session)

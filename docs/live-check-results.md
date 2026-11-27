@@ -1,7 +1,7 @@
 # Live check results (task A7)
 
 Run 2026-11-27 on the Mac in Docker (node:8.9.4-slim, x86-64) with stream A's code (`stream-a-tidal-client`
-@ 06c4b15), against the real TIDAL, with the owner's account. The login came from tuidal's saved device-login
+@ (old id)), against the real TIDAL, with the owner's account. The login came from tuidal's saved device-login
 session (one refresh). Recorded answers, scrubbed: `reference/live-check/fixtures/` (git ignores `reference/`).
 
 | Question | Answer |
