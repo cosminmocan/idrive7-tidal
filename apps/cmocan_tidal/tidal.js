@@ -2,8 +2,8 @@
 /**
  * tidal.js - the app, wired: the service client (client.js), the state machine (model.js), the screens
  * (screens.js), the controller and touch (nav.js, ccu.js), covers, the speakers and the volume (audio.js,
- * car_volume.js), the steering wheel (wheel.js) and the car's speed (the kit's parked.js). main.js hands it the
- * kit's ctx; the tests hand it a stand-in.
+ * car_volume.js), the steering wheel (wheel.js), seek (seek.js), the service's log for the QR log (svclog.js) and
+ * the car's speed (the kit's parked.js). main.js hands it the kit's ctx; the tests hand it a stand-in.
  *
  *   const app = createApp(ctx, { socketPath, parked, setImage, decodeJpeg, pollMs });
  *   app.state() / app.info()     the model's state, the last frame's hit areas
@@ -26,6 +26,7 @@ const { createAudio, WANT } = require('./audio');
 const { createCarVolume } = require('./car_volume');
 const { createWheel, IFACE: WHEEL_IFACE } = require('./wheel');
 const { createSeeker, barTouch } = require('./seek');
+const { createSvcLog } = require('./svclog');
 const { createCcu } = require('./ccu');
 
 const W = 1600, H = 520;
@@ -230,6 +231,9 @@ function createApp(ctx, kit) {
             }
         };
     }
+
+    // Settings > QR log: the service's newest log lines go into the app's log first (svclog.js)
+    createSvcLog({ ask: ask, log: log }).watch(ctx.display);
 
     /* ---------- settings ---------- */
     function sendQuality() {
