@@ -61,7 +61,7 @@ if [ "$bumped" = 1 ]; then
 
 Patch versions bumped by make release for the components whose packages changed.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>"
     git push -q origin main
 fi
 
