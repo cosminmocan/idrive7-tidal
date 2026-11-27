@@ -116,6 +116,25 @@ test('buffering, loading and a player error are shown', () => {
     assert.ok(idle.has(/nothing is playing/i), idle.all());
 });
 
+test('contract 2: a skipped track: the notice shows on now playing (for a few seconds), the track is greyed out in its list', () => {
+    const other = Object.assign({}, TRACK, { id: 555, title: 'Gone track' });
+    let s = M.reduce(M.reduce(M.initial(), { type: 'status', state: Object.assign(defaultState(), { login: 'logged-in' }) }),
+        { type: 'open-list', key: 'k', title: 'T', kind: 'tracks', source: { cmd: 'album', params: { albumId: 1 } } });
+    s = M.reduce(s, { type: 'list-loaded', key: 'k', offset: 0, total: 2, items: [TRACK, other] });
+    const st = Object.assign(defaultState(), { login: 'logged-in' });
+    st.player = Object.assign({}, st.player, { state: 'playing', track: TRACK, position: 1, duration: 320, queueIndex: 0, queueLength: 2, quality: 'HIGH' });
+    s = M.reduce(M.reduce(s, { type: 'status', state: st }), { type: 'played' });
+    const st2 = JSON.parse(JSON.stringify(st));
+    st2.player.skipped = [{ id: 555, error: 'not-available' }];
+    s = M.reduce(s, { type: 'status', state: st2 });
+    const on = drawn(s, { now: 1000, toastUntil: 5000 }).cv;
+    assert.ok(on.has('Skipped: Gone track (not available)'), on.all());
+    assert.ok(!drawn(s, { now: 6000, toastUntil: 5000 }).cv.has(/Skipped/), 'gone after its time');
+    const list = drawn(M.reduce(s, { type: 'back' }), { now: 6000, toastUntil: 5000 }).cv;
+    assert.strictEqual(list.texts.filter((x) => x.s === 'Gone track')[0].color, theme.dim, 'greyed out');
+    assert.strictEqual(list.texts.filter((x) => x.s === TRACK.title)[0].color, theme.text);
+});
+
 test('a missing cover shows a placeholder; a cover that came is drawn', () => {
     const none = drawn(playing(), { cover: () => null });
     assert.strictEqual(none.info.cover, 'placeholder');

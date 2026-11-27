@@ -320,6 +320,33 @@ test('contract 2: mixes, a mix and an album are asked for by page, and the next 
     } finally { app.stop(); await svc.close(); }
 });
 
+test('contract 2: the service skips a track of the queue (player.skipped): now playing tells the user, the list greys it out', async () => {
+    const sock = tmpSock();
+    const svc = await createFakeService({ socketPath: sock, state: { login: 'logged-in' } });
+    const two = [TRACK, Object.assign({}, TRACK, { id: 17927865, title: 'Aerodynamic' })];
+    svc.answer = (r) => (r.cmd === 'favorites' ? { id: r.id, ok: true, total: 2, items: two } : undefined);
+    const { ctx, app } = start(sock);
+    try {
+        await waitFor(() => app.state().screen === 'LIBRARY', 3000, 'LIBRARY');
+        app.input({ press: true });
+        await waitFor(() => app.state().screen === 'LIST' && app.state().stack[0].items.length === 2, 3000, 'list loaded');
+        app.input({ press: true });
+        await waitFor(() => app.state().screen === 'NOW_PLAYING', 3000, 'NOW_PLAYING');
+        svc.state.player = Object.assign({}, svc.state.player, { state: 'playing', track: TRACK, position: 1, duration: 320, queueIndex: 0, queueLength: 2, quality: 'HIGH' });
+        await waitFor(() => app.state().player && app.state().player.state === 'playing', 3000, 'playing');
+        svc.state.player = Object.assign({}, svc.state.player, { skipped: [{ id: 17927865, error: 'not-available' }] });
+        await waitFor(() => app.state().message === 'Skipped: Aerodynamic (not available)', 3000, 'the notice');
+        await ctx.loops.MAIN();
+        assert.ok(ctx.frames[ctx.frames.length - 1].has('Skipped: Aerodynamic (not available)'), ctx.frames[ctx.frames.length - 1].all());
+        app.act({ type: 'back' });
+        assert.strictEqual(app.state().screen, 'LIST');
+        await ctx.loops.MAIN();
+        const t = ctx.frames[ctx.frames.length - 1].texts.filter((x) => x.s === 'Aerodynamic')[0];
+        assert.strictEqual(t.color, themes.theme('m_tricolour').dim, 'greyed out');
+        noErrors(ctx);
+    } finally { app.stop(); await svc.close(); }
+});
+
 test('errors from the service: a list that is not found shows ERROR; back returns', async () => {
     const sock = tmpSock();
     const svc = await createFakeService({ socketPath: sock, state: { login: 'logged-in' } });

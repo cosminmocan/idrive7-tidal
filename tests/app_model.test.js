@@ -171,6 +171,37 @@ test('contract 2: status.loginError: login-expired -> the code expired, login-de
     assert.strictEqual(M.wantsLoginCode(go(M.initial(), status({ login: 'logged-out', loginError: 'nope' }))), true);
 });
 
+test('contract 2: player.skipped: a newly skipped track is greyed out and named in a notice; the count when its title is not known', () => {
+    const T2 = Object.assign({}, TRACK, { id: 2, title: 'Second' }), T3 = Object.assign({}, TRACK, { id: 3, title: 'Third' });
+    const playingWith = (skipped) => { const st = defaultState(); st.login = 'logged-in'; st.player = Object.assign({}, st.player, { state: 'playing', track: TRACK, queueIndex: 0, queueLength: 3, skipped: skipped }); return { type: 'status', state: st }; };
+    let s = go(libraryState(), { type: 'open-list', key: 'k', title: 'T', kind: 'tracks', source: { cmd: 'playlist', params: { uuid: 'u' } } },
+        { type: 'list-loaded', key: 'k', offset: 0, total: 3, items: [TRACK, T2, T3] }, playingWith([]), { type: 'open-now-playing' });
+    assert.deepStrictEqual(s.player.skipped, []);
+    s = go(s, playingWith([{ id: 2, error: 'not-available' }]));
+    assert.strictEqual(s.message, 'Skipped: Second (not available)');
+    assert.strictEqual(s.unavailable[2], true, 'greyed out in the lists');
+    assert.strictEqual(s.screen, 'NOW_PLAYING');
+    const same = go(s, { type: 'dismiss' }, playingWith([{ id: 2, error: 'not-available' }]));
+    assert.strictEqual(same.message, null, 'told once');
+    s = go(s, playingWith([{ id: 2, error: 'not-available' }, { id: 3, error: 'not-found' }]));
+    assert.strictEqual(s.message, 'Skipped: Third (not found)');
+    s = go(s, playingWith([{ id: 2, error: 'not-available' }, { id: 3, error: 'not-found' }, { id: 98, error: 'not-available' }, { id: 99, error: 'tidal-error' }]));
+    assert.strictEqual(s.message, 'Skipped 2 tracks that could not be played');
+    s = go(s, playingWith([{ id: 97, error: 'not-available' }]));
+    assert.strictEqual(s.message, 'Skipped 1 track (not available)', 'a new queue: its own skips; a title not in the lists: the count');
+    // the app started while the queue had skips already: greyed out, no notice
+    const fresh = go(M.initial(), playingWith([{ id: 2, error: 'not-available' }]));
+    assert.strictEqual(fresh.message, null);
+    assert.strictEqual(fresh.unavailable[2], true);
+    // garbage (rule R1)
+    ['x', null, [1, null, { id: 'a' }, { error: 'not-available' }, { id: -1, error: 'x' }], {}].forEach((bad) => {
+        const st = defaultState(); st.login = 'logged-in'; st.player = Object.assign({}, st.player, { skipped: bad });
+        const b = go(libraryState(), { type: 'status', state: st });
+        assert.ok(Array.isArray(b.player.skipped), JSON.stringify(bad));
+        assert.strictEqual(b.screen, 'LIBRARY');
+    });
+});
+
 test('lists: open (loading), loaded, deeper, back pops, back from the first goes to the library', () => {
     let s = go(libraryState(), { type: 'open-list', key: 'playlists', title: 'Playlists', kind: 'playlists', source: { cmd: 'playlists' } });
     assert.strictEqual(s.screen, 'LIST');
