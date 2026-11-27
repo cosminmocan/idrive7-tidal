@@ -110,7 +110,7 @@ test('fake player: quit on fd 3 ends it early with exit code 0', async () => {
 
 test('fake player: fd 3 closing means quit, as the real player (a player never outlives its service)', async () => {
     let closed = false;
-    const r = await runPlayer(Buffer.from('fLaC0000'), { seconds: 30, onEvent: (ev, child) => { if (ev.ev === 'tick' && !closed) { closed = true; child.stdio[3].end(); } } });
+    const r = await runPlayer(Buffer.from('fLaC0000'), { seconds: 30, onEvent: (ev, child) => { if (ev.ev === 'tick' && !closed) { closed = true; child.stdio[3].on('error', () => {}); child.stdio[3].destroy(); } } });
     assert.strictEqual(r.code, 0);
     assert.ok(r.events.length < 50, 'ended long before 30 s');
     assert.notStrictEqual(r.events[r.events.length - 1].ev, 'end', 'quit, not played to the end');
