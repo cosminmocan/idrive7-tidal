@@ -215,8 +215,9 @@ function drawNowPlaying(c) {
     txt(c, (tr.artists || []).join(', '), x, TOP + 134, 28, t.text, { w: w });
     if (tr.album && tr.album.title) txt(c, tr.album.title, x, TOP + 172, 22, t.dim, { w: w });
     let state = NP_STATE[p.state] || '';
-    if (p.state === 'error') state = 'Playback error' + (p.error ? ' (' + p.error + ')' : '');
-    if (state) txt(c, state, x, TOP + 220, 24, p.state === 'error' ? RED : ACCENT, { font: 'bold', w: w });
+    if (p.state === 'error') state = NP.errorText(p.error);
+    // the state's text leaves room for the track number and quality on the right of the same line
+    if (state) txt(c, state, x, TOP + 220, 24, p.state === 'error' ? RED : ACCENT, { font: 'bold', w: w - 320 });
     const right = [p.queueLength > 0 && p.queueIndex >= 0 ? 'Track ' + (p.queueIndex + 1) + ' of ' + p.queueLength : '', p.quality || ''].filter(Boolean).join('   ');
     if (right) txt(c, right, W - 60, TOP + 220, 20, t.dim, { align: 'right' });
     // the progress
