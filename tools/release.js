@@ -55,6 +55,20 @@ function plan(local, published) {
     return out;
 }
 
+/** the same catalog as the published one? Every field of every component counts, except the artifact's address
+ *  (the published one is GitHub's asset address by design) */
+function unchanged(local, published) {
+    if (!published) return false;
+    const norm = (cat) => JSON.stringify((cat.components || []).map((c) => {
+        const o = JSON.parse(JSON.stringify(c));
+        if (o.artifact) delete o.artifact.url;
+        const sorted = {};
+        Object.keys(o).sort().forEach((k) => { sorted[k] = o[k]; });
+        return sorted;
+    }).sort((x, y) => (x.id < y.id ? -1 : 1)));
+    return norm(local) === norm(published);
+}
+
 /* ---------- the files that hold the versions: each edit changes only the version text ---------- */
 
 function read(root, f) { return fs.readFileSync(path.join(root, FILES[f]), 'utf8'); }
@@ -98,7 +112,7 @@ function apply(root, b) {
     writes.forEach((w) => fs.writeFileSync(path.join(root, FILES[w[0]]), w[1]));
 }
 
-module.exports = { plan: plan, apply: apply, versions: versions, compare: compare, nextPatch: nextPatch };
+module.exports = { unchanged: unchanged, plan: plan, apply: apply, versions: versions, compare: compare, nextPatch: nextPatch };
 
 if (require.main === module) {
     const argv = process.argv.slice(2);
@@ -112,6 +126,8 @@ if (require.main === module) {
             JSON.parse(argv[1]).sort((a, b) => (a.id === TOOL ? -1 : b.id === TOOL ? 1 : 0)).forEach((b) => {
                 apply(root, b); console.log(b.id + ': ' + b.from + ' -> ' + b.to);
             });
+        } else if (argv[0] === 'unchanged' && argv.length === 3) {
+            console.log(unchanged(readJson(argv[1]), argv[2] === 'none' ? null : readJson(argv[2])) ? 'yes' : 'no');
         } else if (argv[0] === 'versions' && argv.length === 1) {
             console.log(JSON.stringify(versions(root)));
         } else {

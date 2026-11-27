@@ -46,10 +46,7 @@ while :; do
 done
 
 if [ -f "$PUB" ] && [ "$bumped" = 0 ]; then
-    same=$($NODE -e "
-        const a=require('/w/$OUT/catalog.json').components, b=require('/w/$PUB').components;
-        const k=(l)=>l.map(c=>c.id+'@'+c.version+':'+c.artifact.sha256).sort().join(' ');
-        console.log(k(a)===k(b)?'yes':'no')")
+    same=$($NODE tools/release.js unchanged "$OUT/catalog.json" "$PUB")
     [ "$same" = yes ] && { echo "release: nothing changed since the published release: nothing to publish"; exit 0; }
 fi
 
