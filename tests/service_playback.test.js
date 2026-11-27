@@ -319,6 +319,28 @@ test('seek forward: answered at once; the position continues from there; a new p
     } finally { await h.close(); await files.close(); }
 });
 
+test('after a seek the state is loading until the new player plays, also while that player says buffering', async () => {
+    const files = await createFileServer({ size: 50000 });
+    // a player as the real one after a seek: open, 0.4 s of buffering ticks at the position (it throws the sound before it away), then playing
+    const player = 'process.stdin.resume(); const s = Number(process.env.MGU_START_MS || 0) / 1000; let n = 0;' +
+        'const say = (e) => console.log("MGU " + JSON.stringify(e)); say({ ev: "open", codec: "flac", rate: 44100, channels: 2, duration: 1000 });' +
+        'setInterval(() => { n++; say({ ev: "tick", pos: s + (n > 20 ? (n - 20) * 0.5 : 0), state: n > 20 ? "playing" : "buffering", buffered: 0, dropped: 0 }); }, 20);';
+    const h = await startService({ client: true, files: { 'session.json': SESSION },
+        tidal: { streamUrl: (id, quality) => ({ url: files.url('t' + id), codec: 'flac', quality: quality }) },
+        service: { playerArgs: ['-e', player] } });
+    try {
+        await h.req({ cmd: 'play', tracks: [1], index: 0 });
+        await until(() => st(h).then((x) => x.state === 'playing'), 8000, 'playing');
+        await seekReq(h, 300);
+        const seen = [];
+        await until(() => h.status().then((s) => { checkStatus(s); seen.push(s.player.state + '@' + s.player.position); return s.player.state === 'playing'; }), 8000, 'playing again');
+        const before = seen.slice(0, -1);
+        assert(before.length >= 5, 'statuses before it played: ' + seen.join(' '));
+        before.forEach((x) => assert.strictEqual(x, 'loading@300', 'before the new player plays: ' + seen.join(' ')));
+        assert(/^playing@30\d/.test(seen[seen.length - 1]), seen[seen.length - 1]);
+    } finally { await h.close(); await files.close(); }
+});
+
 test('seek back; a position with a fraction is passed in whole milliseconds', async () => {
     const files = await createFileServer({ size: 50000 });
     const h = await setupSeek(files);
