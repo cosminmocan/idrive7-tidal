@@ -27,21 +27,21 @@ has not seen the earlier discussion can pick up any task.
 1. **All four streams are merged into `main`** (2026-11-27, A, C, D, B, `make test` green after each;
    `make player` and `make test-player` green after B). `component.json` ships A's real modules and B's real binary
    (`build/out/tidal-player`); the package test now allows only the player's build output to be missing.
-2. **Still to do from the merge:**
-   - **contract updates** (`docs/PROTOCOL.md` + `tests/fakes/protocol.js` + examples together):
-     `status.login` details while pending (`url`, `userCode`, `expiresAt`) so the app can show the code again after a
-     restart (D); `status.loginError`, `status.children`, `status.player.skipped` (C added them); `offset`/`limit` for
-     `album`, `mix`, `mixes` (D); a separate field for the player's own error codes (D); `login-denied` or say that
-     a refused login is `login-expired` (C); player (B): closing fd 3 makes the player quit (the service must keep
-     it open for the player's life), exits 2 and 3 send `error` with code `internal`, the device is retried for
-     30 s then `audio` error and exit 6, ticks say `buffering` before playing starts, sound the device does not take
-     within 250 ms is dropped and counted;
-   - **`docs/INTERNAL-API.md`:** the TIDAL module runs in the root service; `client.js` (uid 13150) only does the
-     network calls, over IPC with the bytes on fd 4 (C's design, agreed); add `loginCancel()`; say that
-     `openStream` resolves with any HTTP status and follows up to 3 redirects (A); add a way to look up one track by
-     id, so "now playing" is known after a restart (C).
-3. **Quality for version 1 is HIGH (AAC 320)** (below): the app's default quality setting and the service's
-   default become `HIGH`; the screen shows the quality TIDAL granted.
+2. **Contract 2 is done** (2026-11-27, branch `contract-2`, merged into `main`): `status` carries a pending
+   login's link and code, `loginError` (expired or refused), `player.skipped`; album, mix and mixes are paged;
+   the default quality is HIGH (AAC 320); the player's rules (fd 3 closing = quit, device retried 30 s, exits 2
+   and 3) are written down and the service keeps fd 3 open; the TIDAL module has `loginCancel()`, `track(id)` and
+   paged mixes; `docs/INTERNAL-API.md` describes the TIDAL module in the root service. `make test` green three times
+   in a row on Node 8.9.4.
+3. **Secrets:** every commit and push is scanned with kingfisher (rule 8, `docs/SECRETS.md`).
+   **Open points** (small, none blocks phase I):
+   - mix covers are always null: TIDAL's mix images are `images.tidal.com/...?token=` addresses, not the
+     `resources.tidal.com/images/<id>` ones the cover code fetches;
+   - `login-start` while already logged in starts a new login: the contract should say what it does;
+   - a mixes `total` is what TIDAL's one page holds (TIDAL's `dataApiPath` follow-up is not used);
+   - `service_playback` "a download broken for longer than the outage time ends in offline" timed out once under
+     x86 emulation (passed alone 3 of 3, and in every full run since): watch it;
+   - the 40 screen pictures wait for the owner's approval (D8), with 3 new and 8 changed in contract 2.
 4. Then phase I: I1 end to end, I2 packages, I3 long run.
 
 ### Decision 2026-11-27: AAC 320 for version 1, lossless later
