@@ -329,7 +329,8 @@ test('2. play a favourite: AAC in MP4 (moov first) from TIDAL; the WAV is its to
     const k = X.players.length, kl = X.logs.length, kf = X.fake.log.length;
     const a = await app.play(0);
     assert.strictEqual(a.ok, true, JSON.stringify(a));
-    assert.strictEqual(app.state().screen, 'NOW_PLAYING');
+    // the owner's choice (docs/ui-redesign.md): after choosing a track the app stays in the list
+    assert.strictEqual(app.state().screen, 'LIST', 'stays in the list after play');
     await app.until(playing(A, 0, 1), 20000, 'A playing');
     assert.strictEqual(app.state().player.quality, 'HIGH');
     // A plays to its end, then the queue goes on to B: stopped there
