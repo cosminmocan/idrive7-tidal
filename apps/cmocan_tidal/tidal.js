@@ -100,13 +100,15 @@ function createApp(ctx, kit) {
         });
     }
     let loggingIn = false;
-    function login() {
+    /** a login code: by itself only when logged out with none pending (a pending one's code comes in the status);
+     *  a new code the user asked for while the service still holds the old one (its time ran out on our clock
+     *  first) cancels that one first, as login-start would answer it again */
+    function login(fresh) {
         if (loggingIn) return;
         loggingIn = true;
-        const pending = s.service.login === 'login-pending';
+        const cancel = fresh && s.service.login === 'login-pending';
         dispatch({ type: 'login-requested' });
-        // a login the service runs already (the app started again): its code is not in the status, so start anew
-        (pending ? ask('login-cancel') : Promise.resolve()).then(() => ask('login-start', {}, SLOW_MS)).then((a) => {
+        (cancel ? ask('login-cancel') : Promise.resolve()).then(() => ask('login-start', {}, SLOW_MS)).then((a) => {
             loggingIn = false;
             if (a.ok && typeof a.url === 'string') dispatch({ type: 'login-started', url: a.url, userCode: a.userCode, expiresIn: a.expiresIn, now: now() });
             else {
@@ -150,7 +152,7 @@ function createApp(ctx, kit) {
                 if (a.cmd !== 'pause' && a.cmd !== 'stop') audio.userPlay();
                 command(a.cmd);
                 return;
-            case 'login-new': loggingIn = false; s = M.reduce(s, { type: 'tick', now: 0 }); login(); return;
+            case 'login-new': loggingIn = false; login(true); return;
             case 'focus': focus = a.index; render(); return;
             case 'row': L.rowActs(s, a.index).forEach(act); dispatch({ type: 'cursor', sel: a.index, top: L.cursor(s).top }); return;
             case 'leave': if (ctx.ui.close) Promise.resolve(ctx.ui.close('MAIN')).catch(() => {}); return;

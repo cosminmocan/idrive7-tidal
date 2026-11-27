@@ -69,14 +69,24 @@ function drawLogin(c) {
         button(c, 60, TOP + 240, 300, 64, 'New code', { type: 'login-new' }, 'login-new', true);
         return;
     }
-    if (!l || l.requesting || !l.url) {
+    if (!l || l.requesting) {
         txt(c, 'Getting a code...', 60, TOP + 160, 26, t.dim);
+        return;
+    }
+    if (l.denied) {
+        txt(c, 'The login was refused on the phone.', 60, TOP + 160, 28, t.text, { font: 'bold' });
+        txt(c, 'Get a new code to try again.', 60, TOP + 200, 22, t.dim);
+        button(c, 60, TOP + 240, 300, 64, 'New code', { type: 'login-new' }, 'login-new', true);
         return;
     }
     if (l.expired) {
         txt(c, 'The code expired.', 60, TOP + 160, 28, t.text, { font: 'bold' });
         txt(c, 'Get a new one and scan it with your phone.', 60, TOP + 200, 22, t.dim);
         button(c, 60, TOP + 240, 300, 64, 'New code', { type: 'login-new' }, 'login-new', true);
+        return;
+    }
+    if (!l.url) {
+        txt(c, 'Getting a code...', 60, TOP + 160, 26, t.dim);
         return;
     }
     const m = QR.matrix(l.url);

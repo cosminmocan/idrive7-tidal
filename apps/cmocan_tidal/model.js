@@ -8,7 +8,8 @@
  * NOW_PLAYING, ERROR (a message, back to where it came from).
  *
  * Events (event.type):
- *   status {state, id}        a `status` answer's state (id: its request id; an older one than applied is ignored)
+ *   status {state, id}        a `status` answer's state (id: its request id; an older one than applied is ignored);
+ *                             its loginPending gives the code of a pending login, its loginError how one ended
  *   no-service                the client has no socket to talk to
  *   error {code, cmd, trackId} an error answer (contract codes) or the client's own (no-service, timeout, ...)
  *   login-requested           a login-start was sent;  login-started {url, userCode, expiresIn, now}: its answer
@@ -21,6 +22,7 @@
 
 const SCREENS = ['NO_SERVICE', 'OFFLINE', 'LOGIN', 'LIBRARY', 'LIST', 'NOW_PLAYING', 'ERROR'];
 const LOGINS = ['logged-out', 'login-pending', 'logged-in'];
+const LOGIN_ERRORS = ['login-expired', 'login-denied'];
 const PLAYER_STATES = ['idle', 'loading', 'playing', 'paused', 'buffering', 'error'];
 const NO_SERVICE_TEXT = 'The TIDAL service is not installed or not running';
 const MOVING_TEXT = 'Search can be typed only while the car is parked';
@@ -95,6 +97,12 @@ function cleanPlayer(p) {
     };
 }
 
+/** a pending login's code from status.loginPending: {url, userCode, expiresAt}, or null when it is not one (R1) */
+function pendingCode(lp) {
+    if (!isObj(lp) || typeof lp.url !== 'string' || !/^https:\/\//.test(lp.url) || typeof lp.userCode !== 'string' || !lp.userCode || !isNum(lp.expiresAt)) return null;
+    return { url: lp.url, userCode: lp.userCode, expiresAt: lp.expiresAt };
+}
+
 /** the screen the app's state calls for when it is not in a page of its own */
 function baseScreen(s) {
     if (s.service.online === false && !s.offlineBrowse) return 'OFFLINE';
@@ -121,9 +129,17 @@ function onStatus(s, ev) {
     let n = assign(s, { service: service, starting: false, statusId: isNum(ev.id) ? ev.id : s.statusId });
     if (raw.player !== undefined) n.player = cleanPlayer(raw.player);
     if (service.online) n.offlineBrowse = false;
-    // the login code: gone once logged in; expired when the service gives up on it
+    // the login code: gone once logged in; a pending one's code from the status (the app may have restarted);
+    // ended (expired, or refused on the phone) when the service gives up on it
+    const lp = pendingCode(raw.loginPending), lerr = LOGIN_ERRORS.indexOf(raw.loginError) >= 0 ? raw.loginError : null;
     if (service.login === 'logged-in') n.login = null;
-    else if (n.login && n.login.url && !n.login.expired && was === 'login-pending' && service.login === 'logged-out') n.login = assign(n.login, { expired: true });
+    else if (service.login === 'login-pending') {
+        if (lp && (!n.login || !n.login.url || n.login.url !== lp.url)) n.login = { requesting: false, url: lp.url, userCode: lp.userCode, expiresAt: lp.expiresAt, expired: false };
+    } else if (service.login === 'logged-out') {
+        const watched = n.login && n.login.url && !n.login.expired && was === 'login-pending';
+        if (watched) n.login = assign(n.login, { expired: true, denied: lerr === 'login-denied' });
+        else if (!n.login && lerr) n.login = { requesting: false, url: null, userCode: null, expiresAt: null, expired: true, denied: lerr === 'login-denied' };
+    }
     // the screen
     const cur = s.screen;
     if (cur === 'ERROR') return n;
@@ -285,8 +301,9 @@ function reduce(s, ev) {
     }
 }
 
-/** the login screen has no code and should ask for one (once; after expiry only when the user asks) */
-function wantsLoginCode(s) { return s.screen === 'LOGIN' && !s.login && s.service.login !== 'logged-in'; }
+/** the login screen has no code and should ask for one: logged out with none pending (once; after expiry or a
+ * refusal only when the user asks) */
+function wantsLoginCode(s) { return s.screen === 'LOGIN' && !s.login && s.service.login === 'logged-out'; }
 /** a track is on: playing, paused or on its way */
 function trackOn(s) { const p = s.player; return !!(p && p.track && ['playing', 'paused', 'buffering', 'loading'].indexOf(p.state) >= 0); }
 
