@@ -419,4 +419,5 @@ if (require.main === module) {
     });
 }
 
-module.exports = { PICTURES: PICTURES, K: K, OX: OX, OY: OY };
+// (tools/screens.js draws the app's own screens in the same frame for the golden pictures)
+module.exports = { PICTURES: PICTURES, K: K, OX: OX, OY: OY, SW: SW, SH: SH, chrome: chrome, newScreen: newScreen };
