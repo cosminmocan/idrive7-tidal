@@ -240,3 +240,50 @@ section 1 is wrong and the plan for step 2 changes with it; the proposed structu
 | Controls on now playing | the proposal: **only the bar's PREVIOUS / PAUSE / NEXT** |
 | Track rows | the proposal: **two lines with a small cover, six per screen** |
 | "Now playing" as the last row of My music | left to us: **kept**, shown only while a track is loaded (it carries the track's name, and a knob-only user reaches it without leaving the list) |
+
+## Step 2: what was built (branch phase2-u1-build)
+
+Option A, as the pictures and the decisions above. Where it differs from the proposal, and why:
+
+- **Push up** from a list goes to the header's tabs from any row (not only from the first): one rule, and turning
+  never leaves the list. From the bar push up returns to the row; on now playing push up goes to the progress line
+  first, then the tabs. Search: push up from the results goes to the letters, push down from the letters to the
+  results.
+- **Long titles** are cut with "..."; the sideways scroll of the highlighted row is not built.
+- **Accented and Chinese letters**: the fonts are not baked again yet (step 4); text.js still turns them into plain
+  letters and "?". The middle dot "·" is kept (the kit's fonts have it).
+- **Touch**: a tap on a row, a choice, a letter, a tab or a bar button does what a press does; dragging a list with
+  a finger is not built (the knob and taps only).
+- **Errors** that end on a page of their own (not found, busy, TIDAL error) offer "Back" only.
+
+How the controller rule holds where the kit runs the screen (`apps/cmocan_tidal/kitfocus.js`): two methods of the
+kit's display object are wrapped from the app, as tidal.js already wrapped `_focus`, and `kit/runtime` is unchanged.
+`_ccu` (where the renderer's controller events go once the kit runs the screen) hands every event to the app's rule
+(`nav.js`) unless one of the kit's sheets (the settings, the QR log) is open; `_drawChrome` draws no ring of its own on
+the page. After every change the kit's focus is set (`_focus`) to where the app's is: the bar button or tab the kit
+lights, or the page target the app highlights. Bar and tab presses from the controller go through the kit's `_click`
+and `_openTab`, as a touch does. `BTN_PREV` is now `BTN_PREVIOUS` (the kit drops `BTN_PREV` from its bar as "previous
+page"); `BTN_LIBRARY` is left out of the kit's bar (LIBRARY is a tab).
+
+**HMI back:** `apps/cmocan_tidal/hmiback.js`: when the HMI hides the app's screen while a list, now playing or an error
+is open, the app pops one level and opens its screen again. In the stub (tests/app_hmiback.test.js, the kit's display
+with a stand-in HMI) this works. The app cannot tell the HMI's back from the home key, the media key or another app
+taking the screen: all only hide it. So it is a **trial behind a setting**, "Back arrow: one level up in lists
+(trial)", off by default. Push left is back one level in any case.
+
+### Car check (what only the car can show)
+
+| # | Do | Expected |
+|---|---|---|
+| 1 | Open the app, turn the knob one step | The second row of My music is highlighted (red plate); nothing lights in the header |
+| 2 | Open Playlists | One highlight, on the first playlist; a press opens that one |
+| 3 | In a playlist, push left twice | Playlists (on the row it was opened from), then My music; a third push left leaves the app |
+| 4 | Push down, turn, press | The bar lights PREVIOUS / PAUSE / NEXT in turn; the press acts; push up returns to the row |
+| 5 | Push up from a list, turn to SETTINGS, press | The kit's settings open; push left closes them; the controller is back on the row |
+| 6 | Choose a track | It plays; the list stays, the playing mark (three bars) is on the track; push right opens now playing with PAUSE lit |
+| 7 | Now playing: push up, turn | The progress line is highlighted; the knob winds 10 s a step, one seek after the last step |
+| 8 | Bar word | PAUSE while playing, PLAY when paused or stopped, on every screen |
+| 9 | Covers | Small covers in the track, album, playlist rows (placeholders while they come), the big one on now playing |
+| 10 | Setting "Back arrow: one level up in lists (trial)" on; in a playlist tap the HMI's back arrow, then the BACK key | One level up, the screen comes back; note any flicker. Then press HOME in a list: does the app wrongly come back? If it does, the trial stays off (push left remains the way back) |
+| 11 | Steering wheel | Short press: next / previous; long press: winds (as S2) |
+| 12 | Touch | A tap on a row, a tab, a bar button, a letter acts as a press; a finger drag on the progress line seeks |
