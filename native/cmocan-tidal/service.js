@@ -37,6 +37,7 @@ const SOCK = '/run/cmocan-tidal.sock';
 const CACHE_MS = 5 * 60000;      // a list is asked again after this
 const CACHE_LISTS = 200;
 const CACHE_TRACKS = 5000;
+const LOOKUP_RETRY_MS = 60000;   // a track TIDAL could not give (offline, not-found) is asked again after this
 const WATCH_MS = 90 * 1000;        // playing and no request from the app for this long: stopped (rule R8)
 const IDLE_MS = 10 * 60 * 1000;    // nothing playing and no request for this long: the service ends (exit 0)
 const TICK_MS = 5000;
@@ -61,7 +62,8 @@ const PARAMS = {
     playlists: paging,
     playlist: (r) => typeof r.uuid === 'string' && ID_TEXT.test(r.uuid) && paging(r),
     album: (r) => isInt(r.albumId) && r.albumId >= 1 && paging(r),
-    mix: (r) => typeof r.mixId === 'string' && ID_TEXT.test(r.mixId),
+    mixes: paging,
+    mix: (r) => typeof r.mixId === 'string' && ID_TEXT.test(r.mixId) && paging(r),
     search: (r) => typeof r.query === 'string' && r.query.length >= 1 && r.query.length <= 200 && paging(r),
     cover: (r) => typeof r.coverId === 'string' && ID_TEXT.test(r.coverId),
     play: (r) => Array.isArray(r.tracks) && r.tracks.length >= 1 && r.tracks.length <= 1000 && r.tracks.every((t) => isInt(t) && t > 0) &&
@@ -105,7 +107,8 @@ function createService(opts) {
 
     /* ---------- state ---------- */
     const st = createState(o.stateDir);
-    let prefs = st.load('prefs', { quality: 'LOSSLESS' });
+    // HIGH by default: TIDAL's device (QR) login gets AAC 320 at most (docs/PROTOCOL.md, prefs)
+    let prefs = st.load('prefs', { quality: 'HIGH' });
 
     /* ---------- the client (internet uid): every request goes through it; tests may give a netx instead ---------- */
     const link = o.netx ? null : createClientLink({ fork: o.forkClient, file: o.clientPath || path.join(__dirname, 'client.js'),
@@ -117,29 +120,37 @@ function createService(opts) {
     const tidal = createTidal({ netx: netx, sessionFile: path.join(o.stateDir, 'session.json'), coverDir: path.join(o.stateDir, 'covers') });
 
     /* ---------- login ---------- */
-    let login = null;        // a pending device login: { timer, until }
-    let loginError = null;   // why the last login ended without one (login-expired), for the app's screen
+    let login = null;        // a pending device login: { timer, until (ms since 1970), ms, url, userCode }
+    let starting = null;     // the loginStart() in flight: a login-start meanwhile waits for the same one
+    let loginError = null;   // why the last login ended without one (login-expired, login-denied), for the app's screen
     function loginState() { return login ? 'login-pending' : (tidal.loggedIn() ? 'logged-in' : 'logged-out'); }
-    function endLogin(why) {
+    /** the login ends: why (a contract loginError, or null); tell, to stop the TIDAL module's pending login too */
+    function endLogin(why, tell) {
         if (!login) return;
         clearTimeout(login.timer);
         login = null;
         loginError = why || null;
+        if (tell && tidal.loginCancel) { try { tidal.loginCancel(); } catch (e) { log('login cancel: ' + e.message); } }
+    }
+    /** the pending login as login-start answers it: the same link and code, the seconds left */
+    function pendingAnswer(l) {
+        return { url: l.url, userCode: l.userCode, expiresIn: Math.max(1, Math.ceil((l.until - now()) / 1000)) };
     }
     /** polls TIDAL every `interval` seconds until the code is approved, refused or past its time */
     function startLogin(v) {
-        const l = { timer: null, until: now() + Math.max(1, Number(v.expiresIn) || 300) * 1000, ms: Math.max(10, (Number(v.interval) || 5) * 1000) };
+        const l = { timer: null, until: Math.round(now() + Math.max(1, Number(v.expiresIn) || 300) * 1000), ms: Math.max(10, (Number(v.interval) || 5) * 1000),
+            url: v.url, userCode: v.userCode };
         login = l;
         loginError = null;
         const poll = () => {
             if (login !== l) return;
-            if (now() >= l.until) { log('login: the code expired'); return endLogin('login-expired'); }
+            if (now() >= l.until) { log('login: the code expired'); return endLogin('login-expired', true); }
             Promise.resolve().then(() => tidal.loginPoll()).then((r) => {
                 if (login !== l) return;
                 const state = r && r.state;
                 if (state === 'authorized') { log('login: done'); endLogin(null); cache.clear(); return; }
                 if (state === 'expired') { log('login: the code expired'); return endLogin('login-expired'); }
-                if (state === 'denied') { log('login: refused'); return endLogin('login-expired'); }
+                if (state === 'denied') { log('login: refused'); return endLogin('login-denied'); }
                 l.timer = setTimeout(poll, l.ms);
             }, (e) => {
                 // a network error while polling is "pending": try again at the next interval
@@ -162,11 +173,39 @@ function createService(opts) {
         while (tracks.size > CACHE_TRACKS) tracks.delete(tracks.keys().next().value);
     }
 
+    /**
+     * The track for status: from the lists seen; else looked up with tidal.track(id) in the background (a queue
+     * from before a restart, ids the app had from elsewhere). Never waits: null until TIDAL answers.
+     */
+    const lookups = new Map();   // id -> { pending, at }
+    function trackInfo(id) {
+        const t = tracks.get(id);
+        if (t) return t;
+        lookUp(id);
+        return null;
+    }
+    function lookUp(id) {
+        if (typeof tidal.track !== 'function' || !tidal.loggedIn()) return;
+        const was = lookups.get(id);
+        if (was && (was.pending || now() - was.at < LOOKUP_RETRY_MS)) return;
+        const e = { pending: true, at: now() };
+        lookups.delete(id);
+        lookups.set(id, e);
+        while (lookups.size > CACHE_LISTS) lookups.delete(lookups.keys().next().value);
+        Promise.resolve().then(() => tidal.track(id)).then((t) => {
+            e.pending = false; e.at = now();
+            if (t && t.id === id) remember(t);
+        }, (err) => {
+            e.pending = false; e.at = now();
+            log('track ' + id + ': not looked up (' + ((err && (err.code || err.message)) || 'error') + ')');
+        });
+    }
+
     /* ---------- playback: one player per track (as root; it drops to nobody itself) ---------- */
     const pb = createPlayback({
         tidal: tidal, netx: netx, log: log, now: now, retryWaits: o.retryWaits, outageMs: o.outageMs,
         quality: () => prefs.quality,
-        trackInfo: (id) => tracks.get(id) || null,
+        trackInfo: trackInfo,
         onQueue: (q) => { try { st.write('queue', q); } catch (e) { log('queue.json: ' + e.message); } },
         startPlayer: (id, onEvent) => createPlayerProcess({
             spawn: o.spawn || require('child_process').spawn,
@@ -178,10 +217,9 @@ function createService(opts) {
     /* ---------- status ---------- */
     function player() { return pb.status(); }
     function status() {
-        return { login: loginState(), online: leaseOnline(o.leasePath), version: VERSION, prefs: { quality: prefs.quality }, player: player(),
-            // not in the contract: why the last login went back to logged-out (login-expired), else null
-            loginError: loginError,
-            // not in the contract: how the service's children are (a child that died, and how often it was started again)
+        return { login: loginState(), loginPending: login ? { url: login.url, userCode: login.userCode, expiresAt: login.until } : null,
+            loginError: loginError, online: leaseOnline(o.leasePath), version: VERSION, prefs: { quality: prefs.quality }, player: player(),
+            // optional in the contract (the log, the Status page): how the service's children are
             children: { client: link ? link.state() : { running: false, inProcess: true }, player: pb.players() } };
     }
 
@@ -192,8 +230,8 @@ function createService(opts) {
         playlists: (r) => tidal.playlists(r.offset || 0, r.limit || 50),
         playlist: (r) => tidal.playlist(r.uuid, r.offset || 0, r.limit || 50),
         album: (r) => tidal.album(r.albumId, r.offset || 0, r.limit || 50),
-        mixes: () => tidal.mixes(),
-        mix: (r) => tidal.mix(r.mixId),
+        mixes: (r) => tidal.mixes(r.offset || 0, r.limit || 50),
+        mix: (r) => tidal.mix(r.mixId, r.offset || 0, r.limit || 50),
         search: (r) => tidal.search(r.query, r.offset || 0, r.limit || 50),
     };
     /**
@@ -230,15 +268,20 @@ function createService(opts) {
     }
     const handlers = {
         status: () => ({ state: status() }),
+        // a login-start while one is pending (or being started) answers that one
         'login-start': () => {
-            if (login) throw codeError('busy', 'a login is already running');
-            return tidal.loginStart().then((v) => {
-                if (login) throw codeError('busy', 'a login is already running');
-                startLogin(v);
-                return { url: v.url, userCode: v.userCode, expiresIn: v.expiresIn };
-            });
+            if (login) return pendingAnswer(login);
+            if (!starting) {
+                starting = Promise.resolve().then(() => tidal.loginStart()).then((v) => {
+                    starting = null;
+                    if (login) return pendingAnswer(login);
+                    startLogin(v);
+                    return { url: v.url, userCode: v.userCode, expiresIn: v.expiresIn };
+                }, (e) => { starting = null; throw e; });
+            }
+            return starting;
         },
-        'login-cancel': () => { endLogin(null); return {}; },
+        'login-cancel': () => { endLogin(null, true); return {}; },
         logout: () => {
             endLogin(null);
             pb.stop();
