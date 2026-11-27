@@ -46,6 +46,10 @@ function cannedAnswer(svc, r) {
         case 'mixes': return items([MIX]);
         case 'playlist': case 'album': case 'mix': case 'search': return items([TRACK]);
         case 'cover': return ok({ mime: 'image/jpeg', data: COVER });
+        case 'seek':
+            if (svc.state.player.state === 'idle' || !svc.state.player.track) return { id: r.id, ok: false, error: 'bad-request', message: 'nothing is playing' };
+            svc.state.player.position = r.position; return ok();
+        case 'log': return ok({ lines: (svc.logLines || ['12:00:00 fake service']).slice(-(r.lines || 200)) });
         case 'prefs': if (r.quality) svc.state.prefs.quality = r.quality; return ok({ prefs: svc.state.prefs });
         default: return ok();   // play, pause, resume, next, prev, stop, exit
     }

@@ -130,6 +130,7 @@ test('fake service: seek moves the position of a playing track; with nothing pla
     try {
         const [idle] = await ask(sock, [{ id: 1, cmd: 'seek', position: 10 }]);
         assert.strictEqual(idle.ok, false); assert.strictEqual(idle.error, 'bad-request');
+        Object.assign(svc.state.player, { state: 'playing', track: require('./fakes/fake_service').TRACK, duration: 320, queueIndex: 0, queueLength: 1, quality: 'HIGH' });
         const got = await ask(sock, [{ id: 2, cmd: 'play', tracks: [17927864], index: 0 }, { id: 3, cmd: 'seek', position: 42 }, { id: 4, cmd: 'status' }, { id: 5, cmd: 'log', lines: 10 }]);
         assert.strictEqual(got[1].ok, true);
         assert.strictEqual(got[2].state.player.position, 42);

@@ -6,7 +6,7 @@
  */
 
 const COMMANDS = ['status', 'login-start', 'login-cancel', 'logout', 'favorites', 'playlists', 'playlist', 'album',
-    'mixes', 'mix', 'search', 'cover', 'play', 'pause', 'resume', 'next', 'prev', 'stop', 'prefs', 'exit'];
+    'mixes', 'mix', 'search', 'cover', 'play', 'pause', 'resume', 'next', 'prev', 'stop', 'seek', 'prefs', 'log', 'exit'];
 const ERROR_CODES = ['offline', 'not-logged-in', 'login-expired', 'not-found', 'not-available', 'rate-limited',
     'tidal-error', 'bad-request', 'busy'];
 const PLAYER_EVENTS = ['open', 'audio', 'tick', 'end', 'error'];
@@ -18,6 +18,7 @@ const LOGIN_STATES = ['logged-out', 'login-pending', 'logged-in'];
 const PLAYER_STATES = ['idle', 'loading', 'playing', 'paused', 'buffering', 'error'];
 const QUALITIES = ['LOSSLESS', 'HIGH'];
 const MAX_LIMIT = 100;
+const MAX_LOG_LINES = 200;
 
 /* ---------- small checks: each pushes a problem into errs and returns whether the value was fine ---------- */
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -77,6 +78,8 @@ const REQUEST_PARAMS = {
         }
     },
     prefs: (e, r) => { oneOf(e, r, 'quality', QUALITIES, true); },
+    seek: (e, r) => { num(e, r, 'position', 0); },
+    log: (e, r) => { int(e, r, 'lines', 1, MAX_LOG_LINES, true); },
 };
 
 function validateRequest(r) {
@@ -132,6 +135,7 @@ const ANSWER_FIELDS = {
     search: listAnswer(track),
     cover: (e, a) => { oneOf(e, a, 'mime', ['image/jpeg']); if (nestr(e, a, 'data')) need(e, /^[A-Za-z0-9+/]+=*$/.test(a.data), 'data must be base64'); },
     prefs: (e, a) => { if (need(e, isObj(a.prefs), 'prefs must be an object')) oneOf(e, a.prefs, 'quality', QUALITIES); },
+    log: (e, a) => { need(e, Array.isArray(a.lines) && a.lines.length <= MAX_LOG_LINES && a.lines.every((l) => typeof l === 'string'), 'lines must be at most ' + MAX_LOG_LINES + ' strings'); },
 };
 
 function validateAnswer(cmd, a) {
@@ -200,14 +204,14 @@ function sampleParams(cmd) {
         favorites: { kind: 'tracks', offset: 0, limit: 50 }, playlists: { offset: 0, limit: 50 },
         playlist: { uuid: '36ea71a8-445e-41a4-82ab-6628c581535d' }, album: { albumId: 17927863 }, mix: { mixId: '0123456789abcdef0123456789abcd' },
         search: { query: 'daft punk' }, cover: { coverId: '24f52ab0-e7d6-414d-a650-20a4c686aa57' },
-        play: { tracks: [17927864, 17927865], index: 0 }, prefs: { quality: 'LOSSLESS' },
+        play: { tracks: [17927864, 17927865], index: 0 }, prefs: { quality: 'LOSSLESS' }, seek: { position: 42 }, log: { lines: 50 },
     })[cmd] || {};
 }
 
 module.exports = {
     COMMANDS: COMMANDS, ERROR_CODES: ERROR_CODES, PLAYER_EVENTS: PLAYER_EVENTS, PLAYER_ERROR_CODES: PLAYER_ERROR_CODES,
     STATE_FILES: STATE_FILES, PLAYER_STATES: PLAYER_STATES, QUALITIES: QUALITIES, MAX_LIMIT: MAX_LIMIT,
-    LOGIN_ERRORS: LOGIN_ERRORS, DEFAULT_QUALITY: DEFAULT_QUALITY,
+    LOGIN_ERRORS: LOGIN_ERRORS, DEFAULT_QUALITY: DEFAULT_QUALITY, MAX_LOG_LINES: MAX_LOG_LINES,
     validateRequest: validateRequest, validateAnswer: validateAnswer, validatePlayerEvent: validatePlayerEvent,
     validateState: validateState, parsePlayerLine: parsePlayerLine, sampleParams: sampleParams,
 };

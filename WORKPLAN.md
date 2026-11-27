@@ -24,6 +24,11 @@ has not seen the earlier discussion can pick up any task.
 
 ### Resume here (next session)
 
+**Phase 2 progress:** E0 done 2026-11-27 (all 276 author/committer entries are the no-reply address, content
+identical, force-pushed; an old pushed commit is still fetchable by its exact id until GitHub's cleanup: ask GitHub
+Support before the repository is ever public again). Q0 done (contract 3: `seek`, `log`, `MGU_START_MS`). The
+commit ids written in this file before E0 are the old ones. Running: C1, S1+D1, S2+D1, K5, W1, U1 step 1.
+
 **Now: phase 2 (section 9).** Version 1 is installed and plays in the car (docs/car-log.md). Start with **E0**
 (the commit email, needs the owner's go), then **Q0**, then the parallel tasks C1, S1, S2, D1, K5, W1; P1 and L1a
 with the owner. What follows here is the history of version 1.
@@ -802,6 +807,7 @@ cluster, lossless, video. Only the commit email matters for privacy.
 | **W1** | Why the very first start failed | E0 | everything | maybe a log |
 | **P1** | Installing from the private repository | E0 (the repository private) | everything | a read-only token; what the Store showed |
 | **L1a** | Lossless, step 1: what TIDAL gives a PKCE login | nothing | everything | 5 minutes at the Mac (a browser login) |
+| **U1** | The interface made to look and work like BMW's own iDrive 7 apps: **pictures first, for the owner's approval**, then the build | E0 for the design; the build after S2, C1 and K5 are merged (same files) | the design runs beside everything | says what feels wrong; approves the pictures; car check |
 | **L1b** | Lossless, step 2: build it | L1a (its result decides the design), S1 merged | V1 | car check |
 | **V1** | Video | S1, C1, L1a's facts; planned in detail when its turn comes | L1b | car check |
 
@@ -940,6 +946,22 @@ Five agents can work at once after Q0: **C1**, **S1 then D1's service part**, **
   `reference/` (never in git).
 - **Success:** the facts in docs/live-check-results.md. They decide L1b: how the PKCE login reaches the car (a
   page on the phone, or the session copied once from the Mac) and whether the player must read DASH.
+
+### U1. An interface like BMW's own apps (the owner, 2026-11-27: "feels very homebrew, a bit counter intuitive")
+
+- **Step 1, design only (no app code changes):** `docs/ui-redesign.md` and pictures in `docs/ui-mock/` of every
+  screen (login, library, lists, now playing, search, errors) redrawn in iDrive 7's own manner: its list menus with
+  the highlight bar and the knob's focus, its type sizes and spacing, its left-hand option column, its now-playing
+  layout of the media player; what each control does with knob, touch and the wheel; and the question of using the
+  HMI's **own** list widgets for the library (the kit's `"kind": "menu"` screens: drawn by BMW's HMI itself, so
+  they look and behave exactly like BMW's, but without pictures in the rows) with our drawn screen only for now
+  playing. Sources: the kit's `docs/rhmi-widgets.md` and the README's screen layout (idrive7-apps), the owner's
+  photos of the car's screen, BMW's own media player as the model. No BMW artwork is copied.
+- **The owner approves the pictures (or changes them) before step 2.**
+- **Step 2, the build:** test first (the state machine's navigation, the golden pictures replaced by the approved
+  ones), after S2, C1 and K5 are merged.
+- **Success:** the owner's approval of the pictures; then green tests and a car check of every screen with knob,
+  touch and wheel.
 
 ### L1b and V1
 

@@ -6,6 +6,7 @@
  *
  *   node fake_player.js       stdin: track bytes; fd 3: commands; stdout: MGU {json} events
  *   FAKE_SECONDS (default 2), FAKE_TICK_MS (default 500), FAKE_RECORD=<path>: write the bytes received there
+ *   MGU_START_MS: the position playing starts at (the contract's seek); FAKE_ENV=<path>: write the environment there
  */
 const fs = require('fs');
 const net = require('net');
@@ -17,7 +18,7 @@ const EXIT = { ok: 0, input: 4, decode: 5, audio: 6 };
 function emit(ev) { process.stdout.write('MGU ' + JSON.stringify(ev) + '\n'); }
 
 let state = 'playing';
-let pos = 0;
+let pos = Math.max(0, Number(process.env.MGU_START_MS || 0) / 1000);   // MGU_START_MS: playing starts at this position
 let timer = null;
 
 function finish(code) { if (timer) clearInterval(timer); process.stdout.write('', () => process.exit(code)); }
@@ -48,6 +49,7 @@ process.stdin.on('data', (d) => chunks.push(d));
 process.stdin.on('end', () => {
     const input = Buffer.concat(chunks);
     if (process.env.FAKE_RECORD) fs.writeFileSync(process.env.FAKE_RECORD, input);
+    if (process.env.FAKE_ENV) fs.writeFileSync(process.env.FAKE_ENV, JSON.stringify({ MGU_START_MS: process.env.MGU_START_MS || null }));
     if (!input.length) { emit({ ev: 'error', code: 'input', message: 'empty input' }); return finish(EXIT.input); }
     const flac = input.slice(0, 4).toString('latin1') === 'fLaC';
     emit({ ev: 'open', codec: flac ? 'flac' : 'aac', rate: 44100, channels: 2, duration: SECONDS });
