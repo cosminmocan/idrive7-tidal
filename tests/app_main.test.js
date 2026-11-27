@@ -27,10 +27,14 @@ async function waitFor(fn, ms, what) {
     throw new Error('waited in vain for ' + (what || fn.toString()));
 }
 
+const SPEC = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'apps', 'cmocan_tidal', 'app.json'), 'utf8'));
+
 function fakeCtx() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmocan-data-'));
     const handlers = {}, loops = {}, frames = [], logs = [], watched = {}, setL = [];
-    const values = { quality: 'LOSSLESS', wheel: true };
+    // the settings as a fresh install has them: app.json's defaults
+    const values = {};
+    SPEC.settings.forEach((x) => { values[x.key] = x.default; });
     const ctx = {
         dataDir, handlers, loops, frames, logs, watched,
         log: { info() {}, debug() {}, warn(m) { logs.push('warn ' + m); }, error(m, e) { logs.push('error ' + m + (e ? ' ' + (e.stack || e) : '')); } },
@@ -269,15 +273,42 @@ test('status is asked for every 1 to 2 s by default', async () => {
     } finally { app.stop(); await svc.close(); }
 }, { timeout: 15000 });
 
+test('contract 2: the quality setting: HIGH by default, "High (AAC 320)"; Lossless says it plays as High for now; labels short', () => {
+    const q = SPEC.settings.filter((x) => x.key === 'quality')[0];
+    assert.strictEqual(q.default, 'HIGH');
+    assert.strictEqual(q.default, P.DEFAULT_QUALITY, 'the same default as the service');
+    const labels = {};
+    q.options.forEach((o) => { labels[o[0]] = o[1]; });
+    assert.deepStrictEqual(Object.keys(labels).sort(), P.QUALITIES.slice().sort());
+    assert.strictEqual(labels.HIGH, 'High (AAC 320)');
+    assert.ok(/Lossless \(FLAC\)/.test(labels.LOSSLESS) && /as High/.test(labels.LOSSLESS), labels.LOSSLESS);
+    q.options.forEach((o) => assert.ok(o[1].length <= 40, 'short enough for the HMI list: ' + o[1]));
+    assert.ok(q.label.length <= 40, q.label);
+});
+
 test('the quality setting is sent to the service when it changes', async () => {
     const sock = tmpSock();
     const svc = await createFakeService({ socketPath: sock, state: { login: 'logged-in' } });
     const { ctx, app } = start(sock);
     try {
         await waitFor(() => app.state().screen === 'LIBRARY', 3000, 'LIBRARY');
+        ctx.settings.set('quality', 'LOSSLESS');
+        await waitFor(() => lastOf(svc, 'prefs') && lastOf(svc, 'prefs').quality === 'LOSSLESS', 2000, 'prefs sent');
+        assert.strictEqual(svc.state.prefs.quality, 'LOSSLESS');
         ctx.settings.set('quality', 'HIGH');
-        await waitFor(() => lastOf(svc, 'prefs') && lastOf(svc, 'prefs').quality === 'HIGH', 2000, 'prefs sent');
-        assert.strictEqual(svc.state.prefs.quality, 'HIGH');
+        await waitFor(() => lastOf(svc, 'prefs').quality === 'HIGH', 2000, 'HIGH sent');
+    } finally { app.stop(); await svc.close(); }
+});
+
+test('contract 2: at start, the default setting (HIGH) equals the service default: nothing is sent', async () => {
+    const sock = tmpSock();
+    const svc = await createFakeService({ socketPath: sock, state: { login: 'logged-in' } });
+    const { ctx, app } = start(sock);
+    try {
+        assert.strictEqual(ctx.settings.get('quality'), 'HIGH');
+        await waitFor(() => app.state().screen === 'LIBRARY', 3000, 'LIBRARY');
+        await sleep(600);
+        assert.strictEqual(cmds(svc).filter((c) => c === 'prefs').length, 0, cmds(svc).join(','));
     } finally { app.stop(); await svc.close(); }
 });
 
@@ -285,10 +316,10 @@ test('at start, a quality setting that differs from the service\'s is sent once'
     const sock = tmpSock();
     const svc = await createFakeService({ socketPath: sock, state: { login: 'logged-in' } });
     const ctx = fakeCtx();
-    ctx.settings.set('quality', 'HIGH');
+    ctx.settings.set('quality', 'LOSSLESS');
     const app = createApp(ctx, { socketPath: sock, pollMs: 150, parked: parkedKit.watch(ctx, ctx.log), setImage() {}, decodeJpeg: decodeJpeg });
     try {
-        await waitFor(() => svc.state.prefs.quality === 'HIGH', 3000, 'HIGH sent');
+        await waitFor(() => svc.state.prefs.quality === 'LOSSLESS', 3000, 'LOSSLESS sent');
         await sleep(600);
         assert.strictEqual(cmds(svc).filter((c) => c === 'prefs').length, 1);
     } finally { app.stop(); await svc.close(); }
