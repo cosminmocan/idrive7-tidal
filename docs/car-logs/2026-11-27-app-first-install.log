@@ -1,0 +1,144 @@
+-- 2026-11-27 (UTC)
+17:01:54 starting cmocan_tidal 0.1.0 (node up 1372 ms)
+17:01:55 registered active (1872 ms)
+17:01:55 ERROR the SDK created no RHMI application, so the app has no screens and does not start. Causes: the SDK config has rhmiLoadingEnabled off (an SDK extracted from a newer donor app; build.py turns it on - rebuild the app), a CONFIG_STATE start, or the HMI could not load the app's resources (see the SDK_ li
+17:01:55 registered active (2221 ms)
+17:02:13 shutdown requested by MainApp
+17:02:13 exit code 0 rss=52MB
+17:02:21 starting cmocan_tidal 0.1.0 (node up 1051 ms)
+-- 2026-11-27 (UTC)
+17:02:22 registered active (1519 ms)
+17:02:22 renderd: socket /run/mgu-renderd/renderd.sock
+17:02:22 registered active (1978 ms)
+17:02:22 screen resources done (2001 ms)
+17:02:22 settings screen done (2028 ms)
+17:02:22 app start done (2065 ms)
+17:02:22 app start (until it can draw) done (2066 ms)
+17:02:22 initialized (start reason ENTRY_POINT, 2091 ms)
+17:02:22 app can draw (2102 ms): ready, its start goes on
+17:02:22 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+17:02:22 mapped entry 2661afa3-1d8c-5c9d-8ac2-6a96f37f7f99 -> MAIN (2121 ms)
+17:02:22 renderd: connected, screen 1920x720, mgu-render/1 {"touch":true,"controller":true,"frontGate":true}
+17:02:22 display: renderer placement {"x":0,"y":0,"w":1920,"h":720,"full":true,"scale":1.164,"ox":71,"oy":51} (layout full)
+17:02:22 frames: in RAM (/tmp/mgu-frames-cmocan_tidal-12223)
+17:02:22 image MAIN_GFX: png written 66 ms
+17:02:23 renderd: not on screen
+17:02:23 image MAIN_GFX: handle 284164663
+17:02:23 image MAIN_GFX: shown after 254 ms
+17:02:23 car volume: 11
+17:02:23 parked check: speed subscribed
+17:02:23 SDK_ERROR Error: buildTypedProxy(de.bmw.infotainment.telematic.usso.USSO@USSO_1) failed due to Error: fileAccess::readJsonFile failed due to Error: ENOENT: no such file o
+17:02:23 SDK_ERROR Error: TokenImpl::init failed due to { Error: buildTypedProxy(de.bmw.infotainment.telematic.usso.USSO@USSO_1) failed due to Error: fileAccess::readJsonFile fail
+17:02:23 SDK_ERROR Error: UserImpl::cleanup Failed due to { Error: TokenImpl::init failed due to { Error: buildTypedProxy(de.bmw.infotainment.telematic.usso.USSO@USSO_1) failed du
+17:02:23 SDK_ERROR Error: UserImpl::init failed due to { Error: TokenImpl::init failed due to { Error: buildTypedProxy(de.bmw.infotainment.telematic.usso.USSO@USSO_1) failed due t
+17:02:23 SDK_ERROR Error: UserManagerImpl::cleanup Failed due to { Error: UserImpl::init failed due to { Error: TokenImpl::init failed due to { Error: buildTypedProxy(de.bmw.infot
+17:02:23 SDK_ERROR Error: UserManagerImpl::init failed due to { Error: UserImpl::init failed due to { Error: TokenImpl::init failed due to { Error: buildTypedProxy(de.bmw.infotain
+17:02:23 SDK_ERROR AnalyticsServiceImpl::init failed to initialize due to { Error: UserManagerImpl::init failed due to { Error: UserImpl::init failed due to { Error: TokenImpl::in
+17:02:23 renderd: on screen
+17:02:32 renderd: not on screen
+17:02:32 state MAIN covered by an HMI popup
+17:02:32 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+17:02:35 entry point CMOCAN_TIDAL_ENTRY (UNSPECIFIED)
+17:02:35 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+17:02:35 renderd: on screen
+17:02:43 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+17:02:44 state MAIN covered by an HMI popup
+17:02:44 renderd: not on screen
+17:02:52 safe boot: start ok
+17:02:55 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+17:03:30 WARN renderd: connection closed
+17:04:07 starting cmocan_tidal 0.1.0 (node up 5156 ms)
+17:04:09 registered active (6955 ms)
+17:04:10 renderd: socket /run/mgu-renderd/renderd.sock
+17:04:10 registered active (8068 ms)
+17:04:10 screen resources done (8117 ms)
+17:04:10 settings screen done (8150 ms)
+17:04:10 app start done (8245 ms)
+17:04:10 app start (until it can draw) done (8248 ms)
+17:04:10 initialized (start reason ENTRY_POINT, 8292 ms)
+17:04:10 app can draw (8329 ms): ready, its start goes on
+17:04:10 mapped entry 2661afa3-1d8c-5c9d-8ac2-6a96f37f7f99 -> MAIN (8341 ms)
+17:04:10 renderd: connected, screen 1920x720, mgu-render/1 {"touch":true,"controller":true,"frontGate":true}
+17:04:11 display: renderer placement {"x":0,"y":0,"w":1920,"h":720,"full":true,"scale":1.164,"ox":71,"oy":51} (layout full)
+-- 2026-11-27 (UTC)
+17:04:11 frames: in RAM (/tmp/mgu-frames-cmocan_tidal-12223)
+17:04:11 image MAIN_GFX: png written 122 ms
+17:04:11 renderd: not on screen
+17:04:12 image MAIN_GFX: handle 284164210
+17:04:12 image MAIN_GFX: shown after 821 ms
+17:04:12 renderd: on screen
+17:04:12 car volume: 11
+17:04:12 parked check: speed subscribed
+17:04:12 SDK_ERROR Error: buildTypedProxy(de.bmw.infotainment.telematic.usso.USSO@USSO_1) failed due to Error: fileAccess::readJsonFile failed due to Error: ENOENT: no such file o
+17:04:12 SDK_ERROR Error: TokenImpl::init failed due to { Error: buildTypedProxy(de.bmw.infotainment.telematic.usso.USSO@USSO_1) failed due to Error: fileAccess::readJsonFile fail
+17:04:12 SDK_ERROR Error: UserImpl::cleanup Failed due to { Error: TokenImpl::init failed due to { Error: buildTypedProxy(de.bmw.infotainment.telematic.usso.USSO@USSO_1) failed du
+17:04:12 SDK_ERROR Error: UserImpl::init failed due to { Error: TokenImpl::init failed due to { Error: buildTypedProxy(de.bmw.infotainment.telematic.usso.USSO@USSO_1) failed due t
+17:04:12 SDK_ERROR Error: UserManagerImpl::cleanup Failed due to { Error: UserImpl::init failed due to { Error: TokenImpl::init failed due to { Error: buildTypedProxy(de.bmw.infot
+17:04:12 SDK_ERROR Error: UserManagerImpl::init failed due to { Error: UserImpl::init failed due to { Error: TokenImpl::init failed due to { Error: buildTypedProxy(de.bmw.infotain
+17:04:12 SDK_ERROR AnalyticsServiceImpl::init failed to initialize due to { Error: UserManagerImpl::init failed due to { Error: UserImpl::init failed due to { Error: TokenImpl::in
+17:04:20 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+17:04:40 safe boot: start ok
+17:05:07 car audio: source available
+17:05:07 car audio: connect {"mainConnectionID":3,"amError":"E_OK"}
+17:05:08 WARN renderd: pixel images need the upstream dialect
+17:05:20 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+17:05:31 renderd: not on screen
+17:05:31 state MAIN covered by an HMI popup
+17:05:34 entry point CMOCAN_TIDAL_ENTRY (UNSPECIFIED)
+17:05:34 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+17:05:34 SDK_ERROR Error: RhmiApplication[687e3e4e-4a12-5a49-b2bc-83e7c07512df]::openEntryState(2661afa3-1d8c-5c9d-8ac2-6a96f37f7f99) failed due to { RemoteError: 'INVALID_UUID' }
+17:05:34 ERROR open entry state Error: RhmiApplication[687e3e4e-4a12-5a49-b2bc-83e7c07512df]::openEntryState(2661afa3-1d8c-5c9d-8ac2-6a96f37f7f99) failed due to { RemoteError: 'INVALID_UUID' }
+17:05:34 renderd: on screen
+17:05:39 click BTN_LIBRARY
+17:05:42 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+17:05:49 renderd: not on screen
+17:05:49 state MAIN covered by an HMI popup
+17:05:50 entry point CMOCAN_TIDAL_ENTRY (UNSPECIFIED)
+17:05:50 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+17:05:51 renderd: on screen
+17:05:52 click BTN_LIBRARY
+17:05:59 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+17:06:11 click BTN_LIBRARY
+17:06:15 car audio: disconnect {"amError":"E_OK"}
+17:06:15 car audio: source unavailable
+17:06:16 car audio: source available
+17:06:17 car audio: connect {"mainConnectionID":5,"amError":"E_OK"}
+17:06:29 state MAIN covered by an HMI popup
+17:06:29 renderd: not on screen
+17:06:39 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+17:07:07 entry point CMOCAN_TIDAL_ENTRY (UNSPECIFIED)
+17:07:07 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+17:07:08 renderd: on screen
+17:07:10 click BTN_LIBRARY
+17:07:26 click BTN_SETTINGS
+17:07:31 renderd: not on screen
+17:07:31 state MAIN covered by an HMI popup
+17:07:33 entry point CMOCAN_TIDAL_ENTRY (UNSPECIFIED)
+17:07:33 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+17:07:33 renderd: on screen
+17:07:35 click BTN_SETTINGS
+17:07:42 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+17:07:59 renderd: not on screen
+17:07:59 state MAIN covered by an HMI popup
+17:08:00 entry point CMOCAN_TIDAL_ENTRY (UNSPECIFIED)
+17:08:00 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+17:08:00 renderd: on screen
+17:08:06 click BTN_LIBRARY
+17:08:09 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+17:08:41 renderd: not on screen
+17:08:41 state MAIN covered by an HMI popup
+17:08:43 state MAIN has focus again
+17:08:43 renderd: on screen
+17:08:46 click BTN_SETTINGS
+17:08:53 click BTN_LIBRARY
+17:09:23 state MAIN covered by an HMI popup
+17:09:23 renderd: not on screen
+17:09:34 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+17:10:52 entry point CMOCAN_TIDAL_ENTRY (UNSPECIFIED)
+17:10:52 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+17:10:52 renderd: on screen
+17:11:01 state MAIN covered by an HMI popup
+17:11:01 renderd: not on screen
+17:11:03 state MAIN has focus again
+17:11:03 renderd: on screen
+17:11:13 click BTN_SETTINGS
