@@ -1,7 +1,7 @@
 {
   "id": "cmocan_tidal",
   "title": "TIDAL",
-  "description": "A personal TIDAL player: your favourites, playlists, mixes and search, played on the car's speakers. Sign in once from the phone (QR code). Skip on the steering wheel goes to the next or the previous track. Needs the cmocan-tidal service.",
+  "description": "A personal TIDAL player: your favourites, playlists, mixes and search, played on the car's speakers. Sign in once from the phone (QR code). Skip on the steering wheel goes to the next or the previous track; held, it winds. Needs the cmocan-tidal service.",
   "version": "0.1.0",
   "mguHmi": ["ID7"],
   "requires": { "cmocan-tidal": "0.1.1", "mgu-deploy": "0.7.0", "mgu-render": "0.6.26" },
@@ -34,6 +34,6 @@
   "settings": [
     { "key": "quality", "label": "Sound quality (from the next track)", "type": "choice", "default": "HIGH",
       "options": [["HIGH", "High (AAC 320)"], ["LOSSLESS", "Lossless (FLAC), plays as High for now"]] },
-    { "key": "wheel", "label": "Skip on the steering wheel: next / previous track (while a track plays)", "type": "bool", "default": true }
+    { "key": "wheel", "label": "Steering wheel: press for next / previous track, hold to wind (while a track plays)", "type": "bool", "default": true }
   ]
 }

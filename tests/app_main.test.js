@@ -194,6 +194,13 @@ test('library -> favourite tracks -> play: the right requests, then now playing;
         wheel.statusSearchSwitch1({ operationPushButtonAudioAutomaticTuningSteeringWheel: 'SUCHLAUF_AUFWAERTS_MENUE_SKIP_RECHTS' });
         wheel.statusSearchSwitch1({ operationPushButtonAudioAutomaticTuningSteeringWheel: 'KEINE_AKTION' });
         await waitFor(() => cmds(svc).filter((c) => c === 'next').length === n + 1, 2000, 'wheel next');
+        // phase 2 (S2): held longer than 0.7 s it winds instead: one seek at release, no skip
+        wheel.statusSearchSwitch1({ operationPushButtonAudioAutomaticTuningSteeringWheel: 'SUCHLAUF_ABWAERTS_MENUE_SKIP_LINKS' });
+        await sleep(850);
+        wheel.statusSearchSwitch1({ operationPushButtonAudioAutomaticTuningSteeringWheel: 'KEINE_AKTION' });
+        await waitFor(() => cmds(svc).indexOf('seek') >= 0, 2000, 'wheel seek');
+        assert.ok(lastOf(svc, 'seek').position <= 1, '10 s back from 0:10 or so: the start: ' + lastOf(svc, 'seek').position);
+        assert.strictEqual(cmds(svc).filter((c) => c === 'prev').length, 1, 'only the bar button\'s prev: the long press did not skip');
         await ctx.loops.MAIN();
         await waitFor(() => cmds(svc).indexOf('cover') >= 0, 2000, 'the cover asked for');
         assert.strictEqual(lastOf(svc, 'cover').coverId, TRACK.coverId);

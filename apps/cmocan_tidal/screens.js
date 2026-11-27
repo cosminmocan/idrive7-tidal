@@ -6,7 +6,10 @@
  *   const info = draw(cv, theme, state, ui)
  *     ui:   { now, act(a), focus }      act: called by the canvas's touch / controller targets (cv.target);
  *                                       focus: the controller's button on screens with buttons (nav.js)
- *     info: { hits: [{ x, y, w, h, key, act, button, row }], qr: {...} | null, focus, defaultFocus }
+ *     info: { hits: [{ x, y, w, h, key, act, button, row, bar }], qr: {...} | null, focus, defaultFocus, barFocus }
+ *   now playing's progress bar (seek): ui.position is what it shows, ui.seeking that this is a target the user is
+ *   choosing (a handle on the bar, the time in the accent colour), ui.focus === 'bar' that the controller is on it
+ *   (info.barFocus); its hit is the finger's place, { key: 'np-bar', bar: { x, w, dur } }, not a button
  *   defaultAct(state, info)      what a press of the controller does when nothing else is focused
  *
  * Every text from the service goes through text.js (the fonts are ASCII). An act is plain data for main.js and
@@ -224,10 +227,18 @@ function drawNowPlaying(c) {
     const pos = typeof c.ui.position === 'number' ? c.ui.position : p.position;
     const dur = typeof c.ui.duration === 'number' ? c.ui.duration : (p.duration || tr.duration || null);
     const by = TOP + 252;
+    // a place for the finger and the controller while there is something to seek in (not on an error)
+    const seekable = !!dur && p.state !== 'error';
+    const seeking = seekable && c.ui.seeking === true, onBar = seekable && c.ui.focus === 'bar';
+    c.info.barFocus = onBar;
+    if (onBar) cv.strokeRoundRect(x - 14, by - 16, w + 28, 40, 20, 3, '#ffffff');
     cv.roundRect(x, by, w, 8, 4, BTN);
-    if (dur) cv.roundRect(x, by, Math.max(8, w * Math.max(0, Math.min(1, pos / dur))), 8, 4, p.state === 'playing' ? ACCENT : t.dim);
-    txt(c, L.mmss(pos) || '0:00', x, by + 38, 20, t.dim);
-    if (dur) txt(c, L.mmss(dur), x + w, by + 38, 20, t.dim, { align: 'right' });
+    const fw = dur ? Math.max(8, w * Math.max(0, Math.min(1, pos / dur))) : 0;
+    if (dur) cv.roundRect(x, by, fw, 8, 4, p.state === 'playing' || seeking ? ACCENT : t.dim);
+    if (seeking || onBar) { cv.circle(x + fw, by + 4, 13, '#ffffff'); cv.circle(x + fw, by + 4, 9, ACCENT); }
+    txt(c, L.mmss(pos) || '0:00', x, by + (onBar ? 50 : 38), 20, seeking ? ACCENT : t.dim, seeking ? { font: 'bold' } : undefined);
+    if (dur) txt(c, L.mmss(dur), x + w, by + (onBar ? 50 : 38), 20, t.dim, { align: 'right' });
+    if (seekable) c.info.hits.push({ x: x - 24, y: by - 26, w: w + 48, h: 60, key: 'np-bar', bar: { x: x, w: w, dur: dur } });
     // the controls: previous, play / pause, next (the knob starts on play / pause)
     const pp = NP_cmd(p), by2 = TOP + 330, mid = x + w / 2;
     button(c, mid - 290, by2, 170, 76, 'Previous', { type: 'control', cmd: 'prev' }, 'np-prev', false);
@@ -259,7 +270,7 @@ function drawVolume(c, v) {
 const DRAW = { NO_SERVICE: drawNoService, LOGIN: drawLogin, ERROR: drawError, OFFLINE: drawOffline, LIBRARY: drawLibrary, LIST: drawList, NOW_PLAYING: drawNowPlaying };
 
 function draw(cv, t, s, ui) {
-    const c = { cv: cv, t: t, s: s, ui: ui || {}, info: { hits: [], qr: null, cover: null, focus: ui && typeof ui.focus === 'number' ? ui.focus : -1, defaultFocus: 0 } };
+    const c = { cv: cv, t: t, s: s, ui: ui || {}, info: { hits: [], qr: null, cover: null, focus: ui && typeof ui.focus === 'number' ? ui.focus : -1, defaultFocus: 0, barFocus: false } };
     const fn = DRAW[s.screen];
     if (fn) fn(c);
     if (c.ui.volume) drawVolume(c, c.ui.volume);

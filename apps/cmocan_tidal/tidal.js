@@ -2,8 +2,8 @@
 /**
  * tidal.js - the app, wired: the service client (client.js), the state machine (model.js), the screens
  * (screens.js), the controller and touch (nav.js, ccu.js), covers, the speakers and the volume (audio.js,
- * car_volume.js), the steering wheel (wheel.js) and the car's speed (the kit's parked.js). main.js hands it the
- * kit's ctx; the tests hand it a stand-in.
+ * car_volume.js), the steering wheel (wheel.js), seek (seek.js), the service's log for the QR log (svclog.js) and
+ * the car's speed (the kit's parked.js). main.js hands it the kit's ctx; the tests hand it a stand-in.
  *
  *   const app = createApp(ctx, { socketPath, parked, setImage, decodeJpeg, pollMs });
  *   app.state() / app.info()     the model's state, the last frame's hit areas
@@ -25,6 +25,8 @@ const { createCovers } = require('./covers');
 const { createAudio, WANT } = require('./audio');
 const { createCarVolume } = require('./car_volume');
 const { createWheel, IFACE: WHEEL_IFACE } = require('./wheel');
+const { createSeeker, barTouch } = require('./seek');
+const { createSvcLog } = require('./svclog');
 const { createCcu } = require('./ccu');
 
 const W = 1600, H = 520;
@@ -47,11 +49,11 @@ function createApp(ctx, kit) {
     function draw() {
         const t = ctx.theme();
         const cv = ctx.canvas(W, H).clear(t.bg);
-        const p = progress.at(now());
+        const p = progress.at(now()), tg = seeker.target();
         let vol = null;
         try { vol = volume.popup(); } catch (e) { vol = null; }
         try {
-            info = S.draw(cv, t, s, { now: now(), act: act, focus: focus, cover: covers.get, position: p.pos, duration: p.dur, volume: vol, toastUntil: toastUntil });
+            info = S.draw(cv, t, s, { now: now(), act: act, focus: focus, cover: covers.get, position: tg != null ? tg : p.pos, seeking: tg != null, duration: p.dur, volume: vol, toastUntil: toastUntil });
         } catch (e) { log.warn('draw: ' + (e && e.stack || e)); }
         return ctx.ui.image('MAIN_GFX', cv);
     }
@@ -118,6 +120,15 @@ function createApp(ctx, kit) {
         });
     }
 
+    /* ---------- seek: the finger on the bar, the controller on it, the wheel held (seek.js) ---------- */
+    const seeker = createSeeker({
+        now: now, onChange: render,
+        where: () => { const p = progress.at(now()), pl = s.player; return { pos: p.pos, dur: p.dur, key: M.trackOn(s) ? pl.track.id + '/' + pl.queueIndex : null }; },
+        send: (position) => command('seek', { position: position }),
+        onDone: (position, a) => progress.jump(position, now(), a.id),
+    });
+    const onBar = (x, y) => { const h = s.screen === 'NOW_PLAYING' ? N.hitAt(info, { x: x, y: y }) : null; return h && h.bar ? h.bar : null; };
+
     /* ---------- polling ---------- */
     let polling = false, qualitySent = false;
     function poll() {
@@ -154,6 +165,8 @@ function createApp(ctx, kit) {
                 return;
             case 'login-new': loggingIn = false; login(true); return;
             case 'focus': focus = a.index; render(); return;
+            case 'seek-step': if (seeker.nudge(a.steps)) seeker.commit(500); return;
+            case 'seek-to': if (seeker.set(a.position)) seeker.commit(0); return;
             case 'row': L.rowActs(s, a.index).forEach(act); dispatch({ type: 'cursor', sel: a.index, top: L.cursor(s).top }); return;
             case 'leave': if (ctx.ui.close) Promise.resolve(ctx.ui.close('MAIN')).catch(() => {}); return;
             default: dispatch(a);
@@ -189,6 +202,7 @@ function createApp(ctx, kit) {
     covers.onChange(render);
     const wheel = createWheel({
         skip: (d) => act({ type: 'control', cmd: NP.skipCmd(d) }),
+        seek: { step: (d) => seeker.nudge(d), end: () => seeker.commit(0) },
         active: () => ctx.settings.get('wheel') !== false && !!(s.player && s.player.track && WANT[s.player.state]),
     });
     if (ctx.signals && ctx.signals.watch) {
@@ -201,6 +215,7 @@ function createApp(ctx, kit) {
         if (!ctx.ui.isVisible || ctx.ui.isVisible('MAIN')) ctx.controller.grab(true);
     }
     if (ctx.onTap) ctx.onTap((x, y) => input({ tap: { x: x, y: y } }));
+    if (ctx.onTouch) ctx.onTouch(barTouch(seeker, onBar));
     // where the kit runs the screen, its controller ring goes through our rows (cv.target): the list follows it
     const disp = ctx.display;
     if (disp && typeof disp._focus === 'function') {
@@ -216,6 +231,9 @@ function createApp(ctx, kit) {
             }
         };
     }
+
+    // Settings > QR log: the service's newest log lines go into the app's log first (svclog.js)
+    createSvcLog({ ask: ask, log: log }).watch(ctx.display);
 
     /* ---------- settings ---------- */
     function sendQuality() {
