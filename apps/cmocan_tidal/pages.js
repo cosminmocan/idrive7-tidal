@@ -10,12 +10,15 @@
  *                      nothing on it: 'bar')
  *   bar(state)         the bar's words: ['Previous', 'Pause' | 'Play', 'Next'] (the word says what a press does)
  *   BAR                the bar's buttons (app.json ids), in that order
+ *   pageKey(state)     the page's place the controller is on ('row:3', 'choice:0', 'key:19', 'progress') or null
+ *   kitPlace(state)    where the kit's focus goes: { k: 'bar:BTN_PLAY', bar } / { k: 'tab:0', tab } / { k: 'tgt:row:3' } / null
  *   message(state)     a message page: { icon, title, lines: [text], choices: [{ label, act }] }, or null for the screens
  *                      drawn otherwise (lists, now playing with a track); the login's choices are in it too
  * Node 8.9.4 syntax.
  */
 const NP = require('./nowplaying');
 const M = require('./model');
+const L = require('./listview');
 
 const BAR = ['BTN_PREVIOUS', 'BTN_PLAY', 'BTN_NEXT'];
 const TABS = ['Library', 'Now playing'];
@@ -69,4 +72,31 @@ function message(s) {
     }
 }
 
-module.exports = { tabs: tabs, tabCount: tabCount, area: area, bar: bar, message: message, BAR: BAR };
+/**
+ * the key of the page's place the controller is on (the target screens.js draws the highlight on): 'row:3',
+ * 'choice:0', 'key:19' (search's letters), 'progress' (now playing's line), or null (on the bar, the tabs, or nothing)
+ */
+function pageKey(s) {
+    const a = area(s);
+    if (a === 'progress') return 'progress';
+    if (a !== 'page') return null;
+    if (s.screen === 'LIST' || s.screen === 'LIBRARY') {
+        const f = M.top(s);
+        if (s.screen === 'LIST' && f && f.kind === 'search' && s.search.keyboard && !s.moving) return 'key:' + s.search.key;
+        const n = L.rows(s).length;
+        return n ? 'row:' + Math.max(0, Math.min(n - 1, L.cursor(s).sel)) : null;
+    }
+    const m = message(s), ch = (m && m.choices) || [];
+    return ch.length ? 'choice:' + Math.max(0, Math.min(ch.length - 1, s.focus.row)) : null;
+}
+
+/** where the kit's focus goes (display.js _focus): the bar button, the tab, or the page target the app highlights */
+function kitPlace(s) {
+    const a = area(s);
+    if (a === 'bar') { const id = BAR[Math.max(0, Math.min(BAR.length - 1, s.focus.bar))]; return { k: 'bar:' + id, bar: id }; }
+    if (a === 'tabs') { const t = Math.max(0, Math.min(tabCount(s) - 1, s.focus.tab)); return { k: 'tab:' + t, tab: t }; }
+    const k = pageKey(s);
+    return k && k !== 'progress' ? { k: 'tgt:' + k } : null;
+}
+
+module.exports = { tabs: tabs, tabCount: tabCount, area: area, bar: bar, message: message, pageKey: pageKey, kitPlace: kitPlace, BAR: BAR };

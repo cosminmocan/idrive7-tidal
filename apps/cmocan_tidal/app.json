@@ -28,8 +28,8 @@
   },
   "screens": [
     { "name": "MAIN", "kind": "canvas", "title": "TIDAL",
-      "buttons": [["BTN_UP", "Up"], ["BTN_DOWN", "Down"], ["BTN_OK", "Select"], ["BTN_PLAY", "Play / Pause"],
-                  ["BTN_PREV", "Previous"], ["BTN_NEXT", "Next"], ["BTN_LIBRARY", "Library"], ["BTN_SETTINGS", "Settings"]] }
+      "buttons": [["BTN_UP", "Up"], ["BTN_DOWN", "Down"], ["BTN_OK", "Select"], ["BTN_PREVIOUS", "Previous"],
+                  ["BTN_PLAY", "Play"], ["BTN_NEXT", "Next"], ["BTN_LIBRARY", "Library"], ["BTN_SETTINGS", "Settings"]] }
   ],
   "settings": [
     { "key": "quality", "label": "Sound quality (from the next track)", "type": "choice", "default": "HIGH",

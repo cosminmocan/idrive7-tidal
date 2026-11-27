@@ -4,6 +4,9 @@
  * (screens.js), the controller and touch (nav.js, ccu.js), covers, the speakers and the volume (audio.js,
  * car_volume.js), the steering wheel (wheel.js), seek (seek.js), the service's log for the QR log (svclog.js) and
  * the car's speed (the kit's parked.js). main.js hands it the kit's ctx; the tests hand it a stand-in.
+ * Where the kit runs the screen (mgu-render/1, full-screen layout), kitfocus.js gives the controller to the app's rule
+ * (nav.js) and keeps the kit's focus where the app's is; the header's tabs (pages.js) go into each frame, the bar's
+ * PLAY / PAUSE word follows the player (ctx.ui.text).
  *
  *   const app = createApp(ctx, { socketPath, parked, setImage, decodeJpeg, pollMs });
  *   app.state() / app.info()     the model's state, the last frame's hit areas
@@ -28,6 +31,8 @@ const { createWheel, IFACE: WHEEL_IFACE } = require('./wheel');
 const { createSeeker, barTouch } = require('./seek');
 const { createSvcLog } = require('./svclog');
 const { createCcu } = require('./ccu');
+const P = require('./pages');
+const { hookDisplay } = require('./kitfocus');
 
 const W = 1600, H = 520;
 const POLL_MS = 1500;
@@ -40,6 +45,8 @@ function createApp(ctx, kit) {
     const now = kit.now || Date.now;
     const client = createClient({ socketPath: kit.socketPath || '/run/cmocan-tidal.sock', log: log, timeoutMs: 6000 });
     let s = M.initial(), info = null, toastUntil = 0, stopped = false, loopHandle = null;
+    const disp = ctx.display;
+    let kf = null;                      // kitfocus.js, where the kit runs the screen
     const progress = createProgress();
     const loading = {};                 // list requests on their way, by frame key + params
     const timers = [];
@@ -53,6 +60,9 @@ function createApp(ctx, kit) {
         let vol = null;
         try { vol = volume.popup(); } catch (e) { vol = null; }
         try {
+            const tb = P.tabs(s);
+            if (cv.chrome) cv.chrome.tabs = { tabs: tb.tabs, sel: tb.sel, badges: [] };
+            if (kf) kf.sync();
             info = S.draw(cv, t, s, { now: now(), act: act, cover: covers.get, thumb: thumbs.get, position: tg != null ? tg : p.pos, seeking: tg != null, duration: p.dur, volume: vol, toastUntil: toastUntil });
         } catch (e) { log.warn('draw: ' + (e && e.stack || e)); }
         return ctx.ui.image('MAIN_GFX', cv);
@@ -64,6 +74,8 @@ function createApp(ctx, kit) {
         s = M.reduce(s, ev);
         if (s === before) return;
         if (s.message && s.message !== before.message) toastUntil = now() + TOAST_MS;
+        barWords();
+        if (kf) kf.sync();
         after();
         render();
     }
@@ -164,8 +176,12 @@ function createApp(ctx, kit) {
                 command(a.cmd);
                 return;
             case 'login-new': loggingIn = false; login(true); return;
-            case 'bar': if (a.id === 'BTN_PLAY') playPause(); else if (a.id === 'BTN_NEXT' || a.id === 'BTN_PREVIOUS') act({ type: 'control', cmd: a.id === 'BTN_NEXT' ? 'next' : 'prev' }); return;
-            case 'tab': if (a.index === 0) dispatch({ type: 'show-library' }); else if (a.index === 1) dispatch({ type: 'open-now-playing' }); return;
+            // the bar's buttons: where the kit runs the screen pressed as the HMI presses them (the kit flashes them)
+            case 'bar': if (kf && kf.own() && typeof disp._click === 'function') disp._click(a.id); else barPress(a.id); return;
+            case 'tab':
+                dispatch({ type: 'focus', area: 'page' });
+                if (kf && kf.own() && typeof disp._openTab === 'function') disp._openTab(a.index); else openTab(a.index);
+                return;
             case 'retry': poll(); return;
             case 'seek-step': if (seeker.nudge(a.steps)) seeker.commit(500); return;
             case 'seek-to': if (seeker.set(a.position)) seeker.commit(0); return;
@@ -176,17 +192,35 @@ function createApp(ctx, kit) {
     }
     function input(ev) { N.input(s, info, ev).forEach(act); }
     function playPause() { const cmd = NP.playPause(s.player); if (cmd) act({ type: 'control', cmd: cmd }); }
+    function barPress(id) {
+        if (id === 'BTN_PLAY') playPause();
+        else if (id === 'BTN_NEXT' || id === 'BTN_PREVIOUS') act({ type: 'control', cmd: id === 'BTN_NEXT' ? 'next' : 'prev' });
+    }
+    /** the app's header tabs: 0 LIBRARY (where the library was left), 1 NOW PLAYING (SETTINGS is the kit's) */
+    function openTab(i) {
+        if (i >= P.tabs(s).tabs.length) return;
+        dispatch(i === 0 ? { type: 'show-library' } : { type: 'open-now-playing' });
+    }
+    // the bar's middle word says what a press does (PAUSE while playing, else PLAY); the kit's bar mirrors ui.text
+    let playWord = 'Play';
+    function barWords() {
+        const w = P.bar(s)[1];
+        if (w === playWord || !ctx.ui.text) return;
+        playWord = w;
+        Promise.resolve().then(() => ctx.ui.text('BTN_PLAY', w)).catch((e) => log.warn('bar: ' + e));
+    }
 
     ctx.ui.onClick('BTN_PLAY', playPause);
-    ctx.ui.onClick('BTN_PREV', () => act({ type: 'control', cmd: 'prev' }));
+    ctx.ui.onClick('BTN_PREVIOUS', () => act({ type: 'control', cmd: 'prev' }));
     ctx.ui.onClick('BTN_NEXT', () => act({ type: 'control', cmd: 'next' }));
     ctx.ui.onClick('BTN_LIBRARY', () => act({ type: 'open-library' }));
     // the HMI's own bar (no GPU renderer: the knob goes along the bar's buttons, the picture takes no touch): Up,
-    // Down and Select stand in for the knob on the page; where the kit runs the screen they are left out
+    // Down and Select stand in for the knob on the page, Library for the tab; where the kit runs the screen they are
+    // left out (its bar: PREVIOUS, PLAY / PAUSE, NEXT; LIBRARY is a tab there)
     ctx.ui.onClick('BTN_UP', () => input({ knob: -1 }));
     ctx.ui.onClick('BTN_DOWN', () => input({ knob: 1 }));
     ctx.ui.onClick('BTN_OK', () => input({ press: true }));
-    if (ctx.hideButton) ['BTN_UP', 'BTN_DOWN', 'BTN_OK'].forEach((id) => ctx.hideButton(id));
+    if (ctx.hideButton) ['BTN_UP', 'BTN_DOWN', 'BTN_OK', 'BTN_LIBRARY'].forEach((id) => ctx.hideButton(id));
 
     /* ---------- the car: speakers, volume, wheel, controller, touch ---------- */
     // one proxy per interface for the speakers and the volume (both use the audio manager)
@@ -221,21 +255,9 @@ function createApp(ctx, kit) {
     }
     if (ctx.onTap) ctx.onTap((x, y) => input({ tap: { x: x, y: y } }));
     if (ctx.onTouch) ctx.onTouch(barTouch(seeker, onBar));
-    // where the kit runs the screen, its controller ring goes through our rows (cv.target): the list follows it
-    const disp = ctx.display;
-    if (disp && typeof disp._focus === 'function') {
-        const focus0 = disp._focus.bind(disp);
-        disp._focus = (p) => {
-            focus0(p);
-            const m = /^tgt:row:(\d+)$/.exec((p && p.k) || '');
-            if (m && (s.screen === 'LIST' || s.screen === 'LIBRARY')) {
-                const c = L.move({ sel: Number(m[1]), top: L.cursor(s).top }, 0, L.rows(s).length);
-                // one row of the next ones in view, so the knob can go on to it
-                const c2 = L.move(c, 1, L.rows(s).length);
-                dispatch({ type: 'cursor', sel: c.sel, top: Math.max(c.top, c2.top) });
-            }
-        };
-    }
+    // where the kit runs the screen: the controller to the app's rule, the kit's focus where the app's is (kitfocus.js)
+    kf = hookDisplay(disp, { input: input, place: () => P.kitPlace(s) });
+    if (ctx.onTab) ctx.onTab((i) => { dispatch({ type: 'focus', area: 'page' }); openTab(i); });
 
     // Settings > QR log: the service's newest log lines go into the app's log first (svclog.js)
     createSvcLog({ ask: ask, log: log }).watch(ctx.display);
