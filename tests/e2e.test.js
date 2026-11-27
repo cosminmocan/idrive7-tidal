@@ -10,7 +10,8 @@
  * The tracks are generated tones in AAC-LC, MP4 with the index first, as TIDAL serves HIGH (tools/e2e/
  * make-fixtures.sh). Each track is also played once by the player straight from the file, uninterrupted: that WAV
  * is the reference every WAV of the service must equal (whole) or begin with (a track left early), sample for
- * sample, so no sound is lost or repeated by pauses, cuts and retries.
+ * sample, so no sound is lost or repeated by pauses, cuts and retries. A player started by a seek must equal the
+ * reference from its position on.
  *
  * The scenarios run in order, one session: each starts from where the one before left the service.
  * Needs E2E_PLAYER (the player binary) and E2E_FIXTURES (make-fixtures.sh's folder); without them (as in `make
@@ -47,13 +48,16 @@ const FRAME = 4;   // 16-bit stereo
 
 // the catalogue's tracks (tests/fixtures/tidal/library.json) and the tone each one plays here
 const A = 17927864, B = 17927865, C = 17927866, D = 77777702, E = 77777703;
+const F = 77777701;   // not a favourite: played by its id, for the long seek
 const TONES = {};
 TONES[A] = { file: 'tone440_8s.m4a', hz: 440, secs: 8 };
 TONES[B] = { file: 'tone660_6s.m4a', hz: 660, secs: 6 };
 TONES[C] = { file: 'tone880_6s.m4a', hz: 880, secs: 6 };
 TONES[D] = { file: 'tone1000_24s.m4a', hz: 1000, secs: 24 };
 TONES[E] = { file: 'tone550_10s.m4a', hz: 550, secs: 10 };
+TONES[F] = { file: 'tone770_190s.m4a', hz: 770, secs: 190 };
 const IDS = [A, B, C, D, E];
+const ALL = IDS.concat([F]);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function waitFor(fn, ms, what) {
@@ -172,7 +176,7 @@ function aacObjectType(b) {
 
 /* ---------- the parts ---------- */
 const X = {
-    dir: null, fake: null, svc: null, app: null, logs: [], players: [], children: [], refs: {}, exited: null,
+    dir: null, fake: null, svc: null, app: null, logs: [], players: [], children: [], refs: {}, refPlayers: [], exited: null,
     calls: {}, callId: 0,
 };
 function call(op, extra) {
@@ -198,25 +202,30 @@ function reference(id) {
         p.stderr.on('data', (d) => { err += d; });
         p.stdin.on('error', () => {});
         p.stdin.end(fs.readFileSync(path.join(FIXTURES, TONES[id].file)));
+        X.refPlayers.push(p);
         p.on('exit', (code) => {
             if (code !== 0) return reject(new Error('the reference player for ' + id + ' ended with ' + code + ': ' + err));
-            resolve(readPcm(wav));
+            try { resolve(readPcm(wav)); } catch (e) { reject(e); }
         });
     });
 }
 
 /**
  * the WAV of a player of the service: 48 kHz stereo 16-bit; the same samples as the reference, all of them
- * (whole) or the first ones (a track left early); and the track's tone
+ * (whole) or the first ones (a track left early); and the track's tone. A player started by a seek (opts.from,
+ * seconds): the reference's samples from that position on, to its end (whole) or the first of them.
  */
 function checkWav(p, opts) {
     const o = opts || {};
-    const what = 'player ' + p.n + ' (track ' + p.id + ')';
-    return X.refs[p.id].then((ref) => {
+    const from = o.from || 0;
+    const what = 'player ' + p.n + ' (track ' + p.id + (from ? ' from ' + from + ' s' : '') + ')';
+    assert.strictEqual(p.startMs, Math.round(from * 1000), what + ': the player was started at ' + p.startMs + ' ms');
+    return X.refs[p.id].then((whole) => {
         const got = readPcm(p.wav);
         assertFormat(got, what);
+        const ref = { data: whole.data.slice(Math.min(whole.data.length, Math.round(from * RATE) * FRAME)) };
         if (o.whole) {
-            assert(Math.abs(seconds(got) - TONES[p.id].secs) / TONES[p.id].secs < 0.01,
+            assert(Math.abs(seconds(got) + from - TONES[p.id].secs) / TONES[p.id].secs < 0.01,
                 what + ': ' + seconds(got).toFixed(3) + ' s of sound, the track is ' + TONES[p.id].secs + ' s');
         }
         const n = got.data.length;
@@ -224,7 +233,7 @@ function checkWav(p, opts) {
         if (!ref.data.slice(0, n).equals(got.data)) {
             let i = 0;
             while (i < n && ref.data[i] === got.data[i]) i++;
-            assert.fail(what + ': the sound differs from the reference from ' + (Math.floor(i / FRAME) / RATE).toFixed(3) + ' s on (lost or repeated sound)');
+            assert.fail(what + ': the sound differs from the reference from ' + (from + Math.floor(i / FRAME) / RATE).toFixed(3) + ' s on (lost or repeated sound)');
         }
         if (o.whole) assert.strictEqual(n, ref.data.length, what + ': ' + seconds(got).toFixed(3) + ' s, the reference has ' + seconds(ref).toFixed(3) + ' s');
         if (o.tone !== false) assertTone(got, p.id, what);
@@ -246,14 +255,14 @@ test('start: the fake TIDAL, the real service with client.js and the player, the
     X.sock = path.join(X.dir, 'cmocan-tidal.sock');
     X.sessionFile = path.join(X.stateDir, 'session.json');
     // the references play meanwhile (in real time, as the service's players do)
-    IDS.forEach((id) => { X.refs[id] = reference(id); X.refs[id].catch(() => {}); });
+    ALL.forEach((id) => { X.refs[id] = reference(id); X.refs[id].catch(() => {}); });
 
     const fake = X.fake = await createFakeTidal({ loginInterval: 1 });
     if (VERBOSE) {
         const push = fake.log.push.bind(fake.log);
         fake.log.push = (e) => { if (/^\/files\//.test(e.path)) console.log(stamp() + 'fake: GET ' + e.path + ' ' + (e.headers.range || '')); return push(e); };
     }
-    IDS.forEach((id) => {
+    ALL.forEach((id) => {
         const t = fake.data.tracks.filter((x) => x && x.id === id)[0];
         assert(t, 'track ' + id + ' in the fake catalogue');
         t.duration = TONES[id].secs;
@@ -520,6 +529,81 @@ test('8. the app goes silent: playback stops after the 90 s watch (and not at 85
     assert(seconds(got) < TONES[D].secs - 5, 'stopped early: ' + seconds(got).toFixed(2) + ' s');
 }, { timeout: 90000 });
 
+// scenario 10 (phase 2, task S1) runs before 9: it needs the login that 9 ends
+test('10. seek: forward, back, to the last seconds and to 3 minutes; each player\'s WAV is the reference from its position', async () => {
+    const app = X.app;
+    await app.openList('fav-10', 'Favourite tracks', 'tracks', 'favorites', { kind: 'tracks' });
+    const k = X.players.length, kf = X.fake.log.length;
+    const between = (lo, hi) => (s) => s.player && s.player.state === 'playing' && s.player.queueIndex === 3 && s.player.position >= lo && s.player.position < hi;
+    /** seek, and the position is there at once; resolves with where app.statuses was then */
+    async function seek(position) {
+        const a = await app.request('seek', { position: position });
+        assert.deepStrictEqual({ ok: a.ok, error: a.error }, { ok: true, error: undefined }, 'seek ' + position);
+        await app.poll();
+        const p = app.state().player;
+        assert(p.position >= position && p.position < position + 2, 'right after seek ' + position + ': position ' + p.position + ', ' + p.state);
+        assert.strictEqual(p.queueIndex, 3);
+        return app.statuses.length;
+    }
+    await app.play(3);
+    await app.until(playing(D, 3, 2), 20000, 'D playing');
+    // forward
+    let ks = await seek(15);
+    await app.until(between(16.5, 24), 20000, 'D playing past 16.5 s');
+    app.statuses.slice(ks).forEach((s) => assert(s.position >= 15 && s.state !== 'error', 'after the seek to 15 s: ' + JSON.stringify(s)));
+    // back
+    ks = await seek(4);
+    await app.until(between(5.5, 14), 20000, 'D playing past 5.5 s');
+    app.statuses.slice(ks).forEach((s) => assert(s.position >= 4 && s.position < 14 && s.state !== 'error', 'after the seek to 4 s: ' + JSON.stringify(s)));
+    // while paused: it stays paused at the position, and plays from there
+    await app.request('pause');
+    await app.until((s) => s.player && s.player.state === 'paused', 5000, 'paused');
+    ks = await seek(20.25);
+    await sleep(3000);
+    await app.poll();
+    app.statuses.slice(ks).forEach((s) => assert(s.state !== 'playing' && s.position === 20.25, 'paused after the seek to 20.25 s: ' + JSON.stringify(s)));
+    assert.strictEqual(app.state().player.state, 'paused');
+    const paused = playersSince(k)[3];
+    assert(paused && paused.startMs === 20250, 'the paused player: ' + JSON.stringify(paused));
+    let size = 0;
+    try { size = fs.statSync(paused.wav).size; } catch (e) { /* not made yet */ }
+    assert(size <= 44, 'nothing played while paused: a WAV of ' + size + ' bytes');
+    await app.request('resume');
+    // D plays its last seconds, then the queue goes on to E: stopped there
+    await app.until((s) => s.player && s.player.queueIndex === 4, 30000, 'D played to its end, E next');
+    await app.request('stop');
+    await app.until((s) => s.player && s.player.state === 'idle', 10000, 'stopped');
+    const ps = playersSince(k);
+    assert.deepStrictEqual(ps.slice(0, 4).map((p) => p.id), [D, D, D, D], 'a player for each seek');
+    assert.deepStrictEqual(ps.slice(0, 4).map((p) => p.startMs), [0, 15000, 4000, 20250]);
+    assert.strictEqual(ps[4].id, E);
+    const reqs = fileRequests(kf, D);
+    assert.strictEqual(reqs.length, 4, 'D fetched once for each player');
+    reqs.forEach((r) => assert(!r.headers.range, 'each from the first byte: ' + r.headers.range));
+    await checkWav(ps[0]);
+    await checkWav(ps[1], { from: 15 });
+    await checkWav(ps[2], { from: 4 });
+    await checkWav(ps[3], { from: 20.25, whole: true });
+
+    // a seek to 3 minutes into an AAC 320 track of 190 s (7.6 MB): how long until it plays
+    const k2 = X.players.length;
+    const a = await app.request('play', { tracks: [F], index: 0 });
+    assert.strictEqual(a.ok, true);
+    const playingF = (lo) => (s) => s.player && s.player.state === 'playing' && s.player.queueLength === 1 && s.player.position >= lo;
+    await app.until(playingF(1), 30000, 'F playing');
+    const t0 = Date.now();
+    assert.strictEqual((await app.request('seek', { position: 180 })).ok, true);
+    await waitFor(() => app.poll().then(playingF(180)), 60000, 'F playing from 180 s');
+    const ms = Date.now() - t0;
+    console.log('       seek to 180 s (' + Math.round(X.fake.files[F + '.m4a'].length / 1024) + ' KiB AAC, 190 s): playing after ' + ms + ' ms');
+    assert(ms < 30000, 'the seek to 180 s took ' + ms + ' ms');
+    await app.until((s) => s.player && s.player.state === 'idle', 30000, 'F played to its end');
+    const pf = playersSince(k2);
+    assert.deepStrictEqual(pf.map((p) => [p.id, p.startMs]), [[F, 0], [F, 180000]]);
+    await checkWav(pf[0]);
+    await checkWav(pf[1], { from: 180, whole: true });
+}, { timeout: 400000 });
+
 test('9. log out removes the session file; the app is back on the login screen', async () => {
     const app = X.app;
     assert(fs.existsSync(X.sessionFile));
@@ -533,6 +617,8 @@ test('9. log out removes the session file; the app is back on the login screen',
 }, { timeout: 30000 });
 
 test('the end: the service ends, its children with it; no process left', async () => {
+    // a reference still playing (the long one, when the scenario that waits for it did not run): not waited for
+    X.refPlayers.forEach((p) => { try { p.kill('SIGKILL'); } catch (e) { /* gone */ } });
     if (X.app) X.app.close();
     if (X.svc && X.svc.connected) {
         await call('stop').catch(() => null);

@@ -15,8 +15,8 @@
  *   control thread  fd 3, one command a line: pause | resume | volume <0..1> | quit (anything else is ignored);
  *                   fd 3 closed (the service gone) is quit
  *   tick thread     every 500 ms after open: MGU {"ev":"tick",...}
- *   the clock       monotonic; starts once MGU_PREBUFFER_MS of sound is queued; stands while paused and while
- *                   buffering (the input ran dry: it goes on once that much is queued again, or the input ended)
+ *   the clock       monotonic; starts (at MGU_START_MS) once MGU_PREBUFFER_MS of sound is queued; stands while paused
+ *                   and while buffering (the input ran dry: it goes on once that much is queued again, or the input ended)
  * Told to end (quit, SIGTERM, fd 3 closed) it closes the sound device first and is gone within 2.5 s, exit 0.
  *
  * Started as root (the service is root), it becomes MGU_RUN_AS with the groups MGU_GROUPS before it opens anything
@@ -26,6 +26,10 @@
  *
  * MGU_AUDIO         alsa:<device> (default alsa:plug:smartx:CarLifeMedia_CF_48_STEREO) | null | wav:<path> (tests)
  * MGU_PREBUFFER_MS  queued before playing starts, and again after the input ran dry (default 1500)
+ * MGU_START_MS      where playing starts, in ms from the track's start (a seek; default 0): the input still comes from
+ *                   its first byte; the sound before the position is decoded and thrown away as fast as the input
+ *                   arrives (never queued, played or paced), so what plays is sample for sample what a player started
+ *                   at 0 plays from there. The clock and the ticks start at the position. Past the end: end at once
  * MGU_ALSA_US       the ALSA buffer in us (default 64000: smartx's 3 periods of 1024 frames)
  * MGU_RUN_AS        the user to become (a name or a number); as root without it the player refuses to run
  * MGU_GROUPS        its groups (default mgu_alsa,audio); a group the system does not have is skipped and logged
@@ -131,11 +135,12 @@ public:
     bool started() { std::lock_guard<std::mutex> l(mu_); return started_; }
     bool paused() { std::lock_guard<std::mutex> l(mu_); return paused_; }
     bool stalled() { std::lock_guard<std::mutex> l(mu_); return stalled_; }
+    /* where the track starts playing (MGU_START_MS): before start() */
+    void set_origin(double s) { std::lock_guard<std::mutex> l(mu_); if (!started_) base_ = s; }
     void start() {
         std::lock_guard<std::mutex> l(mu_);
         if (started_) return;
         started_ = true;
-        base_ = 0;
         t0_ = mono();
     }
     void set_paused(bool p) { set(&paused_, p); }
@@ -156,6 +161,9 @@ private:
 };
 Clock g_clock;
 double g_pre = 1.5;   /* MGU_PREBUFFER_MS */
+/* MGU_START_MS as frames at 48 kHz (a ms is 48 frames: always whole): the sound before it is thrown away */
+unsigned long long g_start_frames = 0;
+const long long kStartMaxMs = 24LL * 3600 * 1000;   /* no track is longer: a position past it is past the end anyway */
 
 /* the one error the player ends with: the first one set wins */
 std::mutex g_err_mu;
@@ -478,7 +486,7 @@ private:
 
 std::atomic<int> g_volume_milli(1000);
 std::atomic<bool> g_out_done(false);
-std::atomic<unsigned long long> g_written(0);   /* frames given to the device */
+std::atomic<unsigned long long> g_written(0);   /* the track's frames given to the device, counted from its start */
 std::atomic<unsigned long long> g_dropped(0);   /* frames lost (the device did not take them) */
 const double kLead = 0.04;                      /* written this far ahead of the clock (smartx reads 21 ms periods) */
 std::atomic<bool> g_dev_ok(false);              /* the device is open */
@@ -531,7 +539,7 @@ void output_thread() {
     };
     const size_t kChunk = 1024;
     std::vector<int16_t> buf(kChunk * 2);
-    unsigned long long written = 0;
+    unsigned long long written = g_start_frames;   /* the track's frame the next one written is: the clock's unit */
     while (!g_quit) {
         /* the device: before the start, and after it was lost (the clock stands meanwhile) */
         if (!device()) {
@@ -653,6 +661,10 @@ public:
     /* what the resampler still holds */
     bool flush() { return swr_ ? convert(nullptr, 0) : true; }
     unsigned long long frames_out() const { return out_frames_; }
+    /* the first n frames at 48 kHz are thrown away (a seek): everything is decoded and resampled as ever, so the
+     * frames after them are the very ones a player without it gets */
+    void skip(unsigned long long n) { skip_ = n; }
+    unsigned long long to_skip() const { return skip_; }
 
 private:
     bool convert(const uint8_t *in, int n) {
@@ -664,12 +676,15 @@ private:
         const int got = swr_convert(swr_, &o, max, in ? &i : nullptr, n);
         if (got <= 0) return true;
         out_frames_ += (unsigned long long) got;
-        return g_q.push(out_.data(), (size_t) got);
+        const size_t drop = (size_t) std::min<unsigned long long>(skip_, (unsigned long long) got);
+        skip_ -= drop;
+        if (drop == (size_t) got) return !g_quit;
+        return g_q.push(out_.data() + 2 * drop, (size_t) got - drop);
     }
     SwrContext *swr_ = nullptr;
     int rate_ = 0;
     std::vector<int16_t> out_;
-    unsigned long long out_frames_ = 0;
+    unsigned long long out_frames_ = 0, skip_ = 0;
 };
 
 void start_ticks();
@@ -747,6 +762,7 @@ void decode() {
         AVPacket *pkt = av_packet_alloc();
         AVFrame *fr = av_frame_alloc();
         Resampler rs;
+        rs.skip(g_start_frames);
         std::vector<float> lr;
         unsigned long long frames = 0, errors = 0;
         bool more = true;
@@ -781,6 +797,8 @@ void decode() {
             more = drain() && rs.flush();
         }
         logf("decoded %llu frames (%llu errors), %llu frames at 48 kHz", frames, errors, rs.frames_out());
+        if (g_start_frames && rs.to_skip())
+            logf("the start position %.3f s is past the end (%.3f s): nothing to play", (double) g_start_frames / kRate, (double) rs.frames_out() / kRate);
         if (!g_quit && frames == 0) fail_input(errors ? "nothing decoded" : "no sound frames");
         av_frame_free(&fr);
         av_packet_free(&pkt);
@@ -960,6 +978,17 @@ int main(int argc, char **argv) {
         const long ms = strtol(pb, &end, 10);
         if (*pb && !*end && ms >= 0 && ms <= 10000) g_pre = std::min(ms / 1000.0, kQueueS - 0.5);
         else logf("MGU_PREBUFFER_MS %s not understood: %.0f ms", pb, g_pre * 1000);
+    }
+    if (const char *sm = getenv("MGU_START_MS")) {
+        char *end = nullptr;
+        errno = 0;
+        const long long ms = strtoll(sm, &end, 10);
+        if (*sm && !*end && errno == 0 && ms >= 0) {
+            g_start_frames = (unsigned long long) std::min(ms, kStartMaxMs) * (kRate / 1000);
+            g_clock.set_origin((double) g_start_frames / kRate);
+            g_written = g_start_frames;
+            if (ms > 0) logf("starting at %.3f s: the sound before it is thrown away", (double) g_start_frames / kRate);
+        } else logf("MGU_START_MS %s not understood: starting at 0", sm);
     }
     std::thread(watchdog).detach();
     if (fcntl(3, F_GETFD) != -1) std::thread(control_thread).detach();   /* still in poll at the end: _exit ends it */

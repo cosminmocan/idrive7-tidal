@@ -37,12 +37,14 @@ function createPlayerProcess(opts) {
     const env = Object.assign({ PATH: '/usr/bin:/bin', HOME: '/tmp', MGU_AUDIO: o.audio || AUDIO, MGU_RUN_AS: o.runAs || RUN_AS,
         MGU_GROUPS: o.groups || GROUPS, MGU_PREBUFFER_MS: PREBUFFER_MS, MGU_ALSA_US: ALSA_US }, o.env || {});
     let child = null;
+    let p = null;
     let done = false;
     let resolveExit;
     const exited = new Promise((r) => { resolveExit = r; });
     function finish(x) {
         if (done) return;
         done = true;
+        if (p && p.pid) log('player ' + p.pid + ': exited, ' + (x.error ? x.error : (x.signal ? x.signal : 'code ' + x.code)));
         resolveExit(x);
     }
 
@@ -51,7 +53,7 @@ function createPlayerProcess(opts) {
 
     // a sink that takes and drops bytes, for a player that is gone or never started
     const nowhere = new Writable({ write: (c, e, cb) => cb() });
-    const p = { pid: child ? child.pid : null, exited: exited, stdin: child && child.stdin ? child.stdin : nowhere };
+    p = { pid: child ? child.pid : null, exited: exited, stdin: child && child.stdin ? child.stdin : nowhere };
 
     /** fd 3 closed: quit for a player still running; the handle freed for one that ended */
     function closeCtl() {

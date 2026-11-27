@@ -7,10 +7,11 @@
  *
  * It plays the five favourite tones in a loop and, every few seconds, does one of: cut the download, an outage of
  * the file server (3-8 s), expire the access token (401), a 429 on the stream address, kill -9 the player, pause and
- * resume, next, previous. Whenever playback has stopped (an error, the end of the queue) it presses play again.
+ * resume, next, previous, seek (anywhere in the track, now and then past its end). Whenever playback has stopped (an error, the end of the queue) it presses play again.
  *
  * It FAILS when: the service or its client process ends; playback is stuck (nothing playing for 120 s); a player's
- * sound differs from the reference (lost or repeated samples) or is shorter than the position the service reported;
+ * sound differs from the reference (lost or repeated samples; for a player started by a seek: the reference from its
+ * position on) or is shorter than the position the service reported;
  * more than one player is alive; the service's memory passes 100 MiB or grows by more than 5 MiB between the third
  * and the last quarter of the run; open files grow; a process is left at the end.
  */
@@ -64,7 +65,7 @@ function pcm(file) {
 const X = { players: [], children: [], logs: 0, calls: {}, callId: 0, refs: {}, svcExit: null };
 const R = {
     seconds: SECONDS, seed: Number(process.env.SOAK_SEED || 1), failures: [], faults: {}, plays: 0, players: 0, playersChecked: 0,
-    playersWhole: 0, soundSeconds: 0, clientStarts: 0, maxServiceRssMib: 0, maxClientRssMib: 0, maxPlayersAlive: 0,
+    playersWhole: 0, playersSeeked: 0, seeksRefused: 0, soundSeconds: 0, clientStarts: 0, maxServiceRssMib: 0, maxClientRssMib: 0, maxPlayersAlive: 0,
 };
 function fail(msg) { if (R.failures.length < 50) R.failures.push(elapsed().toFixed(0) + ' s: ' + msg); log('FAIL ' + msg); }
 function count(k) { R.faults[k] = (R.faults[k] || 0) + 1; }
@@ -79,20 +80,31 @@ function reference(id) {
     });
 }
 
-/** a finished player's sound: the reference's samples from the start, at least as long as the position reported */
+/**
+ * a finished player's sound: the reference's samples from where the player started (0, or a seek's position), at
+ * least as long as the position reported
+ */
 function checkPlayer(p) {
     let got;
-    try { got = pcm(p.wav); } catch (e) { return fail('player ' + p.n + ': no WAV (' + e.message + ')'); }
-    const ref = X.refs[p.id];
+    try { got = pcm(p.wav); } catch (e) {
+        // ended before it made its WAV (a seek or a next right behind it): nothing played, nothing to compare
+        if (e.code === 'ENOENT' && p.maxPos <= (p.startMs || 0) / 1000 + 1.0) { R.playersChecked++; return; }
+        return fail('player ' + p.n + ': no WAV (' + e.message + ')');
+    }
+    const from = (p.startMs || 0) / 1000;
+    const all = X.refs[p.id];
+    const ref = all.slice(Math.min(all.length, Math.round(from * RATE) * FRAME));
     const secs = got.length / FRAME / RATE;
+    const what = 'player ' + p.n + ' (track ' + p.id + (from ? ' from ' + from + ' s' : '') + ')';
     R.playersChecked++; R.soundSeconds += secs;
-    if (got.length > ref.length) fail('player ' + p.n + ' (track ' + p.id + '): ' + secs.toFixed(2) + ' s, more than the track');
+    if (from) R.playersSeeked++;
+    if (got.length > ref.length) fail(what + ': ' + secs.toFixed(2) + ' s, more than the track');
     else if (!ref.slice(0, got.length).equals(got)) {
         let i = 0;
         while (i < got.length && ref[i] === got[i]) i++;
-        fail('player ' + p.n + ' (track ' + p.id + '): the sound differs from the reference from ' + (i / FRAME / RATE).toFixed(3) + ' s (lost or repeated sound)');
+        fail(what + ': the sound differs from the reference from ' + (from + i / FRAME / RATE).toFixed(3) + ' s (lost or repeated sound)');
     } else if (got.length === ref.length) R.playersWhole++;
-    if (!p.killed && p.maxPos > secs + 1.0) fail('player ' + p.n + ' (track ' + p.id + '): the service reported ' + p.maxPos.toFixed(2) + ' s played, the sound is ' + secs.toFixed(2) + ' s');
+    if (!p.killed && p.maxPos > from + secs + 1.0) fail(what + ': the service reported ' + p.maxPos.toFixed(2) + ' s played, the sound ends at ' + (from + secs).toFixed(2) + ' s');
     try { fs.unlinkSync(p.wav); } catch (e) { /* gone */ }
 }
 
@@ -118,7 +130,7 @@ async function main() {
     await new Promise((resolve) => svc.on('message', (m) => {
         if (!m || typeof m !== 'object') return;
         if (m.ev === 'ready') resolve();
-        else if (m.ev === 'log') { X.logs++; if (/error|fail|gave up|died|exit/i.test(m.line)) log('svc: ' + m.line); }
+        else if (m.ev === 'log') { X.logs++; if (/error|fail|gave up|died|exit/i.test(m.line) && !/: exited, code 0$/.test(m.line)) log('svc: ' + m.line); }
         else if (m.ev === 'player') { m.startedAt = Date.now(); m.maxPos = 0; X.players.push(m); R.players++; }
         else if (m.ev === 'child') { X.children.push(m); if (m.kind === 'client') R.clientStarts++; }
     }));
@@ -143,7 +155,7 @@ async function main() {
 
     async function fault() {
         const cur = X.players[X.players.length - 1];
-        const kind = ['cut', 'outage', 'expire', '429', 'kill', 'pause', 'next', 'prev'][between(0, 7)];
+        const kind = ['cut', 'outage', 'expire', '429', 'kill', 'pause', 'next', 'prev', 'seek', 'seek'][between(0, 9)];
         count(kind);
         log('fault: ' + kind);
         if (kind === 'cut') {
@@ -160,6 +172,16 @@ async function main() {
         else if (kind === '429') fake.fault({ path: /urlpostpaywall$/, status: 429, headers: { 'Retry-After': '2' }, times: 1 });
         else if (kind === 'kill') { if (cur && alive(cur.pid)) { cur.killed = true; try { process.kill(cur.pid, 'SIGKILL'); } catch (e) { /* gone */ } } }
         else if (kind === 'pause') { await app.request('pause'); await sleep(between(500, 3000)); await app.request('resume'); }
+        else if (kind === 'seek') {
+            // anywhere in the track playing; one time in eight past its end (the next track plays)
+            const secs = cur ? X.refs[cur.id].length / FRAME / RATE : 10;
+            const pos = between(0, 7) === 0 ? Math.round(secs + between(0, 30)) : Math.round(rnd() * secs * 100) / 100;
+            if (cur) cur.left = true;   // what status says from here on is the next player's position
+            const a = await app.request('seek', { position: pos });
+            log('seek to ' + pos + ' s of ' + secs.toFixed(1) + ': ' + (a.ok ? 'ok' : a.error));
+            // refused only when nothing plays (an error, the queue's end, a stop by a fault before)
+            if (!a.ok) { R.seeksRefused++; if (a.error !== 'bad-request') fail('seek answered ' + a.error); }
+        }
         else await app.request(kind);
     }
 
@@ -169,7 +191,7 @@ async function main() {
         const now = Date.now();
         const st = app.statuses[app.statuses.length - 1];
         const cur = X.players[X.players.length - 1];
-        if (st && cur && st.trackId === cur.id && st.at > cur.startedAt + 500 && typeof st.position === 'number') cur.maxPos = Math.max(cur.maxPos, st.position);
+        if (st && cur && !cur.left && st.trackId === cur.id && st.at > cur.startedAt + 500 && typeof st.position === 'number') cur.maxPos = Math.max(cur.maxPos, st.position);
         if (st && (st.state === 'playing' || st.state === 'buffering' || st.state === 'loading' || st.state === 'paused')) { if (st.state === 'playing') lastPlayingAt = now; notPlayingSince = 0; }
         else if (!notPlayingSince) notPlayingSince = now;
         // stopped (an error, or the end of the queue): press play again, once any outage is over

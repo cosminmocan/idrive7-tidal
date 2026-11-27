@@ -91,7 +91,8 @@ test('volume 0.5 halves the peak of the output', () => {
             P.assertClean(r, h);
             const w = P.readWav(out);
             const before = P.peak(P.channel(w, 0, 0.2 * P.RATE, 0.5 * P.RATE));
-            const after = P.peak(P.channel(w, 0, (at + 2) * P.RATE, P.RATE));
+            // a whole frame: (1.007 + 2) * 48000 is 144335.99999999997 in floating point, and a sample at that index is NaN
+            const after = P.peak(P.channel(w, 0, Math.round((at + 2) * P.RATE), P.RATE));
             assert(Math.abs(after / before - 0.5) < 0.02, 'peak ' + before.toFixed(4) + ' then ' + after.toFixed(4));
         });
 }, T);

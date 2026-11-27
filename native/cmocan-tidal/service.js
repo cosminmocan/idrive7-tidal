@@ -10,6 +10,9 @@
  *   client.js           a child as the tool's internet uid (13150): lib/netx.js, the only process with internet
  *   tidal-player        one per track (player.js), started as root with MGU_RUN_AS=nobody, MGU_GROUPS=mgu_alsa,audio
  *
+ * The log (log.js): every line goes to the journal and into the newest 200 the `log` command returns, with no token
+ * and no address's query in it.
+ *
  * The app's watch: 90 s without a request while a track plays (or is paused) stops it (rule R8); 10 minutes without
  * a request while nothing plays ends the service (exit 0). README.md has the rest.
  *
@@ -28,6 +31,7 @@ const { createState, rmrf } = require('./state');
 const { createClientLink } = require('./client');
 const { createPlayback } = require('./playback');
 const { createPlayerProcess } = require('./player');
+const { createLog } = require('./log');
 
 const VERSION = '0.1.1';
 const MAX_LINE = 64 * 1024;
@@ -44,7 +48,7 @@ const TICK_MS = 5000;
 const NET_UID = 13150;    // component.json "uids": the only uid of this tool mgu-uplink routes
 
 const COMMANDS = ['status', 'login-start', 'login-cancel', 'logout', 'favorites', 'playlists', 'playlist', 'album',
-    'mixes', 'mix', 'search', 'cover', 'play', 'pause', 'resume', 'next', 'prev', 'stop', 'prefs', 'exit'];
+    'mixes', 'mix', 'search', 'cover', 'play', 'pause', 'resume', 'next', 'prev', 'stop', 'seek', 'prefs', 'log', 'exit'];
 const ERROR_CODES = ['offline', 'not-logged-in', 'login-expired', 'not-found', 'not-available', 'rate-limited',
     'tidal-error', 'bad-request', 'busy'];
 const QUALITIES = ['LOSSLESS', 'HIGH'];
@@ -69,6 +73,8 @@ const PARAMS = {
     play: (r) => Array.isArray(r.tracks) && r.tracks.length >= 1 && r.tracks.length <= 1000 && r.tracks.every((t) => isInt(t) && t > 0) &&
         isInt(r.index) && r.index >= 0 && r.index < r.tracks.length,
     prefs: (r) => r.quality === undefined || QUALITIES.indexOf(r.quality) >= 0,
+    seek: (r) => typeof r.position === 'number' && isFinite(r.position) && r.position >= 0,
+    log: (r) => r.lines === undefined || (isInt(r.lines) && r.lines >= 1 && r.lines <= 200),
 };
 /** the request's id (or null), and whether it is a valid request */
 function check(r) {
@@ -103,7 +109,9 @@ function createService(opts) {
         clientEnv: {},
     }, opts || {});
     const now = o.now;
-    const log = o.log;
+    // every line: scrubbed (no token, no address's query), kept for the `log` command, then to the journal
+    const lg = createLog({ now: now, out: o.log, sessionFile: path.join(o.stateDir, 'session.json') });
+    const log = lg.log;
 
     /* ---------- state ---------- */
     const st = createState(o.stateDir);
@@ -142,6 +150,7 @@ function createService(opts) {
             url: v.url, userCode: v.userCode };
         login = l;
         loginError = null;
+        log('login: started (the code is good for ' + Math.round((l.until - now()) / 1000) + ' s)');
         const poll = () => {
             if (login !== l) return;
             if (now() >= l.until) { log('login: the code expired'); return endLogin('login-expired', true); }
@@ -207,18 +216,27 @@ function createService(opts) {
         quality: () => prefs.quality,
         trackInfo: trackInfo,
         onQueue: (q) => { try { st.write('queue', q); } catch (e) { log('queue.json: ' + e.message); } },
-        startPlayer: (id, onEvent) => createPlayerProcess({
+        // startMs (a seek): where the player starts playing, MGU_START_MS (docs/PROTOCOL.md section 2)
+        startPlayer: (id, onEvent, startMs) => createPlayerProcess({
             spawn: o.spawn || require('child_process').spawn,
             bin: o.playerBin || path.join(__dirname, 'tidal-player'), args: o.playerArgs || [],
-            env: typeof o.playerEnv === 'function' ? o.playerEnv(id) : o.playerEnv, audio: o.audio, log: log, onEvent: onEvent }),
+            env: Object.assign({}, typeof o.playerEnv === 'function' ? o.playerEnv(id) : o.playerEnv, startMs > 0 ? { MGU_START_MS: String(startMs) } : {}),
+            audio: o.audio, log: log, onEvent: onEvent }),
     });
     pb.restore(st.load('queue', { tracks: [], index: -1, position: 0 }));
 
     /* ---------- status ---------- */
     function player() { return pb.status(); }
+    /** the uplink's lease; its coming and going is logged (looked at by every status and every tick) */
+    let wasOnline = null;
+    function online() {
+        const on = leaseOnline(o.leasePath);
+        if (on !== wasOnline) { wasOnline = on; log('internet: ' + (on ? 'online' : 'offline')); }
+        return on;
+    }
     function status() {
         return { login: loginState(), loginPending: login ? { url: login.url, userCode: login.userCode, expiresAt: login.until } : null,
-            loginError: loginError, online: leaseOnline(o.leasePath), version: VERSION, prefs: { quality: prefs.quality }, player: player(),
+            loginError: loginError, online: online(), version: VERSION, prefs: { quality: prefs.quality }, player: player(),
             // optional in the contract (the log, the Status page): how the service's children are
             children: { client: link ? link.state() : { running: false, inProcess: true }, player: pb.players() } };
     }
@@ -281,8 +299,9 @@ function createService(opts) {
             }
             return starting;
         },
-        'login-cancel': () => { endLogin(null, true); return {}; },
+        'login-cancel': () => { if (login) log('login: cancelled'); endLogin(null, true); return {}; },
         logout: () => {
+            log('logout');
             endLogin(null);
             pb.stop();
             return Promise.resolve().then(() => tidal.logout()).catch((e) => log('logout: ' + e.message)).then(() => {
@@ -300,6 +319,8 @@ function createService(opts) {
         next: () => { pb.next(); return {}; },
         prev: () => { pb.prev(); return {}; },
         stop: () => { pb.stop(); return {}; },
+        // with nothing playing (idle, stopped, an error) there is nothing to move: bad-request
+        seek: (r) => { if (!pb.seek(r.position)) throw codeError('bad-request'); return {}; },
         prefs: (r) => {
             if (r.quality && r.quality !== prefs.quality) {
                 prefs = { quality: r.quality };
@@ -307,7 +328,8 @@ function createService(opts) {
             }
             return { prefs: { quality: prefs.quality } };
         },
-        exit: () => { setTimeout(() => stop(0), 50); return {}; },
+        log: (r) => ({ lines: lg.lines(r.lines) }),
+        exit: () => { log('exit: asked by the app'); setTimeout(() => stop(0), 50); return {}; },
     };
     Object.keys(lists).forEach((k) => { handlers[k] = list; });
 
@@ -373,6 +395,7 @@ function createService(opts) {
     /** the app's watch and the idle end; every tickMs */
     function tick() {
         if (stopping) return;
+        online();
         const quiet = now() - lastReq;
         if (pb.active()) {
             if (quiet > watchMs) { log('the app has not asked for ' + Math.round(quiet / 1000) + ' s: stopping playback'); pb.stop(); }
@@ -382,6 +405,8 @@ function createService(opts) {
     }
     function start() {
         log('cmocan-tidal ' + VERSION);
+        log('login: ' + (tidal.loggedIn() ? 'logged in' : 'logged out'));
+        online();
         if (link) link.start();
         ticker = setInterval(tick, o.tickMs || TICK_MS);
     }

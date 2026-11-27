@@ -91,7 +91,7 @@ test('every file component.json names exists (the player\'s build output once `m
 test('every module the service loads is in the package', () => {
     const c = comp();
     const shipped = c.files.map((f) => f.path);
-    const own = ['service.js', 'client.js', 'player.js', 'playback.js', 'state.js', 'sockgroup.js', 'cleanup.js', 'check.js'];
+    const own = ['service.js', 'client.js', 'player.js', 'playback.js', 'state.js', 'log.js', 'sockgroup.js', 'cleanup.js', 'check.js'];
     own.forEach((f) => assert.ok(shipped.indexOf(f) >= 0, f + ' is shipped'));
     ['lib/netx.js', 'lib/tidal.js', 'cacert.pem', 'tidal-player', 'README.md'].forEach((f) => assert.ok(shipped.indexOf(f) >= 0, f + ' is shipped'));
     // every require('./...') in our files names a shipped file

@@ -24,4 +24,5 @@ tone 660 6      # B
 tone 880 6      # C
 tone 1000 24    # D: long, for the cuts and the app's watch
 tone 550 10     # E: pause and resume
+tone 770 190    # F: long, for a seek to 3 minutes
 ls -l "$out"

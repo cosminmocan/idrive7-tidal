@@ -12,6 +12,7 @@
 #   lr_5s.flac                 left 1 kHz, right 1.5 kHz
 #   tone1k_5s_48k.flac         1 kHz at 48 kHz (no resampling needed)
 #   tone1k_60s.flac            1 kHz, 60 s (pacing, backpressure)
+#   tone1k_24s.m4a             1 kHz, 24 s, AAC in MP4, index first (seek: MGU_START_MS)
 set -eu
 out=${1:?usage: make-tones.sh <dir>}
 mkdir -p "$out"
@@ -29,4 +30,5 @@ ff lr_5s.flac -f lavfi -i "$(sine 1000 44100 5)" -f lavfi -i "$(sine 1500 44100 
     -filter_complex "[0:a][1:a]amerge=inputs=2,volume=4[a]" -map "[a]" -sample_fmt s16 -c:a flac -f flac
 ff tone1k_5s_48k.flac -f lavfi -i "$(sine 1000 48000 5)" -af $vol -ac 2 -sample_fmt s16 -c:a flac -f flac
 ff tone1k_60s.flac -f lavfi -i "$(sine 1000 44100 60)" -af $vol -ac 2 -sample_fmt s16 -c:a flac -f flac
+ff tone1k_24s.m4a -f lavfi -i "$(sine 1000 44100 24)" -af $vol -ac 2 -c:a aac -b:a 320k -movflags +faststart -f mp4
 ls -l "$out"
