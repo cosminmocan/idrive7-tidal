@@ -227,7 +227,8 @@ test('the info: only while a track plays (or is on its way) and the app has the 
     assert.deepStrictEqual(C.infoOf(playing(), SPEAKERS), { title: 'One More Time', artist: 'Daft Punk', coverId: TRACK.coverId });
     assert.strictEqual(C.infoOf(playing(Object.assign({}, TRACK, { artists: ['A', 'B'] })), SPEAKERS).artist, 'A, B');
     ['loading', 'buffering'].forEach((st) => assert.ok(C.infoOf(playing(TRACK, st), SPEAKERS), st + ': the next track on its way keeps the card'));
-    ['paused', 'idle', 'error', 'stopped', undefined].forEach((st) => assert.strictEqual(C.infoOf(playing(TRACK, st), SPEAKERS), null, String(st)));
+    ['paused', 'idle', 'error', 'stopped', 'constructor'].forEach((st) => assert.strictEqual(C.infoOf(playing(TRACK, st), SPEAKERS), null, st));
+    [undefined, null, 5, {}].forEach((st) => assert.strictEqual(C.infoOf(Object.assign(playing(), { state: st }), SPEAKERS), null, 'a state of ' + st));
     assert.strictEqual(C.infoOf(playing(null), SPEAKERS), null, 'no track');
     [{ connected: false }, { lost: true }, { held: true }, { taken: true }].forEach((x) =>
         assert.strictEqual(C.infoOf(playing(), Object.assign({}, SPEAKERS, x)), null, JSON.stringify(x)));
