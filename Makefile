@@ -75,7 +75,7 @@ hooks:
 
 # the hooks against a scratch repository (needs kingfisher on this computer)
 test-hooks:
-	@sh tools/test-git-hooks.sh && sh tools/test-scan-dist.sh
+	@sh tools/test-git-hooks.sh && sh tools/test-scan-dist.sh && sh tools/test-repo-email.sh
 
 # build, bump the patch of what changed, test, commit, push, publish the Store's catalog release (tools/release.sh)
 release:
