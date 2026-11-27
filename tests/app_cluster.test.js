@@ -422,7 +422,8 @@ test('R1: a renderer that hangs up, and one that never reads or answers', async 
             // what waits for the stalled socket is the newest card, not all of them
             if (mode === 'stall') assert.ok(process.memoryUsage().rss < 400 * 1024 * 1024, 'memory: ' + process.memoryUsage().rss);
         } finally { await w.end(); await r.close(); }
-        assert.strictEqual(r.open, 0, mode + ': closed at the end');
+        // (a paused socket hears of its end only once it is destroyed, a moment after r.close())
+        await waitFor(() => r.open === 0, 2000, mode + ': closed at the end');
     }
 }, { timeout: 30000 });
 
