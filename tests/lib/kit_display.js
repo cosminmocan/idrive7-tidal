@@ -34,7 +34,8 @@ function kitApp(o) {
     const setL = [];
     const settings = { get: (k) => values[k], onChange: (fn) => setL.push(fn), set(k, v) { values[k] = v; setL.forEach((fn) => fn(k, v)); } };
     const comps = {}, visH = [], clicked = [], opened = [], closed = [];
-    const comp = (n) => comps[n] || (comps[n] = Object.assign(new EventEmitter(), { name: n }));
+    // (every press the HMI is told of is noted, also of buttons the app has no handler for: Settings is the kit's)
+    const comp = (n) => comps[n] || (comps[n] = Object.assign(new EventEmitter(), { name: n }).on('action', () => clicked.push(n)));
     let visible = { MAIN: true };
     const ui = {
         rhmi: { getByName: comp },
@@ -43,7 +44,7 @@ function kitApp(o) {
         isVisible: (n) => !!visible[n],
         hasFocus: () => true,
         visible: () => Promise.resolve(),
-        onClick: (n, fn) => comp(n).on('action', (ev) => { clicked.push(n); Promise.resolve().then(() => fn(ev || {})); }),
+        onClick: (n, fn) => comp(n).on('action', (ev) => { Promise.resolve().then(() => fn(ev || {})); }),
         text: (n, t) => { disp.label(n, t); return Promise.resolve(); },
         image: (n, cv) => disp.present(n, cv, () => Promise.resolve()),
         open: (n) => { opened.push(n); setVisible(n, true); return Promise.resolve(); },

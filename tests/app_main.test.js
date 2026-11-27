@@ -194,7 +194,7 @@ test('library -> favourite tracks -> play: the right requests; it stays in the l
         await ctx.handlers.BTN_PLAY();
         await waitFor(() => cmds(svc).indexOf('pause') >= 0, 2000, 'pause sent');
         await ctx.handlers.BTN_NEXT();
-        await ctx.handlers.BTN_PREV();
+        await ctx.handlers.BTN_PREVIOUS();
         await waitFor(() => cmds(svc).indexOf('prev') >= 0, 2000, 'prev sent');
         assert.ok(cmds(svc).indexOf('next') >= 0);
         const wheel = ctx.watched['de.bmw.infotainment.controlelements.SteeringWheelPushButton'];
@@ -247,10 +247,10 @@ test('without the GPU renderer (the HMI\'s own bar): Up, Down and Select move th
     ctx0.hideButton = (id) => hidden.push(id);
     const app = createApp(ctx0, { socketPath: sock, pollMs: 150, parked: parkedKit.watch(ctx0, ctx0.log), setImage() {}, decodeJpeg: decodeJpeg });
     try {
-        assert.deepStrictEqual(hidden.sort(), ['BTN_DOWN', 'BTN_OK', 'BTN_UP']);
+        assert.deepStrictEqual(hidden.sort(), ['BTN_DOWN', 'BTN_LIBRARY', 'BTN_OK', 'BTN_UP'], 'U1: LIBRARY is a tab there');
         const spec = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'apps', 'cmocan_tidal', 'app.json'), 'utf8'));
         const ids = spec.screens[0].buttons.map((b) => b[0]);
-        ['BTN_UP', 'BTN_DOWN', 'BTN_OK', 'BTN_PLAY', 'BTN_PREV', 'BTN_NEXT', 'BTN_LIBRARY', 'BTN_SETTINGS'].forEach((b) => assert.ok(ids.indexOf(b) >= 0, b));
+        ['BTN_UP', 'BTN_DOWN', 'BTN_OK', 'BTN_PREVIOUS', 'BTN_PLAY', 'BTN_NEXT', 'BTN_LIBRARY', 'BTN_SETTINGS'].forEach((b) => assert.ok(ids.indexOf(b) >= 0, b));
         await waitFor(() => app.state().screen === 'LIBRARY', 3000, 'LIBRARY');
         await ctx0.handlers.BTN_DOWN(); await ctx0.handlers.BTN_DOWN(); await ctx0.handlers.BTN_DOWN(); await ctx0.handlers.BTN_UP();
         assert.strictEqual(app.state().library.sel, 2);
