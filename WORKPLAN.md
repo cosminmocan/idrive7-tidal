@@ -46,7 +46,11 @@ has not seen the earlier discussion can pick up any task.
    app's client and state machine against the fake TIDAL, WAVs equal to the reference sample for sample; 11/11
    three runs in a row (~160 s each). It found one bug: `netx.js` took Node 8's `aborted` after a whole answer as a
    break (fixed test-first). Scenarios 6 and 8 use the injected clock. I2 done: `make dist`, the catalog layout,
-   **published** as release 0.1.0 (`make release`, automatic patch bump). **Next: I3**, the 2-hour run.
+   **published** as release 0.1.0 (`make release`, automatic patch bump); the service is now 0.1.1 (the netx fix).
+   I3 done (2026-11-27, `make soak`): 2 hours, 742 random faults (cuts, outages, expired tokens, 429, killed players,
+   pause, next, prev), 636 players, every one's sound equal to the reference; no crash, client.js never restarted,
+   one player at a time; service memory 52.7 -> 53.3 MiB (third to last quarter, median), open files steady.
+   **Phase I is done. Next: the car (phase K)**: S4 facts, K0 sound path, then K1-K4.
 
 ### Decision 2026-11-27: AAC 320 for version 1, lossless later
 
