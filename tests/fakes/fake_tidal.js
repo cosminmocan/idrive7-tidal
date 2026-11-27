@@ -194,6 +194,11 @@ function createFakeTidal(o) {
             return send(res, 200, { artists: empty, albums: empty, playlists: empty, videos: empty, topHit: null,
                 tracks: { limit: limit, offset: offset, totalNumberOfItems: list.length, items: list.slice(offset, offset + limit) } });
         }
+        if ((mm = /^tracks\/(\d+)$/.exec(p))) {
+            // one track (tidalapi media.py Track._get): the same object as in the lists; 404 when TIDAL has none
+            const t = trackById(mm[1]);
+            return t ? send(res, 200, t) : apiError(res, 404, 2001, 'Track not found');
+        }
         if ((mm = /^tracks\/(\d+)\/urlpostpaywall$/.exec(p))) {
             const id = Number(mm[1]);
             const quality = q.audioquality;

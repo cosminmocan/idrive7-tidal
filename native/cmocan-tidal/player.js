@@ -13,7 +13,11 @@
  *   p.pid
  *   p.stdin               the track's bytes (write; false: wait for 'drain'); never throws, even when the player is gone
  *   p.ctl(line)           pause | resume | volume <0..1> | quit, on the player's fd 3
- *   p.kill() -> Promise<exit>   quit, then SIGTERM after quitMs, SIGKILL after killMs
+ *   p.kill() -> Promise<exit>   quit and fd 3 closed, then SIGTERM after quitMs, SIGKILL after killMs
+ *
+ * fd 3 stays open for the player's whole life: its closing means quit (docs/PROTOCOL.md section 2), so a player never
+ * outlives the service. It is closed with destroy(), never end(): on Node 8.9.4 end() on a child's pipe can throw
+ * ENOTCONN as an 'error'. Every stdio stream of the child has an 'error' handler.
  *   p.exited -> Promise<{ code, signal, error }>
  *
  * Node 8.9.4.
@@ -49,9 +53,17 @@ function createPlayerProcess(opts) {
     const nowhere = new Writable({ write: (c, e, cb) => cb() });
     const p = { pid: child ? child.pid : null, exited: exited, stdin: child && child.stdin ? child.stdin : nowhere };
 
+    /** fd 3 closed: quit for a player still running; the handle freed for one that ended */
+    function closeCtl() {
+        const c = child && child.stdio && child.stdio[3];
+        if (c && !c.destroyed) { try { c.destroy(); } catch (e) { /* gone */ } }
+    }
+
     if (child) {
-        if (child.stdin) child.stdin.on('error', () => { /* the player went: its exit says so */ });
-        if (child.stdio[3]) child.stdio[3].on('error', () => {});
+        // every stdio stream: an error there (EPIPE, ENOTCONN once the player is gone) is seen in its exit, never thrown
+        (child.stdio || []).forEach((st) => { if (st && typeof st.on === 'function') st.on('error', () => {}); });
+        // a pipe that saw the player's end must not end our side by itself before the player has gone (fd 3 closing is quit)
+        if (child.stdio[3]) child.stdio[3].allowHalfOpen = true;
         let out = '';
         if (child.stdout) {
             child.stdout.setEncoding('utf8');
@@ -84,8 +96,8 @@ function createPlayerProcess(opts) {
         let exitTimer = null;
         child.on('error', (e) => { if (!p.pid) finish({ code: null, signal: null, error: e.message }); else log('player: ' + e.message); });
         // 'close' comes once its output is read to the end (every event seen); 'exit' alone, after a moment
-        child.on('exit', (code, signal) => { exitTimer = setTimeout(() => finish({ code: code, signal: signal }), 1000); });
-        child.on('close', (code, signal) => { clearTimeout(exitTimer); finish({ code: code, signal: signal }); });
+        child.on('exit', (code, signal) => { closeCtl(); exitTimer = setTimeout(() => finish({ code: code, signal: signal }), 1000); });
+        child.on('close', (code, signal) => { clearTimeout(exitTimer); closeCtl(); finish({ code: code, signal: signal }); });
         if (!p.pid) p.stdin = nowhere;
     }
 
@@ -97,7 +109,11 @@ function createPlayerProcess(opts) {
     p.kill = () => {
         if (killing) return killing;
         if (done || !child || !p.pid) { killing = exited; return killing; }
-        p.ctl('quit');
+        // quit, and once that line is out, fd 3 closed (which a player takes as quit too)
+        const c = child.stdio[3];
+        if (c && !c.destroyed) {
+            try { c.write('quit\n', () => closeCtl()); } catch (e) { closeCtl(); }
+        }
         const t1 = setTimeout(() => { try { child.kill('SIGTERM'); } catch (e) { /* gone */ } }, quitMs);
         const t2 = setTimeout(() => { log('player ' + p.pid + ': not ended: SIGKILL'); try { child.kill('SIGKILL'); } catch (e) { /* gone */ } }, killMs);
         killing = exited.then((x) => { clearTimeout(t1); clearTimeout(t2); return x; });

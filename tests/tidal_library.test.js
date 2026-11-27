@@ -106,7 +106,7 @@ test('bad arguments are bad-request and send nothing', () => withEnv({}, (env) =
         rejects(t.favorites('tracks', 0, 0), 'bad-request'), rejects(t.favorites('tracks', 0, 101), 'bad-request'),
         rejects(t.favorites('tracks', 1.5, 10), 'bad-request'), rejects(t.playlist('../../users/1', 0, 10), 'bad-request'),
         rejects(t.album('17927863', 0, 10), 'bad-request'), rejects(t.album(0, 0, 10), 'bad-request'),
-        rejects(t.mix('a/b'), 'bad-request'), rejects(t.search('', 0, 10), 'bad-request'),
+        rejects(t.mix('a/b', 0, 10), 'bad-request'), rejects(t.search('', 0, 10), 'bad-request'),
         rejects(t.search(new Array(202).join('x'), 0, 10), 'bad-request'), rejects(t.search(5, 0, 10), 'bad-request'),
     ]).then(() => assert.strictEqual(env.fake.log.length, 0));
 }));
@@ -204,32 +204,89 @@ test('album: its tracks; an unknown one is not-found', () => withEnv({}, (env) =
 
 /* ---------- mixes ---------- */
 
-test('mixes: the "My Mixes" page, as contract mix objects', () => withEnv({}, (env) =>
-    env.tidal.mixes().then((r) => {
+const MIX_1 = { id: '0123456789abcdef0123456789abcd', title: 'My Mix 1', subTitle: 'Daft Punk, Justice', coverId: 'b1c2d3e4-f5a6-4b7c-8d9e-0f1a2b3c4d5e' };
+const MIX_2 = { id: '00fedcba9876543210fedcba987654', title: 'Daily Discovery', coverId: null };
+
+test('mixes: the "My Mixes" page, as contract mix objects, with the total', () => withEnv({}, (env) =>
+    env.tidal.mixes(0, 50).then((r) => {
         valid('mixes', r);
         const c = calls(env, 'pages/my_collection_my_mixes');
         assert.deepStrictEqual(c[0].query, { countryCode: 'RO', deviceType: 'BROWSER' });
-        assert.deepStrictEqual(r.items, [
-            { id: '0123456789abcdef0123456789abcd', title: 'My Mix 1', subTitle: 'Daft Punk, Justice', coverId: 'b1c2d3e4-f5a6-4b7c-8d9e-0f1a2b3c4d5e' },
-            { id: '00fedcba9876543210fedcba987654', title: 'Daily Discovery', coverId: null },
-        ]);
+        assert.deepStrictEqual(r, { items: [MIX_1, MIX_2], total: 2 });
     })));
 
+test('mixes is paged by the module (TIDAL sends the page whole): offset, limit, defaults, total always', () => withEnv({}, (env) =>
+    Promise.all([env.tidal.mixes(1, 1), env.tidal.mixes(0, 1), env.tidal.mixes(5, 10), env.tidal.mixes()]).then((r) => {
+        assert.deepStrictEqual(r[0], { items: [MIX_2], total: 2 });
+        assert.deepStrictEqual(r[1], { items: [MIX_1], total: 2 });
+        assert.deepStrictEqual(r[2], { items: [], total: 2 });
+        assert.deepStrictEqual(r[3], { items: [MIX_1, MIX_2], total: 2 });
+        return Promise.all([rejects(env.tidal.mixes(-1, 10), 'bad-request'), rejects(env.tidal.mixes(0, 101), 'bad-request')]);
+    })));
+
+test('mixes: total is the mixes the module can give, also when TIDAL leaves totalNumberOfItems out', () => withEnv({}, (env) => {
+    // the shape of a recorded answer (a MIX_LIST with dataApiPath, limit 20), hand-written, no total, one item unreadable
+    env.fake.fault({ path: '/api/v1/pages/my_collection_my_mixes', status: 200, body: { selfLink: null, id: 'x', title: 'My Mixes', rows: [{ modules: [
+        { type: 'MIX_LIST', title: 'My Mixes', pagedList: { dataApiPath: 'pages/data/00000000-0000-0000-0000-000000000000', limit: 20, offset: 0,
+            items: [env.fake.data.mixes[0], { title: 'no id' }, env.fake.data.mixes[1]] } }] }] } });
+    return env.tidal.mixes(0, 50).then((r) => {
+        valid('mixes', r);
+        assert.deepStrictEqual(r, { items: [MIX_1, MIX_2], total: 2 });
+    });
+}));
+
 test('mix: its tracks from the mix page; an unknown mix is not-found', () => withEnv({}, (env) =>
-    env.tidal.mix('0123456789abcdef0123456789abcd').then((r) => {
+    env.tidal.mix('0123456789abcdef0123456789abcd', 0, 50).then((r) => {
         valid('mix', r);
         const c = calls(env, 'pages/mix');
         assert.deepStrictEqual(c[0].query, { countryCode: 'RO', mixId: '0123456789abcdef0123456789abcd', deviceType: 'BROWSER' });
         assert.deepStrictEqual(r.items.map((t) => t.id), [17927864, 58990486, 77777702]);
-        return rejects(env.tidal.mix('ffffffffffffffffffffffffffffff'), 'not-found');
+        assert.strictEqual(r.total, 3);
+        return rejects(env.tidal.mix('ffffffffffffffffffffffffffffff', 0, 50), 'not-found');
     })));
+
+test('mix is paged by the module: offset, limit, defaults, total always', () => withEnv({}, (env) => {
+    const id = '0123456789abcdef0123456789abcd';
+    return Promise.all([env.tidal.mix(id, 1, 1), env.tidal.mix(id, 2, 50), env.tidal.mix(id, 3, 50), env.tidal.mix(id)]).then((r) => {
+        assert.deepStrictEqual(r[0].items.map((t) => t.id), [58990486]); assert.strictEqual(r[0].total, 3);
+        assert.deepStrictEqual(r[1].items.map((t) => t.id), [77777702]); assert.strictEqual(r[1].total, 3);
+        assert.deepStrictEqual(r[2], { items: [], total: 3 });
+        assert.strictEqual(r[3].items.length, 3); assert.strictEqual(r[3].total, 3);
+        r.forEach((x) => valid('mix', x));
+        return Promise.all([rejects(env.tidal.mix(id, 0, 0), 'bad-request'), rejects(env.tidal.mix(id, 1.5, 10), 'bad-request')]);
+    });
+}));
+
+/* ---------- one track ---------- */
+
+test('track: one track by id (GET tracks/<id>, tidalapi media.py), as the contract\'s track object', () => withEnv({}, (env) =>
+    env.tidal.track(17927864).then((t) => {
+        assert.deepStrictEqual(t, ONE_MORE_TIME);
+        const c = calls(env, 'tracks/17927864');
+        assert.strictEqual(c.length, 1);
+        assert.deepStrictEqual(c[0].query, { countryCode: 'RO' });
+        valid('search', { items: [t] });
+    })));
+
+test('track: an unknown id is not-found; a bad id is bad-request and sends nothing; not logged in is not-logged-in', () => withEnv({}, (env) =>
+    rejects(env.tidal.track(1), 'not-found').then(() => {
+        const n = env.fake.log.length;
+        return Promise.all([rejects(env.tidal.track('17927864'), 'bad-request'), rejects(env.tidal.track(0), 'bad-request'), rejects(env.tidal.track(1.5), 'bad-request')])
+            .then(() => assert.strictEqual(env.fake.log.length, n));
+    }).then(() => withEnv({ loggedIn: false }, (e2) => rejects(e2.tidal.track(17927864), 'not-logged-in')))));
+
+test('track: an answer that is not a track (a video, a broken object) is not-found', () => withEnv({}, (env) => {
+    env.fake.fault({ path: '/api/v1/tracks/17927864', status: 200, body: { id: 17927864, type: 'Music Video', title: 'x' } });
+    env.fake.fault({ path: '/api/v1/tracks/17927865', status: 200, body: { title: 'no id' } });
+    return Promise.all([rejects(env.tidal.track(17927864), 'not-found'), rejects(env.tidal.track(17927865), 'not-found')]);
+}));
 
 test('a page with an unexpected shape is an empty list or not-found, never a crash', () => withEnv({}, (env) => {
     env.fake.fault({ path: '/api/v1/pages/my_collection_my_mixes', status: 200, body: { rows: [{ modules: [{ type: 'MIX_LIST' }] }, { nope: 1 }, null] } });
-    return env.tidal.mixes().then((r) => {
-        assert.deepStrictEqual(r.items, []);
+    return env.tidal.mixes(0, 50).then((r) => {
+        assert.deepStrictEqual(r, { items: [], total: 0 });
         env.fake.fault({ path: '/api/v1/pages/mix', status: 200, body: { rows: 'x' } });
-        return rejects(env.tidal.mix('0123456789abcdef0123456789abcd'), 'not-found');
+        return rejects(env.tidal.mix('0123456789abcdef0123456789abcd', 0, 50), 'not-found');
     });
 }));
 

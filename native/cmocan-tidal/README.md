@@ -12,6 +12,11 @@ iDrive 7 head unit. The app talks to it on `/run/cmocan-tidal.sock`; the contrac
 | `client.js` | 13150 (the tool's internet uid, `component.json` `uids`) | every HTTPS request, through `lib/netx.js`; keeps no file |
 | `tidal-player` | started as root with `MGU_RUN_AS=nobody MGU_GROUPS=mgu_alsa,audio MGU_AUDIO=alsa:plug:smartx:CarLifeMedia_CF_48_STEREO`; drops to nobody itself | one process per track: bytes on stdin, commands on fd 3, `MGU {json}` events on stdout |
 
+- **The player's fd 3** stays open for the player's whole life: its closing means quit (`docs/PROTOCOL.md` section 2),
+  so a player never outlives a service that died. `player.js` closes it with `destroy()`, never `end()` (on Node
+  8.9.4 `end()` on a child's pipe can throw ENOTCONN as an unhandled `'error'`): when stopping a player (after the
+  `quit` line), and once the player has ended. Every stdio stream of the child has an `'error'` handler.
+
 - **Started** by the app's first connection to the socket (`cmocan-tidal.socket`, enabled in `sockets.target`);
   the service unit has no `[Install]` and is never started at boot. It ends with exit 0 after 10 minutes with no
   request while nothing plays; while a track plays (or is paused), 90 s without a request from the app stops it
@@ -33,11 +38,23 @@ iDrive 7 head unit. The app talks to it on `/run/cmocan-tidal.sock`; the contrac
   `Nice=5`, idle I/O, `StartLimitBurst=10` in 600 s, `Restart=on-failure`, no `+` commands. Node with
   `--max-old-space-size=64`. The player is in `crashNames`.
 
-## Status beyond the contract
+## Status and login (contract 2)
 
-`status.state` also has `loginError` (`login-expired` after a code expired or was refused, else null),
-`children` (`client`: running, restarts, lastExit, gaveUp, error; `player`: running, exits, lastExit), and
-`player.skipped` (the tracks passed over as `not-available`, `[{ id, error }]`).
+- `loginPending` is `{ url, userCode, expiresAt }` while `login-pending` (`expiresAt` in ms since 1970), else null.
+  A `login-start` while one is pending, or being started, answers that one (the same link and code, the seconds
+  left); `login-cancel`, and a code past its time, also call `tidal.loginCancel()`.
+- `loginError`: `login-expired` (the code ran out) or `login-denied` (refused on the phone); null once a login starts
+  or succeeds.
+- `player.skipped`: the tracks of this queue passed over, `[{ id, error }]` (`not-available`), newest last, at most
+  10; `[]` for a new queue.
+- `player.track`: from the lists the service has answered; a track no list showed (the queue from before a restart,
+  ids from elsewhere) is looked up with `tidal.track(id)` in the background, once (again after 60 s if TIDAL could
+  not give it). `status` never waits for it: the track is null until TIDAL answers.
+- `children` (optional in the contract, for the log and the Status page): `client` (running, restarts, lastExit,
+  gaveUp, error), `player` (running, exits, lastExit).
+- `prefs.quality` is `HIGH` when there is no `prefs.json` (TIDAL's QR login gets AAC 320 at most).
+- `album`, `mixes` and `mix` are paged like the other lists (`offset`, `limit`, `total`). TIDAL sends the mixes and a
+  mix's tracks whole in one page; `lib/tidal` pages them itself, and `total` is what it can give.
 
 ## Removal leaves nothing
 

@@ -1,11 +1,13 @@
 'use strict';
 /**
  * tidal.js - the TIDAL client (docs/INTERNAL-API.md, tasks A2 to A6): a port of the parts of python tidalapi
- * 0.9.0 the car needs. Runs in client.js as the tool's internet uid. Node 8.9.4.
+ * 0.9.0 the car needs. Runs in the root service (service.js); its netx goes through client.js, the tool's internet
+ * uid (docs/INTERNAL-API.md, "Where each part runs"). Node 8.9.4.
  *
  *   const tidal = createTidal({ netx, sessionFile, coverDir });   // tests: baseUrls, now, pageSize, coverCacheBytes
- *   tidal.loggedIn() / loginStart() / loginPoll() / logout()
+ *   tidal.loggedIn() / loginStart() / loginPoll() / loginCancel() / logout()
  *   tidal.favorites(kind, offset, limit) / playlists / playlist / album / mixes / mix / search -> { items, total }
+ *   tidal.track(trackId) -> track (GET tracks/<id>; not-found when TIDAL has none)
  *   tidal.streamUrl(trackId, quality) -> { url, codec, quality }
  *   tidal.cover(coverId) -> Buffer (JPEG 320x320, cached)
  *   tidal._get(path, params)   // the raw API GET (diagnostics, tests)
@@ -59,6 +61,8 @@ function createTidal(o) {
         loggedIn: ctx.loggedIn,
         loginStart: () => login.start(),
         loginPoll: () => login.poll(),
+        // a pending login stopped: the next loginPoll() answers 'expired'
+        loginCancel: () => { login.cancel(); },
         logout: logout,
         favorites: library.favorites,
         playlists: library.playlists,
@@ -66,6 +70,7 @@ function createTidal(o) {
         album: library.album,
         mixes: library.mixes,
         mix: library.mix,
+        track: library.track,
         search: library.search,
         streamUrl: stream.streamUrl,
         cover: covers.cover,

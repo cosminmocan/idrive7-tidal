@@ -6,8 +6,8 @@
  * player per item, a broken stream opened again for 2 minutes with growing waits. Unlike theirs, a track is a
  * file, so a break is continued from the byte it stopped at (HTTP Range), not started again.
  *
- *   const pb = createPlayback({ tidal, netx, startPlayer(trackId, onEvent) -> player.js process, quality() -> 'LOSSLESS'|'HIGH',
- *                               trackInfo(id) -> track | null, onQueue({ tracks, index, position }), log, now,
+ *   const pb = createPlayback({ tidal, netx, startPlayer(trackId, onEvent) -> player.js process, quality() -> 'HIGH'|'LOSSLESS',
+ *                               trackInfo(id) -> track | null (asked again by status() until known), onQueue({ tracks, index, position }), log, now,
  *                               retryWaits, outageMs, streamTimeoutMs });
  *   pb.play(tracks, index)  pb.pause()  pb.resume()  pb.next()  pb.prev()  pb.stop()
  *   pb.restore(queue)       a queue from queue.json: idle, ready for resume
@@ -69,7 +69,7 @@ function createPlayback(opts) {
         cur = c;
         idle = { state: 'idle', error: null };
         saveQueue();
-        const quality = o.quality ? o.quality() : 'LOSSLESS';
+        const quality = o.quality ? o.quality() : 'HIGH';
         const url = Promise.resolve().then(() => tidal.streamUrl(id, quality));
         Promise.all([url, killChain]).then((r) => {
             if (!live(c)) return;
@@ -252,6 +252,11 @@ function createPlayback(opts) {
     }
     function status() {
         const c = cur;
+        // a track not known at its start (looked up meanwhile by trackInfo, which never waits)
+        if (c && !c.info && o.trackInfo) {
+            c.info = o.trackInfo(c.id) || null;
+            if (c.info && c.duration === null && c.info.duration) c.duration = c.info.duration;
+        }
         const info = c ? c.info : null;
         const base = { queueIndex: tracks.length ? index : -1, queueLength: tracks.length, skipped: skipped.slice() };
         if (!c) return Object.assign({ state: idle.state, track: null, position: 0, duration: null, quality: null, error: idle.error }, base);

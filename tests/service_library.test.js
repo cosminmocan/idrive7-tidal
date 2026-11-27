@@ -59,6 +59,28 @@ test('each list command returns what TIDAL holds', async () => {
     } finally { await h.close(); }
 });
 
+test('album, mixes and mix are paged as the other lists: offset and limit reach TIDAL (defaults 0 and 50), total given', async () => {
+    const h = await startService(loggedIn());
+    try {
+        const reqs = [
+            { cmd: 'album', albumId: 17927863, offset: 0, limit: 1 }, { cmd: 'mixes', offset: 0, limit: 1 }, { cmd: 'mix', mixId: MIX, offset: 1, limit: 1 },
+            { cmd: 'mixes' }, { cmd: 'mix', mixId: MIX },
+        ].map((r, i) => Object.assign({ id: i + 1 }, r));
+        const got = await h.ask(reqs);
+        const by = {};
+        got.forEach((a) => { by[a.id] = a; });
+        reqs.forEach((r) => assert.deepStrictEqual(P.validateAnswer(r.cmd, by[r.id]), [], r.cmd + ': ' + JSON.stringify(by[r.id])));
+        const lib = library();
+        assert.deepStrictEqual(by[3].items, [lib.mix[MIX][1]]); assert.strictEqual(by[3].total, 2);
+        assert.strictEqual(by[2].total, 1);
+        assert.deepStrictEqual(h.cfg.calls.filter((c) => c.method === 'album').map((c) => c.args), [[17927863, 0, 1]]);
+        assert.deepStrictEqual(h.cfg.calls.filter((c) => c.method === 'mixes').map((c) => c.args), [[0, 1], [0, 50]]);
+        assert.deepStrictEqual(h.cfg.calls.filter((c) => c.method === 'mix').map((c) => c.args), [[MIX, 1, 1], [MIX, 0, 50]]);
+        const bad = await h.ask([{ id: 1, cmd: 'mixes', limit: 101 }, { id: 2, cmd: 'mix', mixId: MIX, offset: -1 }]);
+        bad.forEach((a) => assert.strictEqual(a.error, 'bad-request', JSON.stringify(a)));
+    } finally { await h.close(); }
+});
+
 test('a second call inside the cache time makes no request; after it, one', async () => {
     const h = await startService(loggedIn({ service: { cacheMs: 300 } }));
     try {
