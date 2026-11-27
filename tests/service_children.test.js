@@ -177,6 +177,58 @@ test('a player that will not quit is killed', async () => {
     assert.ok(!alive(p.pid));
 });
 
+// a player that ignores the quit line (and SIGTERM) but, as docs/PROTOCOL.md section 2 says, quits when fd 3 closes
+const QUITS_ON_FD3_CLOSE = 'const c = new (require("net").Socket)({ fd: 3, readable: true, writable: false }); c.on("data", () => {}); ' +
+    'c.on("error", () => {}); c.on("end", () => process.exit(0)); process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);';
+
+test('fd 3 stays open for the player\'s whole life: paused and resumed, it plays to the end; after it, fd 3 is closed', async () => {
+    const rec = [];
+    const children = [];
+    const events = [];
+    const spawn = (bin, args, so) => { const c = spawnRec(rec)(bin, args, so); children.push(c); return c; };
+    const p = createPlayerProcess({ spawn: spawn, bin: process.execPath, args: [FAKE_PLAYER], env: { FAKE_TICK_MS: '20', FAKE_SECONDS: '1' },
+        audio: 'null', onEvent: (ev) => events.push(ev) });
+    p.stdin.end(pattern(0, 1000));
+    await until(() => events.some((e) => e.ev === 'tick'), 3000, 'ticks');
+    p.ctl('pause');
+    await new Promise((r) => setTimeout(r, 400));
+    p.ctl('volume 0.5');
+    p.ctl('resume');
+    const ex = await p.exited;
+    assert.strictEqual(ex.code, 0);
+    assert.ok(events.some((e) => e.ev === 'end'), 'played to the end, not quit: ' + JSON.stringify(events.slice(-3)));
+    await until(() => children[0].stdio[3].destroyed, 2000, 'fd 3 closed once the player ended');
+});
+
+test('kill closes fd 3 as well as sending quit: a player that only obeys fd 3 closing ends at once, without a signal', async () => {
+    const p = createPlayerProcess({ spawn: childProcess.spawn, bin: process.execPath, args: ['-e', QUITS_ON_FD3_CLOSE], quitMs: 2500, killMs: 5000 });
+    await new Promise((r) => setTimeout(r, 300));
+    const t0 = Date.now();
+    const ex = await p.kill();
+    assert.strictEqual(ex.signal, null, JSON.stringify(ex));
+    assert.strictEqual(ex.code, 0);
+    assert.ok(Date.now() - t0 < 2000, 'ended in ' + (Date.now() - t0) + ' ms, before SIGTERM');
+    assert.ok(!alive(p.pid));
+});
+
+test('an error on any of the player\'s stdio streams is handled, never thrown (Node 8: ENOTCONN on a child pipe)', async () => {
+    const children = [];
+    const p = createPlayerProcess({ spawn: (b, a, so) => { const c = childProcess.spawn(b, a, so); children.push(c); return c; },
+        bin: process.execPath, args: ['-e', QUITS_ON_FD3_CLOSE], quitMs: 2500, killMs: 5000 });
+    const c = children[0];
+    const thrown = [];
+    const names = ['stdin', 'stdout', 'stderr', 'fd 3'];
+    [c.stdin, c.stdout, c.stderr, c.stdio[3]].forEach((st, i) => {
+        const e = new Error('write ENOTCONN'); e.code = 'ENOTCONN';
+        try { st.emit('error', e); } catch (x) { thrown.push(names[i]); }
+    });
+    assert.deepStrictEqual(thrown, [], 'unhandled error on: ' + thrown.join(', '));
+    p.ctl('pause');   // no throw
+    p.stdin.write(Buffer.from('x'));
+    await p.kill();
+    assert.ok(!alive(p.pid));
+});
+
 test('a player that cannot start is reported, not thrown', async () => {
     const events = [];
     const p = createPlayerProcess({ spawn: childProcess.spawn, bin: '/nonexistent/tidal-player', onEvent: (e) => events.push(e) });
