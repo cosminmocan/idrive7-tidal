@@ -1,5 +1,5 @@
 # cmocan-tidal. Everything runs in Docker; see WORKPLAN.md section 3.
-.PHONY: test test-node8 test-node-current e2e player test-player hooks test-hooks release dist usb
+.PHONY: test test-node8 test-node-current e2e player test-player hooks test-hooks release soak dist usb
 
 test: test-node8 test-node-current
 
@@ -80,3 +80,9 @@ test-hooks:
 # build, bump the patch of what changed, test, commit, push, publish the Store's catalog release (tools/release.sh)
 release:
 	@sh tools/release.sh
+
+# I3, the long run: 2 hours of the real service, client and player with random faults, detached (tools/e2e/soak.sh);
+# the verdict lands in build/soak/report.json. A shorter one: make soak SOAK_SECONDS=600
+SOAK_SECONDS ?= 7200
+soak: player
+	@sh tools/e2e/soak.sh $(SOAK_SECONDS)
