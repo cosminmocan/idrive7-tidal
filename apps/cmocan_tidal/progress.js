@@ -6,6 +6,9 @@
  *   const pr = createProgress();
  *   pr.update(player, requestId, now)   each status answer's player (requestId: its request id; older ones ignored)
  *   pr.at(now)  -> { pos, dur }         seconds; dur null while not known
+ *   pr.jump(pos, now, requestId)        the service took a seek to pos (requestId: the seek's request id): the bar
+ *                                       carries on from there, back or forth, and a status asked for before the seek
+ *                                       (an older id) no longer counts
  *
  * A position a little behind what is shown (the clock ran ahead of the player) holds the bar where it is until the
  * real one passes it; one more than 3 s behind is a real jump (prev restarting the track) and is shown. A new
@@ -40,7 +43,13 @@ function createProgress() {
         moving = p.state === 'playing';
     }
 
-    return { update: update, at: at };
+    function jump(pos, now, id) {
+        if (key === null || !isNum(pos) || pos < 0) return;
+        base = pos; floor = 0; t = now;
+        if (isNum(id) && id > lastId) lastId = id;
+    }
+
+    return { update: update, at: at, jump: jump };
 }
 
 module.exports = { createProgress: createProgress };
