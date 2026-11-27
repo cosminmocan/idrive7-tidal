@@ -39,7 +39,7 @@ function createApp(ctx, kit) {
     const log = ctx.log;
     const now = kit.now || Date.now;
     const client = createClient({ socketPath: kit.socketPath || '/run/cmocan-tidal.sock', log: log, timeoutMs: 6000 });
-    let s = M.initial(), info = null, focus = -1, toastUntil = 0, stopped = false, loopHandle = null;
+    let s = M.initial(), info = null, toastUntil = 0, stopped = false, loopHandle = null;
     const progress = createProgress();
     const loading = {};                 // list requests on their way, by frame key + params
     const timers = [];
@@ -53,7 +53,7 @@ function createApp(ctx, kit) {
         let vol = null;
         try { vol = volume.popup(); } catch (e) { vol = null; }
         try {
-            info = S.draw(cv, t, s, { now: now(), act: act, focus: focus, cover: covers.get, position: tg != null ? tg : p.pos, seeking: tg != null, duration: p.dur, volume: vol, toastUntil: toastUntil });
+            info = S.draw(cv, t, s, { now: now(), act: act, cover: covers.get, thumb: thumbs.get, position: tg != null ? tg : p.pos, seeking: tg != null, duration: p.dur, volume: vol, toastUntil: toastUntil });
         } catch (e) { log.warn('draw: ' + (e && e.stack || e)); }
         return ctx.ui.image('MAIN_GFX', cv);
     }
@@ -63,7 +63,6 @@ function createApp(ctx, kit) {
         const before = s;
         s = M.reduce(s, ev);
         if (s === before) return;
-        if (s.screen !== before.screen) focus = -1;
         if (s.message && s.message !== before.message) toastUntil = now() + TOAST_MS;
         after();
         render();
@@ -157,7 +156,8 @@ function createApp(ctx, kit) {
         switch (a.type) {
             case 'play':
                 audio.userPlay();
-                command('play', { tracks: a.tracks, index: a.index }).then((r) => { if (r.ok) dispatch({ type: 'played' }); });
+                // the screen stays (U1): the playing mark moves to the track; the list it came from is kept
+                command('play', { tracks: a.tracks, index: a.index }).then((r) => { if (r.ok) dispatch({ type: 'played', queue: a.queue }); });
                 return;
             case 'control':
                 if (a.cmd !== 'pause' && a.cmd !== 'stop') audio.userPlay();
@@ -202,6 +202,9 @@ function createApp(ctx, kit) {
     const volume = createCarVolume(sig, log, { onChange: render });
     const covers = createCovers({ request: (cmd, p) => ask(cmd, p, SLOW_MS), decode: kit.decodeJpeg, setImage: kit.setImage, size: 400, log: log });
     covers.onChange(render);
+    // the list rows' small covers: their own pictures (the 400 px ones stay for now playing), a few asked for at a time
+    const thumbs = createCovers({ request: (cmd, p) => ask(cmd, p, SLOW_MS), decode: kit.decodeJpeg, setImage: kit.setImage, size: 104, slots: 30, baseId: 300, maxLoading: 3, log: log });
+    thumbs.onChange(render);
     const wheel = createWheel({
         skip: (d) => act({ type: 'control', cmd: NP.skipCmd(d) }),
         seek: { step: (d) => seeker.nudge(d), end: () => seeker.commit(0) },

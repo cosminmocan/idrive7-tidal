@@ -57,7 +57,8 @@ function itemActs(s, f, i) {
         const win = f.items.slice(start, start + MAX_PLAY);
         const keep = win.filter((t) => t && typeof t.id === 'number');
         const index = win.slice(0, i - start).filter((t) => t && typeof t.id === 'number').length;
-        return [{ type: 'play', tracks: keep.map((t) => t.id), index: index }];
+        // queue: the list it comes from (now playing's caption and next track, push right back to it); not sent
+        return [{ type: 'play', tracks: keep.map((t) => t.id), index: index, queue: { key: f.key, title: f.title, tracks: keep } }];
     }
     if (f.kind === 'albums') return [{ type: 'open-list', key: 'album:' + it.id, title: String(it.title || ''), kind: 'tracks', source: { cmd: 'album', params: { albumId: it.id } } }];
     if (f.kind === 'playlists') return [{ type: 'open-list', key: 'playlist:' + it.uuid, title: String(it.title || ''), kind: 'tracks', source: { cmd: 'playlist', params: { uuid: it.uuid } } }];
