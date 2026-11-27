@@ -230,3 +230,13 @@ section 1 is wrong and the plan for step 2 changes with it; the proposed structu
    play), the controller's rule table of section 2, `BTN_PREV` renamed so the bar shows it.
 3. The screens from the approved pictures; the golden pictures replaced by them, drawn in the frame as here.
 4. The fonts baked again; the car check of every screen with knob, touch and wheel.
+
+## The owner's decisions (2026-11-27)
+
+| Question | Decision |
+|---|---|
+| A, B or C | **A**: we draw every screen, in BMW's manner |
+| After choosing a track | the proposal: **stay in the list** (the owner does not mind either way) |
+| Controls on now playing | the proposal: **only the bar's PREVIOUS / PAUSE / NEXT** |
+| Track rows | the proposal: **two lines with a small cover, six per screen** |
+| "Now playing" as the last row of My music | left to us: **kept**, shown only while a track is loaded (it carries the track's name, and a knob-only user reaches it without leaving the list) |

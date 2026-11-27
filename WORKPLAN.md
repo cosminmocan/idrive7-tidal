@@ -27,7 +27,7 @@ has not seen the earlier discussion can pick up any task.
 **Phase 2 progress:** E0 done 2026-11-27 (all 276 author/committer entries are the no-reply address, content
 identical, force-pushed; an old pushed commit is still fetchable by its exact id until GitHub's cleanup: ask GitHub
 Support before the repository is ever public again). Q0 done (contract 3: `seek`, `log`, `MGU_START_MS`). The
-commit ids written in this file before E0 are the old ones. Running: C1, S1+D1, S2+D1, K5, W1, U1 step 1.
+commit ids written in this file before E0 are the old ones. Done and merged: W1 (docs/first-start.md), C1 (album art; `make test-render` against the real mgu-render), U1 step 1 (the owner chose **A**, docs/ui-redesign.md), S2 + D1's app part (seek in the app; the service's log in the QR log), K5 (the cluster card). Running: S1 + D1's service part. Next: U1 step 2 (the build), then a release after S1.
 
 **Now: phase 2 (section 9).** Version 1 is installed and plays in the car (docs/car-log.md). Start with **E0**
 (the commit email, needs the owner's go), then **Q0**, then the parallel tasks C1, S1, S2, D1, K5, W1; P1 and L1a
