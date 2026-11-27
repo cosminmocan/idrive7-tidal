@@ -218,7 +218,7 @@ function drawNowPlaying(c) {
     if (p.state === 'error') state = NP.errorText(p.error);
     // the state's text leaves room for the track number and quality on the right of the same line
     if (state) txt(c, state, x, TOP + 220, 24, p.state === 'error' ? RED : ACCENT, { font: 'bold', w: w - 320 });
-    const right = [p.queueLength > 0 && p.queueIndex >= 0 ? 'Track ' + (p.queueIndex + 1) + ' of ' + p.queueLength : '', p.quality || ''].filter(Boolean).join('   ');
+    const right = [p.queueLength > 0 && p.queueIndex >= 0 ? 'Track ' + (p.queueIndex + 1) + ' of ' + p.queueLength : '', NP.qualityText(p.quality)].filter(Boolean).join('   ');
     if (right) txt(c, right, W - 60, TOP + 220, 20, t.dim, { align: 'right' });
     // the progress
     const pos = typeof c.ui.position === 'number' ? c.ui.position : p.position;

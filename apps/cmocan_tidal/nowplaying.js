@@ -8,6 +8,7 @@
  *   skipCmd(dir)        the steering wheel's skip: +1 'next', -1 'prev'
  *   errorText(code)     status.player.error as a message: a control-socket code or a player code (input, decode,
  *                       audio, internal); anything else a plain "Playback error"
+ *   qualityText(q)      status.player.quality as shown: HIGH 'AAC 320', LOSSLESS 'FLAC', anything else ''
  * Node 8.9.4 syntax.
  */
 function playPause(p) {
@@ -38,4 +39,8 @@ const ERROR_TEXT = {
 const PLAYBACK_ERROR = 'Playback error';
 function errorText(code) { return typeof code === 'string' && Object.prototype.hasOwnProperty.call(ERROR_TEXT, code) ? ERROR_TEXT[code] : PLAYBACK_ERROR; }
 
-module.exports = { playPause: playPause, skipCmd: skipCmd, errorText: errorText };
+// what TIDAL granted (status.player.quality), which can be lower than the setting: with the QR login it is HIGH
+const QUALITY_TEXT = { HIGH: 'AAC 320', LOSSLESS: 'FLAC' };
+function qualityText(q) { return typeof q === 'string' && Object.prototype.hasOwnProperty.call(QUALITY_TEXT, q) ? QUALITY_TEXT[q] : ''; }
+
+module.exports = { playPause: playPause, skipCmd: skipCmd, errorText: errorText, qualityText: qualityText };
