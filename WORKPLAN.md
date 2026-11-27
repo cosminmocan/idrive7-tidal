@@ -24,6 +24,10 @@ has not seen the earlier discussion can pick up any task.
 
 ### Resume here (next session)
 
+**Now: phase 2 (section 9).** Version 1 is installed and plays in the car (docs/car-log.md). Start with **E0**
+(the commit email, needs the owner's go), then **Q0**, then the parallel tasks C1, S1, S2, D1, K5, W1; P1 and L1a
+with the owner. What follows here is the history of version 1.
+
 1. **All four streams are merged into `main`** (2026-11-27, A, C, D, B, `make test` green after each;
    `make player` and `make test-player` green after B). `component.json` ships A's real modules and B's real binary
    (`build/out/tidal-player`); the package test now allows only the player's build output to be missing.
@@ -187,7 +191,7 @@ the whole head unit.
 | D: car app | D0 to D9 | A, B, C |
 | I: integration | I1, I2, I3 | needs A, B, C, D |
 | K: car | K0 to K4 | K0 can be done today; the rest are gates |
-| L: later | seek, video | after version 1 |
+| Phase 2 | album art, private install, seek, cluster card, lossless, video (section 9) | after the first car install |
 
 After S3, the four streams A, B, C and D share no code until phase I, so four
 people (or four agents in separate worktrees) can work at once.
@@ -774,13 +778,182 @@ car; results are written in `docs/car-log.md` with the date.
 
 ---
 
-## 9. Phase L: after version 1 (not planned in detail yet)
+## 9. Phase 2: after the first car install (planned 2026-11-27)
 
-| Item | Note |
-|---|---|
-| Seek | start the download at a byte offset; FLAC needs its header first; see what Music Assistant does (S2) |
-| Video | TIDAL videos are HLS: `videos/<id>/urlpostpaywall`. Hardware decoding and the frame file as in `tvh-player` and `uxplay-mgu/player/mgu_hls.cpp`; shown only while parked |
-| Hi-res | not useful on a 48 kHz input |
+Version 1 plays music in the car (docs/car-log.md). This phase fixes what the first install showed and adds what
+the owner asked for. The rules of section 3 apply to every task: test first, both Node versions, `make e2e` where the
+service or player changes, kingfisher on every commit and push, a release with `make release`, and a car check
+written into docs/car-log.md.
+
+**The owner's priorities:** album art, installing from the private repository, seek, the track on the instrument
+cluster, lossless, video. Only the commit email matters for privacy.
+
+### Overview
+
+| Task | What | Depends on | In parallel with | Needs the owner |
+|---|---|---|---|---|
+| **E0** | The commit email rewritten in all history | nothing. **First and alone**: it rewrites every commit, so no other branch may exist while it runs | none | a "go" (it force-pushes) |
+| **Q0** | Contract 3: `seek`, `log`, what `status` needs for them | E0 | P1, L1a, W1, C1 | no |
+| **C1** | Album art on mgu-render | E0 | Q0, S1, D1, K5, W1, P1, L1a | car check |
+| **S1** | Seek: service and player | Q0 | C1, K5, W1, D1 (service part after S1: same files) | no |
+| **S2** | Seek: the app (bar, knob, long press on the wheel) | Q0 (built against the fake service) | C1, S1, K5, W1 | car check |
+| **D1** | The service's log readable in the car | Q0; service part after S1, app part after S2 (same files) | C1, K5, W1 | car check |
+| **K5** | The track on the instrument cluster | E0 | C1, S1, S2, D1, W1 | cluster-render installed; car check |
+| **W1** | Why the very first start failed | E0 | everything | maybe a log |
+| **P1** | Installing from the private repository | E0 (the repository private) | everything | a read-only token; what the Store showed |
+| **L1a** | Lossless, step 1: what TIDAL gives a PKCE login | nothing | everything | 5 minutes at the Mac (a browser login) |
+| **L1b** | Lossless, step 2: build it | L1a (its result decides the design), S1 merged | V1 | car check |
+| **V1** | Video | S1, C1, L1a's facts; planned in detail when its turn comes | L1b | car check |
+
+```
+E0 ─┬─ Q0 ─┬─ S1 ──┬─ D1 (service) ─┐
+    │      └─ S2 ──┴─ D1 (app) ─────┤
+    ├─ C1 ──────────────────────────┤
+    ├─ K5 ──────────────────────────┼─► merge ► make test, make e2e ► make release ► car check ► L1b, V1
+    ├─ W1 ──────────────────────────┤
+    └─ P1 (with the owner) ─────────┘
+L1a (with the owner, any time)
+```
+
+Five agents can work at once after Q0: **C1**, **S1 then D1's service part**, **S2 then D1's app part**, **K5**,
+**W1**. They touch different files: C1 `kit/runtime/renderd.js` and `apps/cmocan_tidal/covers.js`; S1
+`native/**`; S2 `apps/cmocan_tidal/` (nowplaying, progress, wheel, nav, tidal.js); K5 a new
+`apps/cmocan_tidal/cluster.js` and one hook in `tidal.js` (merged after S2); W1 reads, and changes at most
+`tools/dist_app.py`.
+
+### E0. The commit email
+
+- **Do:** with the repository private: rewrite author and committer of every commit on every branch from
+  `cosmin_mocan@hotmail.com` to `20535086+cosminmocan@users.noreply.github.com` (git filter-branch `--env-filter`
+  or git-filter-repo in Docker; nothing else changes). Remove the agents' old worktrees and their local branches
+  first. Force-push every remote branch (each through the pre-push scan), move the `catalog` release's tag to the
+  rewritten commit, set `git config user.email` to the no-reply address in this repository.
+- **Test first:** `tests/repo.test.sh` (on the Mac, part of `make test-hooks`): fails while
+  `git log --all --format='%ae%n%ce'` holds any address other than the no-reply one.
+- **Success:** that test passes; `git grep` of the old address over all history finds nothing; the trees of old and
+  new `main` are identical (`git diff <old> <new>` is empty); `make test` is green; the release still downloads
+  (`gh release download catalog`). Then the owner turns on GitHub's "Keep my email addresses private" and "Block
+  command line pushes that expose my email".
+- **Known limit:** the old commits stay fetchable by their exact id on GitHub until its cleanup; a request to
+  GitHub Support removes them for certain.
+
+### Q0. Contract 3 (the coordinator, before S1, S2 and D1)
+
+- **Do:** in `docs/PROTOCOL.md`, `tests/fakes/protocol.js`, the fake service and the fake player together:
+  - `seek {position}` (seconds, 0 to the track's duration): answers at once; `status.player.position` continues
+    from there; while the player catches up the state is `loading`; a seek with nothing playing is `bad-request`;
+  - the player: `MGU_START_MS` (start playing at this position: what comes before is decoded and thrown away,
+    not played, as fast as the input arrives; `tick.pos` starts there);
+  - `log {lines}` (at most 200): the service's newest log lines, for the app's QR log;
+  - the fake service and fake player follow, so S2 and D1's app part can be built against them.
+- **Test first:** the new commands and events in `tests/protocol_examples.test.js` and `tests/fakes.test.js`.
+- **Success:** every example validates; the service's and app's suites still pass (the new commands are additions).
+
+### C1. Album art
+
+- **Cause** (docs/car-log.md): the app talks to mgu-render in its own dialect (`mgu-render/1`); the kit's client
+  (`kit/runtime/renderd.js`, `_ensureImage`) uploads pixel images only in the other dialect and skips them here.
+- **Do:** first look whether a newer idrive7-apps kit already does it (then take that). Else: in the mgu-render
+  dialect, upload the picture with mgu-render's own picture message and draw it with its form of op 18
+  (mgu-store `native/mgu-render/PROTOCOL.md`: IMAGE with premultiplied RGBA up to 1024 x 1024, op 18 as
+  `x y w h r id`; or X_PIXMAP). This is our first change to the kit: keep it small and list it in `kit/ORIGIN.md`.
+- **Test first:** (1) `tests/app_covers_gpu.test.js`: a stand-in renderer on a socket that answers as mgu-render/1;
+  the app's cover must arrive as a picture upload and be drawn in the frame (fails today: nothing is uploaded).
+  (2) **The real renderer**, the check that was missing: record what the app sends and replay it through
+  mgu-render itself (`mgu-render --replay`, built in Docker with Mesa's software GL, as mgu-store's own tests do);
+  the cover's pixels must be in the picture it draws. `make test-render`.
+- **Success:** both green; in the car, covers show on now playing (car check); nothing else on the screens changes
+  (the golden pictures stay the same).
+
+### S1. Seek: service and player
+
+- **Design (version 1 of seek):** the service starts a new player for the same track with `MGU_START_MS`; the
+  download starts at the file's beginning and the player throws away the sound before the position. Simple and
+  exact, no MP4 parsing; the cost is downloading the part that is skipped (3 minutes into an AAC 320 track is about
+  7 MB: a few seconds on LTE). A faster seek (jumping in the file with its index) is a later improvement, measured
+  first in the car.
+- **Tests first:** player: `tests/player_seek.test.js` (a 24 s tone started at 10 s: the WAV equals the reference
+  from 10 s on, sample for sample; the first tick says 10; a position past the end ends with `end`; the skipped
+  part is not paced: it takes far less than 10 s). Service: `tests/service_playback.test.js` (seek forward and
+  back, during pause, twice quickly: one player; position continues; bad positions refused). `make e2e` scenario
+  10: seek forward, then back; both WAVs equal the reference from their position.
+- **Success:** all green, `make e2e` three times; `make soak SOAK_SECONDS=1200` with `seek` among its faults passes.
+
+### S2. Seek: the app
+
+- **Do:** the progress bar takes a touch and a drag (the position shown follows the finger, one `seek` when it
+  lifts); on now playing the knob moves the position in 10 s steps (sent 500 ms after the last step); the steering
+  wheel: the signal says "held" while a skip button is down (apps/cmocan_tidal/wheel.js), so a press under 0.7 s
+  is skip, as now, and a longer one seeks 10 s for every 0.5 s held. Seeking is allowed while driving (as skip).
+- **Tests first:** `tests/app_seek.test.js` against the fake service: each input sends the right `seek`; a drag sends
+  one; a short press still skips; a long press never also skips; a late status does not pull the bar back; R1
+  holds for the new answers. New golden pictures for the bar while dragging.
+- **Success:** green; in the car: finger, knob and long press all seek (car check).
+
+### D1. The service's log in the car
+
+- **Why:** the first car log held only the app's lines; why the video playlist skipped could not be seen.
+- **Do:** the service keeps its newest 200 log lines (no token, no address with a token in it: a test checks);
+  `log` returns them; the app writes them into its own log when its QR log page opens, marked `svc:`.
+- **Tests first:** service: the lines kept, capped, scrubbed. App: the lines appear in the QR log's pages.
+- **Success:** green; in the car, the QR log shows why a track was skipped (car check), which also settles the
+  video-playlist question.
+
+### K5. The track on the instrument cluster
+
+- **Do:** as TVH Player's `cluster_card.js` (aurelmarius/bmw-apps, GPL-3.0): a card with cover, title and artist
+  over the cluster's media widget, drawn through the Store's `cluster-render` tool; shown while a track plays,
+  gone on pause, stop and when the app loses the speakers; an optional requirement (without cluster-render the
+  app works as today); a setting to turn it off. The CarLife "C" in the car's own menu stays: it is the car's.
+- **Tests first:** `tests/app_cluster.test.js` with a stand-in cluster-render socket: the card's layers for a track,
+  its removal, no cluster-render installed, garbage from the socket (R1).
+- **Success:** green; in the car, the card shows and goes as described and never covers a warning (car check).
+- **Needs:** cluster-render installed from the Store (source `robertnisipeanu/idrive-apps`).
+
+### W1. The first start that failed
+
+- **Seen:** 17:01:55, "the SDK created no RHMI application ... rhmiLoadingEnabled off"; the second start worked.
+  The kit's `build.py` writes `rhmiLoadingEnabled: true` into the app's config; our package is prepared again on
+  the car by the Store.
+- **Do:** find out whether the first start after an install always fails (the config the Store's install leaves,
+  the kit's own notes on its issue 39), and whether it can be the first of the two exits after which MainApp
+  uninstalls an app. Fix it if it is ours (`tools/dist_app.py`); else write down what to expect.
+- **Success:** a written cause in docs/car-log.md; a test for any fix; a reinstall in the car starts at once.
+
+### P1. Installing from the private repository
+
+- **Seen:** the owner had to make the repository public to install.
+- **Do:** (1) the owner says what the Store showed (`auth-needed`, an error, an empty list) and how the token was
+  given. (2) On the Mac, with a fine-grained read-only token of the owner's: mgu-store's own reader against the
+  private repository (`make usb STICK=<folder> FROM=github:cosminmocan/idrive7-tidal`; it reads the release and
+  downloads each package as the car does). (3) Fix what fails (the catalog's addresses, the token's permissions
+  in docs/INSTALL.md).
+- **Test first:** for any fix in `tools/dist_catalog.js`, in `tests/dist.test.js`.
+- **Success:** step 2 works with the repository private; in the car the source shows `ok` and an update installs
+  with the repository private (car check).
+
+### L1a. Lossless, step 1 (research, with the owner)
+
+- **Do:** `tools/live-check.js --pkce`: prints TIDAL's browser login link; the owner logs in and pastes back the
+  address the browser ends on; the tool exchanges it, then asks for a LOSSLESS stream and reports what TIDAL gives:
+  a plain FLAC address or a DASH manifest, encrypted or not, and whether `Range` works. The session stays in
+  `reference/` (never in git).
+- **Success:** the facts in docs/live-check-results.md. They decide L1b: how the PKCE login reaches the car (a
+  page on the phone, or the session copied once from the Mac) and whether the player must read DASH.
+
+### L1b and V1
+
+Planned in detail after L1a, S1 and C1. V1 (video) needs: TIDAL's video stream (HLS, `videos/<id>/urlpostpaywall`),
+hardware decoding into mgu-render's frame file (as `tvh-player` and `uxplay-mgu/player/mgu_hls.cpp`), the picture
+only while parked, and sound and picture in step.
+
+### Releases and car checks in this phase
+
+After each merged group: `make test`, `make e2e`, `make release` (the patch versions go up by themselves), then the
+owner updates in the Store and checks the lines above; the results go into docs/car-log.md. A failed line becomes
+an automated test first, then a fix.
+
+---
 
 ## 10. Risks that can change the plan
 
