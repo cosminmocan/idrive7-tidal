@@ -262,7 +262,7 @@ function draw(cv, t, s, ui) {
     const fn = DRAW[s.screen];
     if (fn) fn(c);
     if (c.ui.volume) drawVolume(c, c.ui.volume);
-    if (s.message && (s.screen === 'LIBRARY' || s.screen === 'LIST') && (!c.ui.toastUntil || !c.ui.now || c.ui.now < c.ui.toastUntil)) drawToast(c, s.message);
+    if (s.message && (s.screen === 'LIBRARY' || s.screen === 'LIST' || s.screen === 'NOW_PLAYING') && (!c.ui.toastUntil || !c.ui.now || c.ui.now < c.ui.toastUntil)) drawToast(c, s.message);
     return c.info;
 }
 

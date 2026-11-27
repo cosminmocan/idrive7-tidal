@@ -94,7 +94,39 @@ function cleanPlayer(p) {
         queueLength: isNum(p.queueLength) ? p.queueLength : 0,
         quality: typeof p.quality === 'string' ? p.quality : null,
         error: typeof p.error === 'string' ? p.error : null,
+        skipped: Array.isArray(p.skipped) ? p.skipped.filter((k) => isObj(k) && isNum(k.id) && k.id > 0).map((k) => ({ id: k.id, error: typeof k.error === 'string' ? k.error : '' })) : [],
     };
+}
+
+/** the title of a track in the lists open (or playing), or null */
+function titleOf(s, id) {
+    for (let i = s.stack.length - 1; i >= 0; i--) {
+        const it = s.stack[i].items.filter((x) => isObj(x) && x.id === id && typeof x.title === 'string')[0];
+        if (it) return it.title;
+    }
+    return s.player && s.player.track && s.player.track.id === id ? s.player.track.title : null;
+}
+const SKIP_REASON = { 'not-available': 'not available', 'not-found': 'not found' };
+/** tracks the service passed over that this state has not seen yet: greyed out, and told (not on the first
+ *  status: those were there before the app started) */
+function onSkipped(before, n) {
+    const now = n.player ? n.player.skipped : [];
+    const was = before.player ? before.player.skipped : null;
+    const seen = {};
+    (was || []).forEach((k) => { seen[k.id] = true; });
+    const fresh = now.filter((k) => !seen[k.id]);
+    if (!fresh.length) return n;
+    const u = assign(n.unavailable, {});
+    fresh.forEach((k) => { u[k.id] = true; });
+    let r = assign(n, { unavailable: u });
+    if (!was) return r;
+    const k = fresh[0], why = SKIP_REASON[k.error] || 'could not be played', title = titleOf(n, k.id);
+    let text;
+    if (fresh.length > 1) text = 'Skipped ' + fresh.length + ' tracks that could not be played';
+    else if (title) text = 'Skipped: ' + title + ' (' + why + ')';
+    else text = 'Skipped 1 track (' + why + ')';
+    r = assign(r, { message: text });
+    return r;
 }
 
 /** a pending login's code from status.loginPending: {url, userCode, expiresAt}, or null when it is not one (R1) */
@@ -127,7 +159,7 @@ function onStatus(s, ev) {
         prefs: isObj(raw.prefs) ? raw.prefs : s.service.prefs,
     };
     let n = assign(s, { service: service, starting: false, statusId: isNum(ev.id) ? ev.id : s.statusId });
-    if (raw.player !== undefined) n.player = cleanPlayer(raw.player);
+    if (raw.player !== undefined) { n.player = cleanPlayer(raw.player); n = onSkipped(s, n); }
     if (service.online) n.offlineBrowse = false;
     // the login code: gone once logged in; a pending one's code from the status (the app may have restarted);
     // ended (expired, or refused on the phone) when the service gives up on it
