@@ -74,7 +74,7 @@ function runPlayer(bytes, opts) {
     return new Promise((resolve) => {
         const child = childProcess.spawn(process.execPath, [FAKE_PLAYER], {
             stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
-            env: Object.assign({}, process.env, { MGU_AUDIO: 'null', FAKE_SECONDS: String(o.seconds || 1), FAKE_TICK_MS: '20' }),
+            env: Object.assign({}, process.env, { MGU_AUDIO: 'null', FAKE_SECONDS: String(o.seconds || 1), FAKE_TICK_MS: '20' }, o.env || {}),
         });
         const events = [];
         let buf = '';
@@ -114,6 +114,28 @@ test('fake player: fd 3 closing means quit, as the real player (a player never o
     assert.strictEqual(r.code, 0);
     assert.ok(r.events.length < 50, 'ended long before 30 s');
     assert.notStrictEqual(r.events[r.events.length - 1].ev, 'end', 'quit, not played to the end');
+});
+
+test('fake player: MGU_START_MS starts the position there', async () => {
+    const r = await runPlayer(Buffer.from('fLaC0000'), { seconds: 3, env: { MGU_START_MS: '2000' } });
+    assert.strictEqual(r.code, 0);
+    const ticks = r.events.filter((e) => e.ev === 'tick');
+    assert.ok(ticks.length >= 1 && ticks[0].pos >= 2, 'the first tick is at or after 2 s: ' + JSON.stringify(ticks[0]));
+    assert.strictEqual(r.events[r.events.length - 1].ev, 'end');
+});
+
+test('fake service: seek moves the position of a playing track; with nothing playing it is bad-request', async () => {
+    const sock = tmpSock();
+    const svc = await createFakeService({ socketPath: sock });
+    try {
+        const [idle] = await ask(sock, [{ id: 1, cmd: 'seek', position: 10 }]);
+        assert.strictEqual(idle.ok, false); assert.strictEqual(idle.error, 'bad-request');
+        const got = await ask(sock, [{ id: 2, cmd: 'play', tracks: [17927864], index: 0 }, { id: 3, cmd: 'seek', position: 42 }, { id: 4, cmd: 'status' }, { id: 5, cmd: 'log', lines: 10 }]);
+        assert.strictEqual(got[1].ok, true);
+        assert.strictEqual(got[2].state.player.position, 42);
+        got.forEach((a, i) => assert.deepStrictEqual(P.validateAnswer(['play', 'seek', 'status', 'log'][i], a), [], JSON.stringify(a)));
+        assert.ok(Array.isArray(got[3].lines));
+    } finally { await svc.close(); }
 });
 
 test('fake player: empty input is an input error with exit code 4', async () => {

@@ -131,6 +131,30 @@ test('the default quality is HIGH (version 1: the QR login gets AAC 320 at most)
     assert.strictEqual(fakeService.defaultState().prefs.quality, 'HIGH');
 });
 
+// contract 3 (2026-11-27): seek, and the service's log
+test('seek: a position in seconds, 0 or more', () => {
+    assert.deepStrictEqual(P.validateRequest({ id: 1, cmd: 'seek', position: 92.5 }), []);
+    assert.deepStrictEqual(P.validateRequest({ id: 1, cmd: 'seek', position: 0 }), []);
+    assert.ok(P.validateRequest({ id: 1, cmd: 'seek' }).length > 0, 'no position');
+    assert.ok(P.validateRequest({ id: 1, cmd: 'seek', position: -1 }).length > 0, 'negative');
+    assert.ok(P.validateRequest({ id: 1, cmd: 'seek', position: '10' }).length > 0, 'not a number');
+});
+
+test('log: at most 200 lines asked for; the answer is a list of at most 200 strings', () => {
+    assert.deepStrictEqual(P.validateRequest({ id: 1, cmd: 'log' }), []);
+    assert.deepStrictEqual(P.validateRequest({ id: 1, cmd: 'log', lines: 200 }), []);
+    assert.ok(P.validateRequest({ id: 1, cmd: 'log', lines: 201 }).length > 0);
+    assert.deepStrictEqual(P.validateAnswer('log', { id: 1, ok: true, lines: ['12:00:01 track 5: not available, skipped'] }), []);
+    assert.ok(P.validateAnswer('log', { id: 1, ok: true }).length > 0, 'no lines');
+    assert.ok(P.validateAnswer('log', { id: 1, ok: true, lines: [5] }).length > 0, 'not strings');
+    const many = []; for (let i = 0; i < 201; i++) many.push('x');
+    assert.ok(P.validateAnswer('log', { id: 1, ok: true, lines: many }).length > 0, 'more than 200');
+});
+
+test('the document names the player\'s start position (MGU_START_MS)', () => {
+    assert.ok(DOC.indexOf('`MGU_START_MS`') >= 0);
+});
+
 test('player events: unknown events and bad fields are refused', () => {
     assert.ok(P.validatePlayerEvent({ ev: 'boom' }).length > 0);
     assert.ok(P.validatePlayerEvent({ ev: 'tick', pos: -1, state: 'playing', buffered: 0, dropped: 0 }).length > 0, 'negative position');
