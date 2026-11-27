@@ -40,7 +40,9 @@ test('status answers with the contract\'s state', async () => {
         assert.strictEqual(a.state.online, true);
         assert.strictEqual(a.state.player.state, 'idle');
         assert.strictEqual(a.state.player.queueIndex, -1);
-        assert.strictEqual(a.state.prefs.quality, 'LOSSLESS');
+        assert.strictEqual(a.state.prefs.quality, 'HIGH', 'the default with no prefs.json');
+        assert.strictEqual(a.state.loginPending, null); assert.strictEqual(a.state.loginError, null);
+        assert.deepStrictEqual(a.state.player.skipped, []);
     } finally { await h.close(); }
 });
 

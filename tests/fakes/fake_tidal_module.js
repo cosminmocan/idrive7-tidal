@@ -5,8 +5,11 @@
  *   createFakeTidal(cfg)(opts)   a createTidal: (opts { netx, sessionFile, coverDir }) -> the tidal module's object.
  *                                cfg (the test's knobs, may be changed while the test runs):
  *                                  library: { favorites: { tracks: [], albums: [] }, playlists: [], playlist: { <uuid>: [] },
- *                                             album: { <id>: [] }, mixes: [], mix: { <id>: [] }, search: [] }
- *                                  login: ['pending', 'authorized'] (the poll answers in turn; the last one repeats)
+ *                                             album: { <id>: [] }, mixes: [], mix: { <id>: [] }, search: [],
+ *                                             tracks: { <id>: track } (what track(id) finds) }
+ *                                  login: ['pending', 'authorized'] (the poll answers in turn; the last one repeats;
+ *                                         after loginCancel() the poll answers 'expired', as the real one)
+ *                                  trackDelayMs   track(id) answers after this long
  *                                  interval (s), expiresIn (s)
  *                                  streams: { <trackId>: { url, codec, quality } | { error: code, retryAfter } }
  *                                  streamUrl: (id, quality, n) -> answer   (overrides streams; n: the call's number for this id)
@@ -48,6 +51,7 @@ function createFakeTidal(cfg) {
             if (s && s.version === 1 && s.accessToken) session = s;
         } catch (e) { /* logged out */ }
         let polls = 0;
+        let cancelled = false;
         const streamCalls = {};
 
         function call(method, args, fn) {
@@ -66,10 +70,11 @@ function createFakeTidal(cfg) {
         return {
             loggedIn: () => !!session,
             loginStart: () => call('loginStart', [], () => {
-                needNet(); polls = 0;
+                needNet(); polls = 0; cancelled = false;
                 return { url: 'https://link.tidal.com/ABCDE', userCode: 'ABCDE', expiresIn: cfg.expiresIn || 300, interval: cfg.interval || 0.05 };
             }),
             loginPoll: () => call('loginPoll', [], () => {
+                if (cancelled) return { state: 'expired' };
                 const seq = cfg.login || ['pending'];
                 const st = seq[Math.min(polls, seq.length - 1)];
                 polls++;
@@ -79,8 +84,9 @@ function createFakeTidal(cfg) {
                 }
                 return { state: st };
             }),
+            loginCancel: () => { cfg.calls.push({ method: 'loginCancel', args: [] }); cancelled = true; },
             logout: () => call('logout', [], () => {
-                session = null;
+                session = null; cancelled = true;
                 if (cfg.logoutLeavesFiles) return;   // to check that the service removes them itself
                 try { fs.unlinkSync(opts.sessionFile); } catch (e) { /* none */ }
                 rmrf(opts.coverDir);
@@ -99,11 +105,18 @@ function createFakeTidal(cfg) {
                 const l = (lib().album || {})[id]; if (!l) throw err('not-found');
                 return page(l, offset, limit);
             }),
-            mixes: () => call('mixes', [], () => { needLogin(); needNet(); return { items: lib().mixes || [] }; }),
-            mix: (id) => call('mix', [id], () => {
+            mixes: (offset, limit) => call('mixes', [offset, limit], () => { needLogin(); needNet(); return page(lib().mixes, offset, limit); }),
+            mix: (id, offset, limit) => call('mix', [id, offset, limit], () => {
                 needLogin(); needNet();
                 const l = (lib().mix || {})[id]; if (!l) throw err('not-found');
-                return { items: l };
+                return page(l, offset, limit);
+            }),
+            track: (id) => call('track', [id], () => {
+                needLogin(); needNet();
+                return new Promise((r) => setTimeout(r, cfg.trackDelayMs || 0)).then(() => {
+                    const t = (lib().tracks || {})[id]; if (!t) throw err('not-found');
+                    return t;
+                });
             }),
             search: (q, offset, limit) => call('search', [q, offset, limit], () => { needLogin(); needNet(); return page(lib().search, offset, limit); }),
             streamUrl: (id, quality) => call('streamUrl', [id, quality], () => {

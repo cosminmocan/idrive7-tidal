@@ -47,12 +47,12 @@ test('the player receives the file byte for byte; status follows it to the end, 
         const p = seen.playing;
         assert.strictEqual(p.track.title, 'One');
         assert.strictEqual(p.queueIndex, 0); assert.strictEqual(p.queueLength, 1);
-        assert.strictEqual(p.quality, 'LOSSLESS');
+        assert.strictEqual(p.quality, 'HIGH', 'the default');
         assert.strictEqual(p.duration, 5);
         const got = recorded(h, 1);
         assert.ok(got && got.length === size, 'size ' + (got && got.length));
         assert.ok(got.equals(pattern(0, size)), 'byte for byte');
-        assert.strictEqual(h.cfg.calls.filter((c) => c.method === 'streamUrl')[0].args[1], 'LOSSLESS');
+        assert.strictEqual(h.cfg.calls.filter((c) => c.method === 'streamUrl')[0].args[1], 'HIGH');
         assert.strictEqual(livePlayers(h).length, 0);
     } finally { await h.close(); await files.close(); }
 });
@@ -220,13 +220,49 @@ test('quality comes from the prefs; play needs a login', async () => {
     const files = await createFileServer({ size: 50000 });
     const h = await setup(files);
     try {
-        await h.req({ cmd: 'prefs', quality: 'HIGH' });
+        await h.req({ cmd: 'prefs', quality: 'LOSSLESS' });
         await h.req({ cmd: 'play', tracks: [3], index: 0 });
         await until(() => recorded(h, 3), 8000, 'played');
-        assert.strictEqual(h.cfg.calls.filter((c) => c.method === 'streamUrl')[0].args[1], 'HIGH');
+        assert.strictEqual(h.cfg.calls.filter((c) => c.method === 'streamUrl')[0].args[1], 'LOSSLESS');
         await h.req({ cmd: 'logout' });
         const a = await h.req({ cmd: 'play', tracks: [3], index: 0 });
         assert.strictEqual(a.error, 'not-logged-in');
+    } finally { await h.close(); await files.close(); }
+});
+
+/* ---------- the track playing, when the service has not seen it in a list ---------- */
+
+test('after a restart the track playing is looked up by id (tidal.track) for status; status does not wait for it', async () => {
+    const files = await createFileServer({ size: 50000 });
+    const queue = JSON.stringify({ version: 1, tracks: [7, 8], index: 0, position: 0 });
+    const h = await startService({ client: true, files: { 'session.json': SESSION, 'queue.json': queue },
+        tidal: { library: { tracks: { 7: track(7, 'Seven') } }, trackDelayMs: 800, streamUrl: (id, q) => ({ url: files.url('t' + id), codec: 'flac', quality: q }) },
+        service: { playerEnv: { FAKE_TICK_MS: '20', FAKE_SECONDS: '100' } } });
+    try {
+        await h.req({ cmd: 'resume' });
+        const t0 = Date.now();
+        const first = await h.status();
+        assert.ok(Date.now() - t0 < 500, 'status answered in ' + (Date.now() - t0) + ' ms');
+        checkStatus(first);
+        assert.strictEqual(first.player.track, null, 'not known yet');
+        const s = await until(() => h.status().then((x) => { checkStatus(x); return x.player.track && x; }), 5000, 'the track known');
+        assert.strictEqual(s.player.track.id, 7); assert.strictEqual(s.player.track.title, 'Seven');
+        assert.deepStrictEqual(h.cfg.calls.filter((c) => c.method === 'track').map((c) => c.args), [[7]], 'asked once');
+    } finally { await h.close(); await files.close(); }
+});
+
+test('play with ids the service never saw in a list: looked up too; one TIDAL does not have stays null and is asked once', async () => {
+    const files = await createFileServer({ size: 50000 });
+    const h = await setup(files, { seconds: '100', tidal: { library: { tracks: { 21: track(21, 'Twenty-one') } } } });
+    try {
+        await h.req({ cmd: 'play', tracks: [22, 21], index: 0 });
+        await until(() => h.cfg.calls.some((c) => c.method === 'track'), 3000, 'the lookup');
+        for (let i = 0; i < 10; i++) { const x = await h.status(); checkStatus(x); assert.strictEqual(x.player.track, null); await h.sleep(30); }
+        assert.strictEqual(h.cfg.calls.filter((c) => c.method === 'track').length, 1, 'not asked again and again');
+        await h.req({ cmd: 'next' });
+        const s = await until(() => h.status().then((x) => x.player.track && x), 5000, 'the second track known');
+        assert.strictEqual(s.player.track.title, 'Twenty-one');
+        assert.strictEqual(s.player.queueIndex, 1);
     } finally { await h.close(); await files.close(); }
 });
 

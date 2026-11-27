@@ -29,7 +29,7 @@ test('preferences and the queue survive a restart', async () => {
         service: { playerEnv: { FAKE_TICK_MS: '20', FAKE_SECONDS: '100' } } });
     let saved;
     try {
-        await h1.req({ cmd: 'prefs', quality: 'HIGH' });
+        await h1.req({ cmd: 'prefs', quality: 'LOSSLESS' });   // not the default, so it must come from the file
         await h1.req({ cmd: 'play', tracks: [5, 6, 7], index: 1 });
         await until(() => h1.status().then((s) => s.player.state === 'playing' && s.player.position >= 2), 8000, 'playing');
         await h1.req({ cmd: 'pause' });
@@ -44,21 +44,21 @@ test('preferences and the queue survive a restart', async () => {
     const h2 = await startService({ files: saved });
     try {
         const s = await h2.status();
-        assert.strictEqual(s.prefs.quality, 'HIGH');
+        assert.strictEqual(s.prefs.quality, 'LOSSLESS');
         assert.strictEqual(s.player.queueIndex, 1); assert.strictEqual(s.player.queueLength, 3);
         assert.strictEqual(s.player.state, 'idle', 'nothing plays by itself after a restart');
     } finally { await h2.close(); }
 });
 
 test('a file with an unknown version, or broken, is ignored and replaced', async () => {
-    const h = await startService({ files: { 'prefs.json': JSON.stringify({ version: 2, quality: 'HIGH' }), 'queue.json': '{"version":1,"tracks":[1,2' } });
+    const h = await startService({ files: { 'prefs.json': JSON.stringify({ version: 2, quality: 'LOSSLESS' }), 'queue.json': '{"version":1,"tracks":[1,2' } });
     try {
         const s = await h.status();
-        assert.strictEqual(s.prefs.quality, 'LOSSLESS');
+        assert.strictEqual(s.prefs.quality, 'HIGH', 'the default');
         assert.strictEqual(s.player.queueIndex, -1); assert.strictEqual(s.player.queueLength, 0);
         const prefs = readJson(path.join(h.stateDir, 'prefs.json'));
         const queue = readJson(path.join(h.stateDir, 'queue.json'));
-        assert.deepStrictEqual(prefs, { version: 1, quality: 'LOSSLESS' });
+        assert.deepStrictEqual(prefs, { version: 1, quality: 'HIGH' });
         assert.deepStrictEqual(P.validateState('queue', queue), []);
         assert.deepStrictEqual(queue.tracks, []);
     } finally { await h.close(); }
@@ -129,7 +129,7 @@ test('nothing is written outside the state folder (rule R6)', async () => {
     try {
         await h.req({ cmd: 'login-start' });
         await until(() => h.status().then((s) => s.login === 'logged-in'), 5000, 'logged-in');
-        await h.req({ cmd: 'prefs', quality: 'HIGH' });
+        await h.req({ cmd: 'prefs', quality: 'LOSSLESS' });
         await h.req({ cmd: 'search', query: 'x' });
         await h.req({ cmd: 'cover', coverId: COVER });
         await h.req({ cmd: 'play', tracks: [1, 2], index: 0 });
