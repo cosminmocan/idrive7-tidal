@@ -88,14 +88,59 @@ test('logged out: a login code is asked for by itself, once, and shown; logged i
     } finally { app.stop(); await svc.close(); }
 });
 
-test('a login already pending in the service (the app restarted): cancelled and started again to get its code', async () => {
+test('contract 2: a login already pending in the service (the app restarted): its code from the status, no login-cancel, no login-start', async () => {
     const sock = tmpSock();
-    const svc = await createFakeService({ socketPath: sock, state: { login: 'login-pending' } });
-    const { app } = start(sock);
+    const lp = { url: 'https://link.tidal.com/KLMNO', userCode: 'KLMNO', expiresAt: Date.now() + 200000 };
+    const svc = await createFakeService({ socketPath: sock, state: { login: 'login-pending', loginPending: lp } });
+    const { ctx, app } = start(sock);
     try {
         await waitFor(() => app.state().login && app.state().login.url, 3000, 'a code');
+        await sleep(500);
+        assert.strictEqual(app.state().login.userCode, 'KLMNO');
         const c = cmds(svc);
-        assert.ok(c.indexOf('login-cancel') >= 0 && c.indexOf('login-cancel') < c.indexOf('login-start'), c.join(','));
+        assert.ok(c.indexOf('login-cancel') < 0 && c.indexOf('login-start') < 0, c.join(','));
+        await ctx.loops.MAIN();
+        const cv = ctx.frames[ctx.frames.length - 1];
+        assert.ok(cv.has('KLMNO') && app.info().qr, cv.all());
+        assert.ok(cv.has(/valid for 4 more minutes/), cv.all());
+        noErrors(ctx);
+    } finally { app.stop(); await svc.close(); }
+});
+
+test('contract 2: the login refused on the phone (loginError login-denied): its message, no new code until asked; then one', async () => {
+    const sock = tmpSock();
+    const svc = await createFakeService({ socketPath: sock, state: { login: 'logged-out', loginError: 'login-denied' } });
+    const { ctx, app } = start(sock);
+    try {
+        await waitFor(() => app.state().screen === 'LOGIN', 3000, 'LOGIN');
+        await sleep(500);
+        assert.strictEqual(cmds(svc).indexOf('login-start'), -1, 'no code by itself');
+        await ctx.loops.MAIN();
+        assert.ok(ctx.frames[ctx.frames.length - 1].has(/refused on the phone/i), ctx.frames[ctx.frames.length - 1].all());
+        app.input({ press: true });
+        await waitFor(() => app.state().login && app.state().login.userCode === 'ABCDE', 3000, 'a new code');
+        assert.strictEqual(cmds(svc).filter((c) => c === 'login-start').length, 1);
+        assert.strictEqual(cmds(svc).indexOf('login-cancel'), -1, 'nothing to cancel');
+        noErrors(ctx);
+    } finally { app.stop(); await svc.close(); }
+});
+
+test('contract 2: the code runs out while shown (pending -> logged-out, login-expired): "expired", a new code on request', async () => {
+    const sock = tmpSock();
+    const svc = await createFakeService({ socketPath: sock });
+    const { ctx, app } = start(sock);
+    try {
+        await waitFor(() => app.state().login && app.state().login.url, 3000, 'a code');
+        await waitFor(() => app.state().service.login === 'login-pending', 3000, 'pending');
+        svc.state.login = 'logged-out'; svc.state.loginPending = null; svc.state.loginError = 'login-expired';
+        await waitFor(() => app.state().login && app.state().login.expired, 3000, 'expired');
+        await ctx.loops.MAIN();
+        assert.ok(ctx.frames[ctx.frames.length - 1].has(/code expired/i));
+        await sleep(400);
+        assert.strictEqual(cmds(svc).filter((c) => c === 'login-start').length, 1, 'not by itself');
+        app.input({ press: true });
+        await waitFor(() => cmds(svc).filter((c) => c === 'login-start').length === 2, 3000, 'asked again');
+        await waitFor(() => app.state().login && app.state().login.url && !app.state().login.expired, 3000, 'a new code shown');
     } finally { app.stop(); await svc.close(); }
 });
 

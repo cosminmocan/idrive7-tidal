@@ -104,6 +104,32 @@ test('the code expired: no QR code, and the screen offers a new one (a press or 
     assert.strictEqual(S.defaultAct(s, info).type, 'login-new', 'the controller\'s press on the screen asks for it too');
 });
 
+test('contract 2: the login was refused on the phone: its own message, no QR code, a new code on request', () => {
+    const st = Object.assign(defaultState(), { loginError: 'login-denied' });
+    const s = M.reduce(M.initial(), { type: 'status', state: st });
+    const spy = spyCanvas();
+    const info = S.draw(spy, theme, s, { now: 0 });
+    assert.strictEqual(info.qr, null);
+    assert.ok(spy.has(/refused on the phone/i), spy.all());
+    assert.ok(!spy.has(/expired/i), spy.all());
+    assert.strictEqual(S.defaultAct(s, info).type, 'login-new');
+    const ex = M.reduce(M.initial(), { type: 'status', state: Object.assign(defaultState(), { loginError: 'login-expired' }) });
+    const spy2 = spyCanvas();
+    assert.strictEqual(S.defaultAct(ex, S.draw(spy2, theme, ex, { now: 0 })).type, 'login-new');
+    assert.ok(spy2.has(/code expired/i), spy2.all());
+});
+
+test('contract 2: a code pending after the app restarted: the QR code, the user code and the time left from expiresAt', () => {
+    const now = 1795000000000;
+    const st = Object.assign(defaultState(), { login: 'login-pending', loginPending: { url: URL, userCode: 'ABCDE', expiresAt: now + 150000 } });
+    const s = M.reduce(M.initial(), { type: 'status', state: st });
+    const spy = spyCanvas();
+    const info = S.draw(spy, theme, s, { now: now });
+    assert.ok(info.qr, 'a QR code is drawn');
+    assert.ok(spy.has('ABCDE') && spy.has('link.tidal.com/ABCDE'), spy.all());
+    assert.ok(spy.has(/valid for 3 more minutes/), spy.all());
+});
+
 test('waiting for a code: a message, no QR code', () => {
     let s = M.reduce(M.initial(), { type: 'status', state: defaultState() });
     s = M.reduce(s, { type: 'login-requested' });
