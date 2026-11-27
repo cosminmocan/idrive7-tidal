@@ -57,7 +57,7 @@ test('at 0 km/h search opens with the keyboard; typing and searching work', () =
     assert.strictEqual(M.top(s).kind, 'search');
     assert.strictEqual(s.search.keyboard, true);
     const d = drawn(s);
-    assert.ok(key(d.info, 'Q') && key(d.info, 'M') && key(d.info, '7'), 'letters and digits on the keyboard');
+    assert.ok(key(d.info, 'Q') && key(d.info, 'M') && key(d.info, 'DIGITS'), 'letters, and the switch to the digits (U1: one row)');
     s = typeWord(s, 'DAFT');
     s = M.reduce(s, { type: 'key', key: ' ' });
     s = typeWord(s, 'PUNK');
@@ -129,29 +129,30 @@ test('while moving, lists, play, pause and skip stay available', () => {
     const moved = N.input(s, null, { knob: 1 });
     assert.strictEqual(moved[0].type, 'cursor');
     s = M.reduce(s, moved[0]);
-    assert.deepStrictEqual(N.input(s, null, { press: true }), [{ type: 'play', tracks: [TRACK.id, 2], index: 1 }]);
+    assert.deepStrictEqual(N.input(s, null, { press: true }).map((a) => [a.type, a.tracks, a.index]), [['play', [TRACK.id, 2], 1]]);
     const st = Object.assign(defaultState(), { login: 'logged-in' });
     st.player = { state: 'playing', track: TRACK, position: 1, duration: 320, queueIndex: 0, queueLength: 2, quality: 'HIGH', error: null };
     let np = M.reduce(M.reduce(at(loggedIn(), true), { type: 'status', state: st }), { type: 'open-now-playing' });
-    const info = drawn(np).info;
-    assert.deepStrictEqual(N.input(np, info, { press: true }), [{ type: 'control', cmd: 'pause' }]);
-    const next = info.hits.filter((h) => h.act && h.act.cmd === 'next')[0];
-    assert.deepStrictEqual(N.input(np, info, { tap: { x: next.x + 1, y: next.y + 1 } }), [{ type: 'control', cmd: 'next' }]);
+    assert.deepStrictEqual(N.input(np, null, { press: true }), [{ type: 'bar', id: 'BTN_PLAY' }], 'U1: the bar\'s PAUSE');
+    np = M.reduce(np, N.input(np, null, { knob: 1 })[0]);
+    assert.deepStrictEqual(N.input(np, null, { press: true }), [{ type: 'bar', id: 'BTN_NEXT' }]);
 });
 
-test('search results stay usable while moving; a new search is offered only when parked', () => {
+test('search results stay usable while moving; the letters only when parked (U1: one row over the results)', () => {
     let s = M.reduce(loggedIn(), { type: 'open-search' });
     s = M.reduce(M.reduce(s, { type: 'key', key: 'A' }), { type: 'key', key: 'SEARCH' });
     s = M.reduce(s, { type: 'list-loaded', key: M.top(s).key, offset: 0, total: 1, items: [TRACK] });
     s = at(s, true);
     const d = drawn(s);
     assert.ok(d.cv.has('One More Time'), d.cv.all());
-    assert.ok(d.cv.has(/new search/i), d.cv.all());
-    const acts = N.input(s, d.info, { press: true });              // on "New search" (the first row)
-    s = M.reduce(s, acts[0]);
-    assert.strictEqual(s.search.keyboard, false, 'not while moving');
-    s = M.reduce(s, { type: 'cursor', sel: 1, top: 0 });
-    assert.deepStrictEqual(N.input(s, d.info, { press: true }), [{ type: 'play', tracks: [TRACK.id], index: 0 }], 'a result plays');
+    assert.strictEqual(d.info.hits.filter((h) => h.act && h.act.type === 'key').length, 0, 'no letters to press');
+    assert.ok(d.cv.has(/parked/), d.cv.all());
+    const up = N.input(s, d.info, { tilt: 'N' });
+    assert.deepStrictEqual(up, [{ type: 'focus', area: 'tabs', tab: 0 }], 'pushed up: not the letters, the tabs');
+    assert.strictEqual(M.reduce(s, { type: 'open-keyboard' }).search.keyboard, false, 'not while moving');
+    assert.deepStrictEqual(N.input(s, d.info, { press: true }).map((a) => [a.type, a.tracks, a.index]), [['play', [TRACK.id], 0]], 'a result plays');
+    s = at(s, false);
+    assert.deepStrictEqual(N.input(s, drawn(s).info, { tilt: 'N' }), [{ type: 'open-keyboard' }], 'parked: up is the letters');
 });
 
 run();

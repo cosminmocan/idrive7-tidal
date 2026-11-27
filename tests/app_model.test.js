@@ -223,14 +223,18 @@ test('lists: open (loading), loaded, deeper, back pops, back from the first goes
     assert.strictEqual(go(s, { type: 'back' }).screen, 'LIBRARY', 'back on the library stays (the HMI leaves the app)');
 });
 
-test('now playing: opened from anywhere, back returns; a started play goes there', () => {
+test('now playing: opened from anywhere, back returns; a started play stays in its list (U1) and keeps which list it is', () => {
     let s = go(libraryState(), { type: 'open-list', key: 'mixes', title: 'Mixes', kind: 'mixes', source: { cmd: 'mixes' } }, { type: 'open-now-playing' });
     assert.strictEqual(s.screen, 'NOW_PLAYING');
     s = go(s, { type: 'back' });
     assert.strictEqual(s.screen, 'LIST');
-    s = go(libraryState(), { type: 'played' });
-    assert.strictEqual(s.screen, 'NOW_PLAYING');
-    assert.strictEqual(go(s, { type: 'back' }).screen, 'LIBRARY');
+    const l = go(libraryState(), { type: 'open-list', key: 'k', title: 'Favourite tracks', kind: 'tracks', source: { cmd: 'favorites' } },
+        { type: 'list-loaded', key: 'k', offset: 0, total: 2, items: [TRACK, Object.assign({}, TRACK, { id: 2 })] }, { type: 'cursor', sel: 1, top: 0 });
+    s = go(l, { type: 'played', queue: { key: 'k', title: 'Favourite tracks', tracks: [TRACK, Object.assign({}, TRACK, { id: 2 })] } });
+    assert.deepStrictEqual([s.screen, M.top(s).sel, s.focus.area], ['LIST', 1, 'page'], 'the same list, the same row');
+    assert.deepStrictEqual([s.queue.key, s.queue.title, s.queue.tracks.length], ['k', 'Favourite tracks', 2]);
+    assert.strictEqual(go(l, { type: 'played' }), l, 'without its list: nothing');
+    assert.strictEqual(go(l, { type: 'played', queue: 'x' }), l);
     assert.strictEqual(go(libraryState(), { type: 'open-library' }).screen, 'LIBRARY');
 });
 

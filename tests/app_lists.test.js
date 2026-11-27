@@ -26,7 +26,7 @@ function listOf(items, kind, extra) {
 /** apply what nav returns: model events go through the model, the rest is returned */
 function apply(s, out) {
     const acts = [];
-    out.forEach((a) => { const n = M.reduce(s, a); if (n !== s || a.type === 'cursor') s = n; else acts.push(a); });
+    out.forEach((a) => { const n = M.reduce(s, a); if (n !== s || a.type === 'cursor' || a.type === 'focus') s = n; else acts.push(a); });
     return { s: s, acts: acts };
 }
 function drawn(s, ui) { const cv = spyCanvas(); const info = S.draw(cv, theme, s, Object.assign({ now: 0 }, ui || {})); return { cv: cv, info: info }; }
@@ -57,7 +57,7 @@ test('text: a title of 200 characters is cut with ... inside its column', () => 
     const { cv: c2 } = drawn(listOf([track(0, { title: 'Ş' + 'x'.repeat(199) })]));
     const t = c2.texts.filter((x) => /^Sx+\.\.\.$/.test(x.s))[0];
     assert.ok(t, 'the title is cut and converted: ' + c2.all());
-    assert.ok(c2.textWidth(t.s, t.size) <= L.COLS.title.w, 'inside its column');
+    assert.ok(c2.textWidth(t.s, t.size) <= 1500 - 140 - 60, 'inside the row, left of its time');
 });
 
 test('a 500-row list draws at most the visible rows in a frame', () => {
@@ -89,17 +89,22 @@ test('the knob moves one row per step and stops at both ends', () => {
     s = apply(s, N.input(s, null, { knob: 1 })).s;
     s = apply(s, N.input(s, null, { knob: 5 })).s;
     assert.strictEqual(M.top(s).sel, 2, 'stops at the bottom');
-    s = apply(s, N.input(s, null, { tilt: 'N' })).s;
-    assert.strictEqual(M.top(s).sel, 1, 'pushed up: one row up');
-    s = apply(s, N.input(s, null, { tilt: 'S' })).s;
-    assert.strictEqual(M.top(s).sel, 2, 'pushed down: one row down');
+    // U1: pushed up / down the controller leaves the list for the tabs / the bar; the row stays (tests/app_nav.test.js)
+    const up = apply(s, N.input(s, null, { tilt: 'N' })).s;
+    assert.deepStrictEqual([M.top(up).sel, up.focus.area], [2, 'tabs'], 'pushed up: the tabs');
+    const down = apply(s, N.input(s, null, { tilt: 'S' })).s;
+    assert.deepStrictEqual([M.top(down).sel, down.focus.area], [2, 'bar'], 'pushed down: the bar');
 });
 
 test('a press plays from that row, with the ids of the list the user is in', () => {
     let s = listOf([track(0), track(1), track(2)]);
     s = apply(s, N.input(s, null, { knob: 1 })).s;
     const r = apply(s, N.input(s, null, { press: true }));
-    assert.deepStrictEqual(r.acts, [{ type: 'play', tracks: [1000, 1001, 1002], index: 1 }]);
+    assert.strictEqual(r.acts.length, 1);
+    const a = r.acts[0];
+    assert.deepStrictEqual([a.type, a.tracks, a.index], ['play', [1000, 1001, 1002], 1]);
+    // U1: with the list it comes from (now playing's caption, its next track, push right back to it)
+    assert.deepStrictEqual([a.queue.key, a.queue.title, a.queue.tracks.map((t) => t.id)], ['k', 'A list', [1000, 1001, 1002]]);
 });
 
 test('a press on a long list sends at most 1000 ids, around the row pressed (the contract\'s limit)', () => {
@@ -117,11 +122,11 @@ test('a track that cannot be streamed is greyed out and a press says so instead 
     let s = listOf([track(0, { streamReady: false })]);
     const out = N.input(s, null, { press: true });
     const r = apply(s, out);
-    assert.strictEqual(r.s.message, 'This track cannot be played');
+    assert.strictEqual(r.s.message, 'This track cannot be played here');
     assert.deepStrictEqual(r.acts, []);
     const { cv } = drawn(s);
     const t = cv.texts.filter((x) => x.s === 'Track 0')[0];
-    assert.strictEqual(t.color, theme.dim, 'greyed out');
+    assert.strictEqual(t.color, S.palette(theme).off, 'greyed out');
 });
 
 test('albums, playlists and mixes open their track lists; tilt left goes back', () => {
@@ -161,7 +166,7 @@ test('touch: a tap on a row acts on that row', () => {
     const h = info.hits.filter((x) => x.row === 2)[0];
     assert.ok(h, 'row 2 has a hit area');
     const r = apply(s, N.input(s, info, { tap: { x: h.x + 5, y: h.y + 5 } }));
-    assert.deepStrictEqual(r.acts, [{ type: 'play', tracks: [1000, 1001, 1002], index: 2 }]);
+    assert.deepStrictEqual(r.acts.map((a) => [a.type, a.tracks, a.index]), [['play', [1000, 1001, 1002], 2]]);
     assert.strictEqual(M.top(r.s).sel, 2, 'the tapped row is selected');
     assert.deepStrictEqual(N.input(s, info, { tap: { x: 1, y: 1 } }), [], 'a tap on nothing does nothing');
 });

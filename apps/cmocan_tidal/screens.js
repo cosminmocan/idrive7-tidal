@@ -1,287 +1,376 @@
 'use strict';
 /**
- * screens.js - draws the app's screens from the model's state (model.js). No kit require: the canvas and the
- * colour theme come in, so the same code draws on the car (the kit's recorder), in the preview and in the tests.
+ * screens.js - draws the app's screens from the model's state (model.js), as the approved pictures of task U1
+ * (docs/ui-mock/a-*.png, docs/ui-redesign.md section 3). No kit require: the canvas and the colour theme come in,
+ * so the same code draws on the car (the kit's recorder), in the preview and in the tests.
  *
  *   const info = draw(cv, theme, state, ui)
- *     ui:   { now, act(a), focus }      act: called by the canvas's touch / controller targets (cv.target);
- *                                       focus: the controller's button on screens with buttons (nav.js)
- *     info: { hits: [{ x, y, w, h, key, act, button, row, bar }], qr: {...} | null, focus, defaultFocus, barFocus }
- *   now playing's progress bar (seek): ui.position is what it shows, ui.seeking that this is a target the user is
- *   choosing (a handle on the bar, the time in the accent colour), ui.focus === 'bar' that the controller is on it
- *   (info.barFocus); its hit is the finger's place, { key: 'np-bar', bar: { x, w, dur } }, not a button
- *   defaultAct(state, info)      what a press of the controller does when nothing else is focused
+ *     ui:   { now, act(a), cover(id), thumb(id), position, duration, seeking, volume, toastUntil }
+ *           act: called by the canvas's touch targets (cv.target); cover / thumb: a decoded cover for now playing
+ *           (400 px) / a list row (small), or null; position, duration: the progress line's (seconds); seeking: the
+ *           position is a target the user is choosing (seek.js); volume: the car's volume popup; toastUntil: a
+ *           message shows until then
+ *     info: { hits: [{ x, y, w, h, key, act, row, bar }], qr, cover, barFocus, focus }
+ *           focus: where the one highlight was drawn on the page, { key, x, y, w, h } (key: the target's, 'row:3',
+ *           'choice:0', 'key:19', 'progress'), or null when the controller is on the bar or the tabs (the kit draws it
+ *           there); barFocus: the controller is on now playing's progress line
+ *   defaultAct(state, info)      what a press on the page's focused choice does
+ *   palette(theme)               the colours drawn, all from the theme: text, dim, focus (theme.sel), plate, warn, off
  *
- * Every text from the service goes through text.js (the fonts are ASCII). An act is plain data for main.js and
- * nav.js: { type: 'login-new' }, { type: 'back' }, ... Node 8.9.4 syntax.
+ * Layout in the app's 1600 x 520 units (the kit scales them onto the screen): margins 40, the caption line at y 72,
+ * rows of 70 from y 92 (six), track rows of two lines with a 52 px cover. The theme's focus colour marks only where
+ * the controller is. Every text from the service goes through text.js (the kit's fonts). Node 8.9.4 syntax.
  */
 const QR = require('./qr');
 const T = require('./text');
 const L = require('./listview');
 const NP = require('./nowplaying');
-const NP_cmd = NP.playPause;
+const M = require('./model');
+const P = require('./pages');
 
-const W = 1600, H = 520, TOP = 44, BOTTOM = 512;
-const ACCENT = '#33d6ff', RED = '#ff4d4d', ROW_SEL = '#33d6ff2e', BTN = '#ffffff1f';
+const W = 1600, H = 520;
+const LAY = { x: 40, w: 1500, capY: 72, y0: L.Y0, rowH: L.ROW_H };
+const DOT = '  ·  ';
+
+/* ---------- colours: all from the theme ---------- */
+function alpha(c, a) {
+    let h = String(c || '#ffffff');
+    if (/^#[0-9a-f]{3}$/i.test(h)) h = '#' + h[1] + h[1] + h[2] + h[2] + h[3] + h[3];
+    h = h.slice(0, 7);
+    const v = Math.max(0, Math.min(255, Math.round(a * 255)));
+    return h + (v < 16 ? '0' : '') + v.toString(16);
+}
+function palette(t) {
+    const focus = t.sel || t.accent;
+    return {
+        bg: t.bg, text: t.text, dim: t.dim, focus: focus, plate: alpha(focus, 0.26), warn: t.warn || t.text,
+        off: alpha(t.text, 0.36), offDim: alpha(t.dim, 0.5), hair: alpha(t.text, 0.07), line: alpha(t.text, 0.14),
+        tile: alpha(t.text, 0.08), note: alpha(t.text, 0.25), track: alpha(t.text, 0.16), knob: alpha(t.text, 0.6), soft: alpha(t.text, 0.85),
+    };
+}
 
 /* ---------- pieces ---------- */
 function str(v) { return v == null ? '' : String(v); }
+/** text, cut to o.w with '...'; returns its width */
 function txt(c, s, x, y, size, color, o) {
     const opts = { literal: true, font: (o && o.font) || 'label', align: (o && o.align) || 'left' };
     if (o && o.spacing) opts.spacing = o.spacing;
     const v = o && o.w ? T.fit(c.cv, s, size, o.w, opts.font) : T.ascii(s);
     c.cv.text(v, x, y, size, color, opts);
-    return v;
+    return c.cv.textWidth(v, size, opts);
 }
 function target(c, hit, r) {
     c.info.hits.push(hit);
-    if (typeof c.cv.target === 'function' && c.ui.act && hit.act) c.cv.target(hit.x, hit.y, hit.w, hit.h, () => c.ui.act(hit.act), hit.key, r || 6);
+    if (typeof c.cv.target === 'function' && c.ui.act && hit.act) c.cv.target(hit.x, hit.y, hit.w, hit.h, () => c.ui.act(hit.act), hit.key, r == null ? 10 : r);
     return hit;
 }
-function button(c, x, y, w, h, label, act, key, primary) {
-    const i = c.info.hits.filter((b) => b.button).length;
-    const focused = c.ui.focus === i;
-    c.cv.roundRect(x, y, w, h, h / 2, primary ? ACCENT : BTN);
-    if (focused) c.cv.strokeRoundRect(x - 4, y - 4, w + 8, h + 8, h / 2 + 4, 3, '#ffffff');
-    c.cv.text(label, x + w / 2, y + h / 2 + 9, 24, primary ? '#000000' : c.t.text, { align: 'center', font: 'bold', literal: true });
-    return target(c, { x: x, y: y, w: w, h: h, key: key, act: act, button: true }, h / 2);
+/** the one highlight: the plate filled with the focus colour, lighter, and its edge in the full colour */
+function focusPlate(c, key, x, y, w, h, r) {
+    c.cv.roundRect(x, y, w, h, r, c.p.plate);
+    c.cv.strokeRoundRect(x, y, w, h, r, 2.5, c.p.focus);
+    c.info.focus = { key: key, x: x, y: y, w: w, h: h };
 }
-function title(c, text, right) {
-    txt(c, text, 60, TOP + 50, 34, c.t.text, { font: 'bold', w: 1100 });
-    if (right) txt(c, right, W - 60, TOP + 50, 22, c.t.dim, { align: 'right' });
-}
-function centred(c, big, small, y) {
-    txt(c, big, W / 2, y || 230, 34, c.t.text, { align: 'center', font: 'bold', w: W - 120 });
-    if (small) txt(c, small, W / 2, (y || 230) + 44, 22, c.t.dim, { align: 'center', w: W - 120 });
-}
-function shortUrl(url) { return str(url).replace(/^[a-z]+:\/\//i, '').replace(/\/$/, ''); }
+const onPage = (c) => P.area(c.s) === 'page';
+function messageOn(c) { const u = c.ui; return !!c.s.message && (!u.toastUntil || !u.now || u.now < u.toastUntil); }
 
-/* ---------- the screens ---------- */
-function drawNoService(c) {
-    if (c.s.starting) centred(c, 'Connecting to the TIDAL service...', null);
-    else centred(c, 'The TIDAL service is not installed or not running', 'Install "cmocan-tidal" from the Store, then open the app again.');
-}
-
-function drawLogin(c) {
-    const cv = c.cv, t = c.t, s = c.s, l = s.login;
-    title(c, 'Log in to TIDAL');
-    if (s.message) txt(c, s.message, 60, TOP + 92, 24, ACCENT, { w: 900 });
-    if (l && l.failed) {
-        txt(c, 'Could not get a login code.', 60, TOP + 160, 28, t.text, { font: 'bold' });
-        txt(c, 'Try again in a moment.', 60, TOP + 200, 22, t.dim);
-        button(c, 60, TOP + 240, 300, 64, 'New code', { type: 'login-new' }, 'login-new', true);
-        return;
-    }
-    if (!l || l.requesting) {
-        txt(c, 'Getting a code...', 60, TOP + 160, 26, t.dim);
-        return;
-    }
-    if (l.denied) {
-        txt(c, 'The login was refused on the phone.', 60, TOP + 160, 28, t.text, { font: 'bold' });
-        txt(c, 'Get a new code to try again.', 60, TOP + 200, 22, t.dim);
-        button(c, 60, TOP + 240, 300, 64, 'New code', { type: 'login-new' }, 'login-new', true);
-        return;
-    }
-    if (l.expired) {
-        txt(c, 'The code expired.', 60, TOP + 160, 28, t.text, { font: 'bold' });
-        txt(c, 'Get a new one and scan it with your phone.', 60, TOP + 200, 22, t.dim);
-        button(c, 60, TOP + 240, 300, 64, 'New code', { type: 'login-new' }, 'login-new', true);
-        return;
-    }
-    if (!l.url) {
-        txt(c, 'Getting a code...', 60, TOP + 160, 26, t.dim);
-        return;
-    }
-    const m = QR.matrix(l.url);
-    txt(c, '1.  Scan the code with your phone\'s camera', 60, TOP + 150, 24, t.text);
-    txt(c, '2.  Or open this address and enter the code:', 60, TOP + 196, 24, t.text);
-    txt(c, shortUrl(l.url), 100, TOP + 240, 26, t.text, { font: 'bold', w: 900 });
-    txt(c, l.userCode, 100, TOP + 320, 64, ACCENT, { font: 'bold', spacing: 6, w: 900 });
-    if (c.ui.now && l.expiresAt) {
-        const left = Math.max(0, Math.ceil((l.expiresAt - c.ui.now) / 60000));
-        txt(c, 'The code is valid for ' + left + ' more minute' + (left === 1 ? '' : 's') + '.', 60, TOP + 380, 20, t.dim);
-    }
-    if (!m) return;
-    const box = BOTTOM - TOP - 40, lay = QR.layout(m.n, box);
-    const x = W - 80 - lay.size, y = TOP + Math.max(10, Math.floor((BOTTOM - TOP - lay.size) / 2));
-    QR.draw(cv, m, x, y, lay.cell);
-    c.info.qr = { x: x, y: y, cell: lay.cell, size: lay.size, n: m.n };
-}
-
-function drawError(c) {
-    centred(c, str(c.s.message) || 'Something went wrong', null, 220);
-    button(c, W / 2 - 120, 300, 240, 64, 'Back', { type: 'back' }, 'error-back', true);
-}
-
-function drawOffline(c) {
-    centred(c, 'No internet', 'The head unit has no internet connection right now. Lists fetched before still open.', 200);
-    if (c.s.service.login === 'logged-in') button(c, W / 2 - 130, 300, 260, 64, 'Library', { type: 'open-library' }, 'offline-library', true);
-}
-
-/** the rows on screen (only those: a list of 500 draws a handful), with the selection and a scroll bar */
-function drawRows(c, rows, cur) {
-    const cv = c.cv, t = c.t;
-    const r = L.range(cur, rows.length);
-    for (let i = r.first; i < r.last; i++) {
-        const row = rows[i], y = L.Y0 + (i - r.first) * L.ROW_H, mid = y + L.ROW_H / 2 + 8;
-        if (i === cur.sel) cv.roundRect(40, y + 3, W - 100, L.ROW_H - 6, 10, ROW_SEL);
-        const col = row.dim ? t.dim : t.text;
-        if (row.kind === 'tracks' || row.kind === 'search') txt(c, String((row.index != null ? row.index : i) + 1), L.COLS.num.x + L.COLS.num.w, mid, 20, t.dim, { align: 'right' });
-        txt(c, row.label, L.COLS.title.x, mid, 24, col, { font: row.kind === 'menu' ? 'bold' : 'label', w: L.COLS.title.w });
-        if (row.sub) txt(c, row.sub, L.COLS.sub.x, mid, 20, t.dim, { w: L.COLS.sub.w });
-        if (row.right) txt(c, row.right, L.COLS.right.x, mid, 20, t.dim, { align: 'right', w: L.COLS.right.w });
-        target(c, { x: 40, y: y, w: W - 100, h: L.ROW_H, key: 'row:' + i, row: i, act: { type: 'row', index: i } }, 10);
-    }
-    if (rows.length > L.VISIBLE) {
-        const x = W - 44, y0 = L.Y0, h = L.VISIBLE * L.ROW_H;
-        cv.roundRect(x, y0, 6, h, 3, BTN);
-        const kh = Math.max(24, h * L.VISIBLE / rows.length), ky = y0 + (h - kh) * (r.first / Math.max(1, rows.length - L.VISIBLE));
-        cv.roundRect(x, ky, 6, kh, 3, t.dim);
-    }
-}
-
-function drawLibrary(c) {
-    title(c, 'TIDAL', c.s.offlineBrowse ? 'offline: lists fetched before' : null);
-    drawRows(c, L.rows(c.s), L.cursor(c.s));
-}
-
-/** the search keyboard (only while parked: the model closes it when the car moves) */
-const KEY_ROWS = ['1234567890', 'QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'];
-function drawKeyboard(c) {
-    const t = c.t, q = c.s.search.query;
-    c.cv.roundRect(60, TOP + 14, W - 120, 56, 12, BTN);
-    txt(c, (q || '') + '_', 84, TOP + 52, 28, q ? t.text : t.dim, { font: 'bold', w: W - 200 });
-    const kw = 112, kh = 58, gap = 10, y0 = TOP + 84;
-    KEY_ROWS.forEach((row, ri) => {
-        const x0 = 60 + ri * (kw / 2), y = y0 + ri * (kh + gap);
-        row.split('').forEach((ch, i) => button(c, x0 + i * (kw + gap), y, kw, kh, ch, { type: 'key', key: ch }, 'key-' + ch, false));
-    });
-    const y = y0 + KEY_ROWS.length * (kh + gap);
-    let x = 60 + kw;
-    [['Space', 360, ' '], ['Delete', 200, 'DEL'], ['Clear', 180, 'CLEAR'], ['Search', 260, 'SEARCH']].forEach((k) => {
-        button(c, x, y, k[1], kh, k[0], { type: 'key', key: k[2] }, 'key-' + k[2], k[2] === 'SEARCH');
-        x += k[1] + gap;
-    });
-    c.info.defaultFocus = 10;           // Q
-}
-
-function drawList(c) {
-    const s = c.s, f = s.stack[s.stack.length - 1], t = c.t;
-    if (f.kind === 'search' && s.search.keyboard) return drawKeyboard(c);
-    const count = f.total != null && f.total > f.items.length ? f.items.length + ' of ' + f.total : '';
-    title(c, f.title, [f.stale ? 'not up to date (offline)' : '', count].filter(Boolean).join('   '));
-    if (f.kind === 'search') {
-        drawRows(c, L.rows(s), L.cursor(s));
-        if (!f.items.length) txt(c, f.loading ? 'Searching...' : f.error ? 'The search failed (' + f.error + ').' : f.source.params.query ? 'No tracks found.' : '', W / 2, L.Y0 + L.ROW_H * 2 + 20, 24, t.dim, { align: 'center' });
-        return;
-    }
-    if (!f.items.length) {
-        if (f.loading) txt(c, 'Loading...', W / 2, 280, 26, t.dim, { align: 'center' });
-        else if (f.error) txt(c, 'Could not load this list (' + f.error + ').', W / 2, 280, 26, t.dim, { align: 'center' });
-        else txt(c, 'Nothing here yet.', W / 2, 280, 26, t.dim, { align: 'center' });
-        return;
-    }
-    drawRows(c, L.rows(s), L.cursor(s));
-}
+/* ---------- icons: lines and circles of our own ---------- */
+const ICON = {
+    heart(cv, x, y, s, c) {
+        const k = s / 24, pts = [];
+        for (let i = 0; i <= 40; i++) {
+            const a = Math.PI * 2 * i / 40;
+            pts.push([x + 0.7 * k * 16 * Math.pow(Math.sin(a), 3), y - 0.7 * k * (13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a)) - k]);
+        }
+        cv.stroke(pts, 2.4, c);
+    },
+    disc(cv, x, y, s, c) { cv.arc(x, y, s * 0.46, s * 0.46 + 2.4, 0, 360, c); cv.arc(x, y, s * 0.12, s * 0.12 + 2.4, 0, 360, c); },
+    list(cv, x, y, s, c) { [-0.3, 0, 0.3].forEach((d) => { cv.circle(x - s * 0.42, y + s * d, 2.2, c); cv.line(x - s * 0.22, y + s * d, x + s * 0.46, y + s * d, 2.4, c); }); },
+    mix(cv, x, y, s, c) { [[-0.42, 0.18], [-0.21, 0.36], [0, 0.46], [0.21, 0.28], [0.42, 0.14]].forEach((b) => cv.line(x + s * b[0], y - s * b[1], x + s * b[0], y + s * b[1], 2.6, c)); },
+    search(cv, x, y, s, c) { cv.arc(x - s * 0.1, y - s * 0.1, s * 0.3, s * 0.3 + 2.6, 0, 360, c); cv.line(x + s * 0.16, y + s * 0.16, x + s * 0.46, y + s * 0.46, 3, c); },
+    /** the playing track's mark: three bars of different heights */
+    playing(cv, x, y, s, c) { [[-0.3, 0.28], [0, 0.46], [0.3, 0.16]].forEach((b) => cv.line(x + s * b[0], y + s * 0.44, x + s * b[0], y + s * 0.44 - s * b[1] * 2, 3.4, c)); },
+    chevron(cv, x, y, s, c) { cv.stroke([[x - s * 0.18, y - s * 0.34], [x + s * 0.16, y], [x - s * 0.18, y + s * 0.34]], 2.4, c); },
+    warn(cv, x, y, s, c) { cv.stroke([[x, y - s * 0.46], [x + s * 0.5, y + s * 0.4], [x - s * 0.5, y + s * 0.4], [x, y - s * 0.46]], 3, c); cv.line(x, y - s * 0.14, x, y + s * 0.12, 3.2, c); cv.circle(x, y + s * 0.26, 2.2, c); },
+    back(cv, x, y, s, c) { cv.stroke([[x + s * 0.1, y - s * 0.3], [x - s * 0.2, y], [x + s * 0.1, y + s * 0.3]], 2.6, c); cv.line(x - s * 0.2, y, x + s * 0.44, y, 2.6, c); },
+    space(cv, x, y, s, c) { cv.stroke([[x - s * 0.4, y - s * 0.02], [x - s * 0.4, y + s * 0.22], [x + s * 0.4, y + s * 0.22], [x + s * 0.4, y - s * 0.02]], 2.4, c); },
+    none() {},
+};
 
 /** a square for a missing cover: a dim tile with a note on it */
 function placeholder(c, x, y, size) {
-    const cv = c.cv, k = size / 100, col = '#ffffff40';
-    cv.roundRect(x, y, size, size, 12, '#ffffff14');
+    const cv = c.cv, k = size / 100, col = c.p.note;
+    cv.roundRect(x, y, size, size, Math.max(3, size * 0.06), c.p.tile);
     cv.circle(x + 40 * k, y + 68 * k, 9 * k, col);
     cv.circle(x + 66 * k, y + 62 * k, 9 * k, col);
     cv.fillRect(x + 46 * k, y + 28 * k, 3.5 * k, 40 * k, col);
     cv.fillRect(x + 72 * k, y + 22 * k, 3.5 * k, 40 * k, col);
     cv.quad([[x + 46 * k, y + 28 * k], [x + 75.5 * k, y + 22 * k], [x + 75.5 * k, y + 30 * k], [x + 46 * k, y + 36 * k]], col);
 }
-function cover(c, coverId, x, y, size) {
-    const img = coverId && typeof c.ui.cover === 'function' ? c.ui.cover(coverId) : null;
+function cover(c, coverId, x, y, size, small) {
+    const get = small ? c.ui.thumb : c.ui.cover;
+    const img = coverId && typeof get === 'function' ? get(coverId) : null;
     if (img && typeof c.cv.image === 'function') { c.cv.image(img.id, x, y, size, size); return 'image'; }
     placeholder(c, x, y, size);
     return 'placeholder';
 }
 
-const NP_STATE = { buffering: 'Buffering...', loading: 'Loading...', paused: 'Paused' };
-
-function drawNowPlaying(c) {
-    const s = c.s, t = c.t, cv = c.cv, p = s.player;
-    const on = !!(p && p.track && p.state !== 'idle');
-    if (!on) {
-        centred(c, 'Nothing is playing', 'Choose a track in the library.', 210);
-        button(c, W / 2 - 130, 300, 260, 64, 'Library', { type: 'back' }, 'np-library', true);
-        return;
-    }
-    const tr = p.track, size = 400, cx = 60, cy = TOP + 34;
-    c.info.cover = cover(c, tr.coverId, cx, cy, size);
-    const x = cx + size + 60, w = W - 60 - x;
-    txt(c, tr.title, x, TOP + 86, 44, t.text, { font: 'bold', w: w });
-    txt(c, (tr.artists || []).join(', '), x, TOP + 134, 28, t.text, { w: w });
-    if (tr.album && tr.album.title) txt(c, tr.album.title, x, TOP + 172, 22, t.dim, { w: w });
-    let state = NP_STATE[p.state] || '';
-    if (p.state === 'error') state = NP.errorText(p.error);
-    // the state's text leaves room for the track number and quality on the right of the same line
-    if (state) txt(c, state, x, TOP + 220, 24, p.state === 'error' ? RED : ACCENT, { font: 'bold', w: w - 320 });
-    const right = [p.queueLength > 0 && p.queueIndex >= 0 ? 'Track ' + (p.queueIndex + 1) + ' of ' + p.queueLength : '', NP.qualityText(p.quality)].filter(Boolean).join('   ');
-    if (right) txt(c, right, W - 60, TOP + 220, 20, t.dim, { align: 'right' });
-    // the progress
-    const pos = typeof c.ui.position === 'number' ? c.ui.position : p.position;
-    const dur = typeof c.ui.duration === 'number' ? c.ui.duration : (p.duration || tr.duration || null);
-    const by = TOP + 252;
-    // a place for the finger and the controller while there is something to seek in (not on an error)
-    const seekable = !!dur && p.state !== 'error';
-    const seeking = seekable && c.ui.seeking === true, onBar = seekable && c.ui.focus === 'bar';
-    c.info.barFocus = onBar;
-    if (onBar) cv.strokeRoundRect(x - 14, by - 16, w + 28, 40, 20, 3, '#ffffff');
-    cv.roundRect(x, by, w, 8, 4, BTN);
-    const fw = dur ? Math.max(8, w * Math.max(0, Math.min(1, pos / dur))) : 0;
-    if (dur) cv.roundRect(x, by, fw, 8, 4, p.state === 'playing' || seeking ? ACCENT : t.dim);
-    if (seeking || onBar) { cv.circle(x + fw, by + 4, 13, '#ffffff'); cv.circle(x + fw, by + 4, 9, ACCENT); }
-    txt(c, L.mmss(pos) || '0:00', x, by + (onBar ? 50 : 38), 20, seeking ? ACCENT : t.dim, seeking ? { font: 'bold' } : undefined);
-    if (dur) txt(c, L.mmss(dur), x + w, by + (onBar ? 50 : 38), 20, t.dim, { align: 'right' });
-    if (seekable) c.info.hits.push({ x: x - 24, y: by - 26, w: w + 48, h: 60, key: 'np-bar', bar: { x: x, w: w, dur: dur } });
-    // the controls: previous, play / pause, next (the knob starts on play / pause)
-    const pp = NP_cmd(p), by2 = TOP + 330, mid = x + w / 2;
-    button(c, mid - 290, by2, 170, 76, 'Previous', { type: 'control', cmd: 'prev' }, 'np-prev', false);
-    button(c, mid - 100, by2, 200, 76, pp === 'pause' ? 'Pause' : 'Play', { type: 'control', cmd: pp || 'resume' }, 'np-playpause', true);
-    button(c, mid + 120, by2, 170, 76, 'Next', { type: 'control', cmd: 'next' }, 'np-next', false);
-    c.info.defaultFocus = 1;
+/** the caption line: the list's name (or a message, in the warning colour) and, on the right, where one is */
+function caption(c, left, right) {
+    const x = LAY.x, y = LAY.capY;
+    if (messageOn(c)) {
+        ICON.warn(c.cv, x + 22, y - 9, 26, c.p.warn);
+        txt(c, c.s.message, x + 48, y, 24, c.p.warn, { w: right ? 1100 : 1400 });
+    } else if (left) txt(c, left, x + 8, y, 24, c.p.dim, { w: right ? 1000 : 1400 });
+    if (right) txt(c, right, x + LAY.w - 8, y, 22, c.p.dim, { align: 'right' });
+    c.cv.fillRect(x, LAY.y0 - 6, LAY.w, 1, c.p.line);
+}
+function scrollBar(c, first, vis, total, y0, h) {
+    if (total <= vis) return;
+    const x = LAY.x + LAY.w + 16, kh = Math.max(28, h * vis / total);
+    c.cv.roundRect(x, y0, 5, h, 2.5, c.p.track);
+    c.cv.roundRect(x, y0 + (h - kh) * first / Math.max(1, total - vis), 5, kh, 2.5, c.p.knob);
 }
 
-/** a message over the bottom of the page for a few seconds (an error that keeps the screen) */
-function drawToast(c, text) {
-    const w = Math.min(1200, c.cv.textWidth(T.ascii(text), 22, { literal: true }) + 60), x = (W - w) / 2, y = BOTTOM - 62;
-    c.cv.roundRect(x, y, w, 46, 23, '#1e2430eb');
-    txt(c, text, W / 2, y + 31, 22, c.t.text, { align: 'center', w: w - 40 });
+/** a row of My music: icon, words, the value on the right, the arrow of a row that opens something */
+function menuRow(c, y, row, focused) {
+    const cv = c.cv, x = LAY.x, mid = y + LAY.rowH / 2;
+    (ICON[row.icon] || ICON.none)(cv, x + 46, mid, 30, c.p.text);
+    txt(c, row.label, x + 92, mid + 11, 30, c.p.text, { w: 700 });
+    if (row.right) txt(c, row.right, x + LAY.w - 56, mid + 8, 23, c.p.dim, { align: 'right', w: 620 });
+    ICON.chevron(cv, x + LAY.w - 28, mid, 24, focused ? c.p.text : c.p.dim);
+}
+/** a row of two lines: the number (or the playing mark), a cover, the title over its second line, the right column */
+function mediaRow(c, y, row) {
+    const x = LAY.x, mid = y + LAY.rowH / 2, off = !!row.off;
+    const c1 = off ? c.p.off : c.p.text, c2 = off ? c.p.offDim : c.p.dim;
+    if (row.kind === 'tracks' || row.kind === 'search') {
+        if (row.playing) ICON.playing(c.cv, x + 34, mid - 4, 22, c.p.text);
+        else txt(c, String(row.index + 1), x + 50, mid + 8, 22, c2, { align: 'right' });
+    }
+    cover(c, row.coverId, x + 68, y + 9, 52, true);
+    if (off) c.cv.fillRect(x + 68, y + 9, 52, 52, alpha(c.p.bg, 0.6));
+    const tx = x + 140, rightW = row.right ? c.cv.textWidth(T.ascii(row.right), 22, { literal: true }) + 40 : 20;
+    const w = x + LAY.w - 24 - rightW - tx;
+    txt(c, row.label, tx, y + 31, 27, c1, { w: w });
+    if (row.sub) txt(c, row.sub, tx, y + 57, 20, c2, { w: w });
+    if (row.right) txt(c, row.right, x + LAY.w - 24, mid + 8, 22, c2, { align: 'right' });
+}
+/** the rows on screen (only those: a list of 500 draws six), the highlight on the selected one, a scroll bar */
+function drawRows(c, rows, cur, y0, vis, focusOn) {
+    const r = L.range(cur, rows.length, vis);
+    for (let i = r.first; i < r.last; i++) {
+        const row = rows[i], y = y0 + (i - r.first) * LAY.rowH, focused = focusOn && i === cur.sel;
+        if (focused) focusPlate(c, 'row:' + i, LAY.x, y + 3, LAY.w, LAY.rowH - 6, 10);
+        else c.cv.fillRect(LAY.x + 8, y + LAY.rowH - 1, LAY.w - 16, 1, c.p.hair);
+        if (row.kind === 'menu') menuRow(c, y, row, focused);
+        else mediaRow(c, y, row);
+        target(c, { x: LAY.x, y: y, w: LAY.w, h: LAY.rowH, key: 'row:' + i, row: i, act: { type: 'row', index: i } }, 10);
+    }
+    scrollBar(c, r.first, vis, rows.length, y0, vis * LAY.rowH);
+}
+function centredNote(c, text, y) { txt(c, text, W / 2, y, 26, c.p.dim, { align: 'center', w: LAY.w - 80 }); }
+
+/* ---------- the screens ---------- */
+function drawLibrary(c) {
+    caption(c, 'My music', c.s.offlineBrowse ? 'Offline: lists from before' : null);
+    drawRows(c, L.rows(c.s), L.cursor(c.s), LAY.y0, L.VISIBLE, onPage(c));
+}
+
+function drawList(c) {
+    const s = c.s, f = M.top(s);
+    if (f.kind === 'search') return drawSearch(c, f);
+    const total = typeof f.total === 'number' && f.total > f.items.length ? f.total : f.items.length;
+    const where = f.items.length ? (Math.min(f.sel, f.items.length - 1) + 1) + ' of ' + total : '';
+    caption(c, f.title, [f.stale ? 'Not up to date (offline)' : '', where].filter(Boolean).join(DOT));
+    if (!f.items.length) {
+        if (f.loading) centredNote(c, 'Loading...', 250);
+        else if (f.error) centredNote(c, 'Could not load this list (' + f.error + ').', 250);
+        else centredNote(c, 'Nothing here yet.', 250);
+        return;
+    }
+    drawRows(c, L.rows(s), L.cursor(s), LAY.y0, L.VISIBLE, onPage(c));
+}
+
+/** search: what was typed, one row of characters the knob goes along, the results under it */
+function drawSearch(c, f) {
+    const s = c.s, cv = c.cv, x = LAY.x, w = LAY.w, typing = s.search.keyboard && !s.moving;
+    const lettersOn = typing && onPage(c);
+    cv.roundRect(x, 50, w, 58, 8, c.p.tile);
+    ICON.search(cv, x + 34, 80, 28, c.p.dim);
+    const q = s.search.query;
+    const tw = q ? txt(c, q, x + 70, 91, 32, c.p.text, { w: w - 520 }) : 0;
+    if (typing) cv.fillRect(x + 70 + tw + (q ? 5 : 0), 62, 2.5, 36, lettersOn ? c.p.focus : c.p.dim);
+    let right = '', rc = c.p.dim;
+    if (messageOn(c)) { right = s.message; rc = c.p.warn; } else if (s.moving) right = 'Typing only while parked';
+    else if (f.source.params.query) right = f.loading ? 'Searching...' : f.error ? 'The search failed (' + f.error + ')' : (f.total != null ? f.total : f.items.length) + ' track' + ((f.total != null ? f.total : f.items.length) === 1 ? '' : 's');
+    if (right) txt(c, right, x + w - 20, 89, 22, rc, { align: 'right', w: 440 });
+    // one row of characters
+    const cells = M.speller(s.search.digits), cw = w / cells.length, y = 118, h = 62, fi = s.search.key;
+    cv.roundRect(x, y, w, h, 8, alpha(c.p.text, 0.04));
+    cells.forEach((ch, i) => {
+        const cx = x + i * cw, mid = cx + cw / 2, on = lettersOn && i === fi;
+        if (on) focusPlate(c, 'key:' + i, cx - 4, y - 5, cw + 8, h + 10, 10);
+        const col = s.moving ? c.p.off : on ? c.p.text : c.p.soft;
+        if (ch === 'SPACE') ICON.space(cv, mid, y + h / 2 + 2, 30, col);
+        else if (ch === 'DEL') ICON.back(cv, mid, y + h / 2, 30, col);
+        else txt(c, ch, mid, y + h / 2 + (on ? 13 : 10), ch.length > 1 ? 21 : on ? 36 : 28, col, { align: 'center', font: ch.length > 1 || on ? 'bold' : 'label' });
+        if (ch === 'Z' || ch === '9' || ch === '123' || ch === 'ABC') cv.fillRect(cx + cw, y + 14, 1, h - 28, c.p.line);
+        if (!s.moving) {
+            const key = ch === '123' || ch === 'ABC' ? 'DIGITS' : ch === 'SPACE' ? ' ' : ch === 'OK' ? 'SEARCH' : ch;
+            target(c, { x: cx, y: y, w: cw, h: h, key: 'key:' + i, act: { type: 'key', key: key } }, 8);
+        }
+    });
+    // the results
+    if (!f.items.length) {
+        const note = f.loading ? 'Searching...' : f.error ? 'The search failed (' + f.error + ').' : f.source.params.query ? 'No tracks found.' : typing ? 'Type a name, then OK.' : '';
+        if (note) centredNote(c, note, L.SEARCH_Y0 + 100);
+        return;
+    }
+    drawRows(c, L.rows(s), L.cursor(s), L.SEARCH_Y0, L.SEARCH_VISIBLE, onPage(c) && !typing);
+}
+
+/** a message page: a headline (with the warning sign), a sentence or two, the choices as rows */
+function drawMessage(c, m) {
+    const x = 150, cv = c.cv;
+    if (m.icon === 'warn') ICON.warn(cv, x + 32, 156, 68, c.p.warn);
+    txt(c, m.title, x + 96, 176, 50, c.p.text, { font: 'light', w: 1300 });
+    (m.lines || []).forEach((l, i) => txt(c, l, x + 96, 228 + i * 36, 26, c.p.dim, { w: 1300 }));
+    choices(c, m.choices, x + 76, 282 + Math.max(0, (m.lines || []).length - 1) * 36, 760);
+}
+function choices(c, list, x, y0, w) {
+    const sel = Math.max(0, Math.min((list || []).length - 1, c.s.focus.row));
+    (list || []).forEach((ch, i) => {
+        const y = y0 + i * LAY.rowH, focused = onPage(c) && i === sel;
+        if (focused) focusPlate(c, 'choice:' + i, x, y + 3, w, LAY.rowH - 6, 10);
+        else c.cv.fillRect(x + 8, y + LAY.rowH - 1, w - 16, 1, c.p.hair);
+        txt(c, ch.label, x + 24, y + 46, 30, c.p.text, { w: w - 80 });
+        ICON.chevron(c.cv, x + w - 28, y + LAY.rowH / 2, 24, focused ? c.p.text : c.p.dim);
+        target(c, { x: x, y: y, w: w, h: LAY.rowH, key: 'choice:' + i, act: ch.act }, 10);
+    });
+}
+
+function shortHost(url) { return str(url).replace(/^[a-z]+:\/\//i, '').replace(/\/.*$/, ''); }
+
+/** the login: the QR code on the left, two numbered steps and the code on the right, "New code" */
+function drawLogin(c) {
+    const s = c.s, l = s.login, cv = c.cv, box = 404, x = 56 + box + 64;
+    txt(c, 'Sign in to TIDAL', x, 134, 50, c.p.text, { font: 'light' });
+    if (s.message) txt(c, s.message, x, 170, 22, c.p.warn, { w: 980 });
+    const m = P.message(s), offer = (y) => choices(c, m.choices, x + 36, y, 420);
+    const two = (a, b) => { txt(c, a, x, 216, 27, c.p.text, { w: 980 }); txt(c, b, x, 258, 22, c.p.dim, { w: 980 }); offer(300); };
+    if (l && l.failed) return two('Could not get a login code.', 'Try again in a moment.');
+    if (!l || l.requesting || (!l.url && !l.expired)) { txt(c, 'Getting a code...', x, 216, 27, c.p.dim); return undefined; }
+    if (l.denied) return two('The login was refused on the phone.', 'Get a new code to try again.');
+    if (l.expired) return two('The code expired.', 'Get a new one and scan it with your phone.');
+    txt(c, '1', x, 196, 27, c.p.dim); txt(c, 'Scan the code with your phone\'s camera', x + 40, 196, 27, c.p.text, { w: 940 });
+    txt(c, '2', x, 240, 27, c.p.dim); txt(c, 'Or open  ' + shortHost(l.url) + '  and enter this code', x + 40, 240, 27, c.p.text, { w: 940 });
+    txt(c, l.userCode, x + 40, 330, 64, c.p.text, { font: 'bold', spacing: 10, w: 940 });
+    if (c.ui.now && l.expiresAt) {
+        const left = Math.max(0, Math.ceil((l.expiresAt - c.ui.now) / 60000));
+        txt(c, 'The code is valid for ' + left + ' more minute' + (left === 1 ? '' : 's') + '.', x + 40, 376, 22, c.p.dim);
+    }
+    offer(405);
+    const q = QR.matrix(l.url);
+    if (!q) return undefined;
+    const lay = QR.layout(q.n, box), qx = 56, qy = 76 + Math.floor((box - lay.size) / 2);
+    QR.draw(cv, q, qx, qy, lay.cell);
+    c.info.qr = { x: qx, y: qy, cell: lay.cell, size: lay.size, n: q.n };
+    return undefined;
+}
+
+const NP_STATE = { buffering: 'Buffering...', loading: 'Loading...', paused: 'Paused' };
+
+/** the track after the one on, when the list it plays from is known */
+function nextOf(s) {
+    const p = s.player, q = s.queue;
+    if (!q || !p || !p.track || !(p.queueIndex >= 0)) return null;
+    const here = q.tracks[p.queueIndex];
+    if (!here || here.id !== p.track.id) return null;
+    const n = q.tracks[p.queueIndex + 1];
+    return n && typeof n.title === 'string' ? n : null;
+}
+/** the list it plays from, while it is the one playing */
+function sourceOf(s) {
+    const p = s.player, q = s.queue;
+    return q && p && p.track && q.tracks.some((t) => t && t.id === p.track.id) ? q.title : '';
+}
+
+function drawNowPlaying(c) {
+    const s = c.s, cv = c.cv, p = s.player;
+    const m = P.message(s);
+    if (m) return drawMessage(c, m);
+    const tr = p.track, size = 400, cx = 56, cy = 76;
+    c.info.cover = cover(c, tr.coverId, cx, cy, size, false);
+    const x = cx + size + 64, r = LAY.x + LAY.w, w = r - x;
+    // the caption: a message, the player's error, or its state, the list and where in it
+    const quality = NP.qualityText(p.quality);
+    if (messageOn(c)) {
+        ICON.warn(cv, x + 14, 107, 24, c.p.warn);
+        txt(c, s.message, x + 38, 116, 23, c.p.warn, { w: w - 240 });
+    } else if (p.state === 'error') txt(c, NP.errorText(p.error), x, 116, 23, c.p.warn, { w: w - 200 });
+    else {
+        const where = p.queueLength > 0 && p.queueIndex >= 0 ? (p.queueIndex + 1) + ' of ' + p.queueLength : '';
+        const cap = [NP_STATE[p.state] || '', sourceOf(s), where].filter(Boolean).join(DOT);
+        if (cap) txt(c, cap, x, 116, 23, c.p.dim, { w: w - 200 });
+    }
+    if (quality) txt(c, quality, r, 116, 22, c.p.dim, { align: 'right' });
+    txt(c, tr.title, x, 192, 54, c.p.text, { font: 'light', w: w });
+    txt(c, L.joinArtists(tr.artists), x, 246, 32, c.p.text, { w: w });
+    if (tr.album && tr.album.title) txt(c, tr.album.title, x, 286, 25, c.p.dim, { w: w });
+    // the progress line (the finger, the controller pushed up onto it, the wheel held: seek.js)
+    const pos = typeof c.ui.position === 'number' ? c.ui.position : p.position;
+    const dur = typeof c.ui.duration === 'number' ? c.ui.duration : (p.duration || tr.duration || null);
+    const by = 372, seekable = !!dur && p.state !== 'error';
+    const seeking = seekable && c.ui.seeking === true, onLine = seekable && P.area(s) === 'progress';
+    c.info.barFocus = onLine;
+    if (onLine) focusPlate(c, 'progress', x - 18, by - 17, w + 36, 40, 12);
+    cv.roundRect(x, by, w, 6, 3, c.p.track);
+    const f = dur ? Math.max(0, Math.min(1, pos / dur)) : 0;
+    if (dur) cv.roundRect(x, by, Math.max(6, w * f), 6, 3, p.state === 'playing' || seeking ? c.p.text : c.p.dim);
+    if (dur) cv.circle(x + w * f, by + 3, seeking || onLine ? 12 : 9, c.p.text);
+    txt(c, L.mmss(pos) || '0:00', x, by + 42, 23, seeking ? c.p.text : c.p.dim, seeking ? { font: 'bold' } : undefined);
+    if (dur) txt(c, L.mmss(dur), r, by + 42, 23, c.p.dim, { align: 'right' });
+    if (seekable) c.info.hits.push({ x: x - 24, y: by - 26, w: w + 48, h: 60, key: 'np-bar', bar: { x: x, w: w, dur: dur } });
+    const n = nextOf(s);
+    if (n) {
+        txt(c, 'Next', x, 468, 22, c.p.dim);
+        const by2 = L.joinArtists(n.artists);
+        txt(c, n.title + (by2 ? DOT + by2 : ''), x + 66, 468, 22, alpha(c.p.text, 0.8), { w: w - 80 });
+    }
+    return undefined;
 }
 
 /** the car's volume (the HMI shows no popup of its own on source 287): a bar and the number, or Mute */
 function drawVolume(c, v) {
-    const cv = c.cv, pw = 520, ph = 80, x = W - pw - 40, y = TOP + 6, cy = y + ph / 2;
-    cv.roundRect(x - 2, y - 2, pw + 4, ph + 4, 24, '#ffffff30');
-    cv.roundRect(x, y, pw, ph, 22, '#1e2026fa');
+    const cv = c.cv, pw = 520, ph = 80, x = W - pw - 40, y = 50, cy = y + ph / 2;
+    cv.roundRect(x - 2, y - 2, pw + 4, ph + 4, 24, alpha(c.p.text, 0.19));
+    cv.roundRect(x, y, pw, ph, 22, alpha(c.p.bg, 0.98));
     const level = typeof v.volume === 'number' && v.max ? Math.max(0, Math.min(1, v.volume / v.max)) : 0;
     const bx = x + 40, bw = pw - 200;
-    cv.roundRect(bx, cy - 5, bw, 10, 5, BTN);
-    if (!v.muted && level > 0) cv.roundRect(bx, cy - 5, Math.max(10, bw * level), 10, 5, ACCENT);
+    cv.roundRect(bx, cy - 5, bw, 10, 5, c.p.track);
+    if (!v.muted && level > 0) cv.roundRect(bx, cy - 5, Math.max(10, bw * level), 10, 5, c.p.text);
     const label = v.muted ? 'Mute' : typeof v.volume === 'number' ? String(Math.round(v.volume)) : '-';
-    cv.text(label, x + pw - 40, cy + 12, 34, v.muted ? c.t.dim : c.t.text, { align: 'right', font: 'bold', literal: true });
+    cv.text(label, x + pw - 40, cy + 12, 34, v.muted ? c.p.dim : c.p.text, { align: 'right', font: 'bold', literal: true });
 }
 
-const DRAW = { NO_SERVICE: drawNoService, LOGIN: drawLogin, ERROR: drawError, OFFLINE: drawOffline, LIBRARY: drawLibrary, LIST: drawList, NOW_PLAYING: drawNowPlaying };
+const DRAW = {
+    NO_SERVICE: (c) => drawMessage(c, P.message(c.s)), OFFLINE: (c) => drawMessage(c, P.message(c.s)), ERROR: (c) => drawMessage(c, P.message(c.s)),
+    LOGIN: drawLogin, LIBRARY: drawLibrary, LIST: drawList, NOW_PLAYING: drawNowPlaying,
+};
 
 function draw(cv, t, s, ui) {
-    const c = { cv: cv, t: t, s: s, ui: ui || {}, info: { hits: [], qr: null, cover: null, focus: ui && typeof ui.focus === 'number' ? ui.focus : -1, defaultFocus: 0, barFocus: false } };
+    const c = { cv: cv, t: t, p: palette(t), s: s, ui: ui || {}, info: { hits: [], qr: null, cover: null, barFocus: false, focus: null } };
     const fn = DRAW[s.screen];
     if (fn) fn(c);
     if (c.ui.volume) drawVolume(c, c.ui.volume);
-    if (s.message && (s.screen === 'LIBRARY' || s.screen === 'LIST' || s.screen === 'NOW_PLAYING') && (!c.ui.toastUntil || !c.ui.now || c.ui.now < c.ui.toastUntil)) drawToast(c, s.message);
     return c.info;
 }
 
-/** the controller's press with nothing focused: the screen's first button */
-function defaultAct(s, info) {
-    const b = info && info.hits.filter((h) => h.button)[(info.defaultFocus || 0)];
-    return b ? b.act : null;
+/** the controller's press on the page's focused choice (message pages, the login) */
+function defaultAct(s) {
+    const m = P.message(s), list = (m && m.choices) || [];
+    const ch = list[Math.max(0, Math.min(list.length - 1, s.focus.row))];
+    return ch ? ch.act : null;
 }
 
-module.exports = { draw: draw, defaultAct: defaultAct, W: W, H: H, TOP: TOP, BOTTOM: BOTTOM, ACCENT: ACCENT, RED: RED };
+module.exports = { draw: draw, defaultAct: defaultAct, palette: palette, alpha: alpha, W: W, H: H, LAY: LAY };

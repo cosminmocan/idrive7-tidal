@@ -4,7 +4,9 @@
  * decoded in plain JS (jpeg.js), scaled to a square and registered as a pixel image the canvas draws by id
  * (kit/record.js setImage; on the GPU it is uploaded once).
  *
- *   const covers = createCovers({ request, decode, setImage, size: 320, slots: 12, log });
+ *   const covers = createCovers({ request, decode, setImage, size: 320, slots: 12, baseId: 200, maxLoading, log });
+ *   maxLoading: at most this many asked for at a time (list rows: a fast turn through a long list does not ask for
+ *   every cover it passes; the others are asked for when drawn again)
  *   covers.get(coverId)   { id, w, h } once decoded, else null (the screen draws a placeholder); the first call asks
  *   covers.onChange(fn)   fn() when a cover came
  *
@@ -36,7 +38,8 @@ function scale(src, sw, sh, size) {
 }
 
 function createCovers(o) {
-    const size = o.size || 320, slots = o.slots || 12, baseId = o.baseId || 200;
+    const size = o.size || 320, slots = o.slots || 12, baseId = o.baseId || 200, maxLoading = o.maxLoading || Infinity;
+    let loadingN = 0;
     const log = o.log || { warn() {}, info() {} };
     const now = o.now || Date.now;
     const entries = new Map();          // coverId -> { state: 'loading' | 'ok' | 'failed', id, at, used }
@@ -77,11 +80,14 @@ function createCovers(o) {
         const e = entries.get(coverId);
         if (e && e.state === 'ok') { e.used = ++used; return { id: e.id, w: size, h: size }; }
         if (e && (e.state === 'loading' || now() - e.at < RETRY_MS)) return null;
+        if (loadingN >= maxLoading) return null;
         entries.set(coverId, { state: 'loading' });
+        loadingN++;
         Promise.resolve()
             .then(() => o.request('cover', { coverId: coverId }))
             .then((a) => decodeAnswer(coverId, a), (err) => fail(coverId, String(err)))
-            .catch((err) => fail(coverId, String(err)));
+            .catch((err) => fail(coverId, String(err)))
+            .then(() => { loadingN--; });
         return null;
     }
 

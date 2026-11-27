@@ -166,7 +166,7 @@ test('login-start refused: the screen offers to try again (no request storm)', a
     } finally { app.stop(); await svc.close(); }
 });
 
-test('library -> favourite tracks -> play: the right requests, then now playing; bar buttons and the wheel control it', async () => {
+test('library -> favourite tracks -> play: the right requests; it stays in the list (U1), the playing mark on the track; bar buttons and the wheel control it', async () => {
     const sock = tmpSock();
     const svc = await createFakeService({ socketPath: sock, state: { login: 'logged-in' } });
     const { ctx, app } = start(sock);
@@ -177,16 +177,24 @@ test('library -> favourite tracks -> play: the right requests, then now playing;
         await waitFor(() => app.state().screen === 'LIST' && app.state().stack[0].items.length === 1, 3000, 'list loaded');
         assert.deepStrictEqual(lastOf(svc, 'favorites'), { id: lastOf(svc, 'favorites').id, cmd: 'favorites', kind: 'tracks', offset: 0, limit: 50 });
         await ctx.loops.MAIN();
+        await waitFor(() => cmds(svc).indexOf('cover') >= 0, 2000, 'the row\'s small cover asked for');
         app.input({ press: true });
-        await waitFor(() => app.state().screen === 'NOW_PLAYING', 3000, 'NOW_PLAYING');
+        await waitFor(() => cmds(svc).indexOf('play') >= 0, 3000, 'play sent');
         const play = lastOf(svc, 'play');
         assert.deepStrictEqual([play.tracks, play.index], [[TRACK.id], 0]);
+        assert.ok(!('queue' in play), 'only the contract\'s fields go to the service');
+        await waitFor(() => app.state().queue && app.state().queue.key === 'fav-tracks', 3000, 'the list it plays from');
+        assert.strictEqual(app.state().screen, 'LIST', 'stays in the list');
         svc.state.player = { state: 'playing', track: TRACK, position: 10, duration: 320, queueIndex: 0, queueLength: 1, quality: 'LOSSLESS', error: null };
         await waitFor(() => app.state().player && app.state().player.state === 'playing', 3000, 'playing');
+        await ctx.loops.MAIN();
+        assert.ok(!ctx.frames[ctx.frames.length - 1].texts.some((t) => t.s === '1'), 'the playing mark in place of the number');
+        app.input({ tilt: 'E' });
+        assert.strictEqual(app.state().screen, 'NOW_PLAYING', 'push right: now playing');
         await ctx.handlers.BTN_PLAY();
         await waitFor(() => cmds(svc).indexOf('pause') >= 0, 2000, 'pause sent');
         await ctx.handlers.BTN_NEXT();
-        await ctx.handlers.BTN_PREV();
+        await ctx.handlers.BTN_PREVIOUS();
         await waitFor(() => cmds(svc).indexOf('prev') >= 0, 2000, 'prev sent');
         assert.ok(cmds(svc).indexOf('next') >= 0);
         const wheel = ctx.watched['de.bmw.infotainment.controlelements.SteeringWheelPushButton'];
@@ -239,10 +247,10 @@ test('without the GPU renderer (the HMI\'s own bar): Up, Down and Select move th
     ctx0.hideButton = (id) => hidden.push(id);
     const app = createApp(ctx0, { socketPath: sock, pollMs: 150, parked: parkedKit.watch(ctx0, ctx0.log), setImage() {}, decodeJpeg: decodeJpeg });
     try {
-        assert.deepStrictEqual(hidden.sort(), ['BTN_DOWN', 'BTN_OK', 'BTN_UP']);
+        assert.deepStrictEqual(hidden.sort(), ['BTN_DOWN', 'BTN_LIBRARY', 'BTN_OK', 'BTN_UP'], 'U1: LIBRARY is a tab there');
         const spec = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'apps', 'cmocan_tidal', 'app.json'), 'utf8'));
         const ids = spec.screens[0].buttons.map((b) => b[0]);
-        ['BTN_UP', 'BTN_DOWN', 'BTN_OK', 'BTN_PLAY', 'BTN_PREV', 'BTN_NEXT', 'BTN_LIBRARY', 'BTN_SETTINGS'].forEach((b) => assert.ok(ids.indexOf(b) >= 0, b));
+        ['BTN_UP', 'BTN_DOWN', 'BTN_OK', 'BTN_PREVIOUS', 'BTN_PLAY', 'BTN_NEXT', 'BTN_LIBRARY', 'BTN_SETTINGS'].forEach((b) => assert.ok(ids.indexOf(b) >= 0, b));
         await waitFor(() => app.state().screen === 'LIBRARY', 3000, 'LIBRARY');
         await ctx0.handlers.BTN_DOWN(); await ctx0.handlers.BTN_DOWN(); await ctx0.handlers.BTN_DOWN(); await ctx0.handlers.BTN_UP();
         assert.strictEqual(app.state().library.sel, 2);
@@ -369,7 +377,8 @@ test('contract 2: the service skips a track of the queue (player.skipped): now p
         app.input({ press: true });
         await waitFor(() => app.state().screen === 'LIST' && app.state().stack[0].items.length === 2, 3000, 'list loaded');
         app.input({ press: true });
-        await waitFor(() => app.state().screen === 'NOW_PLAYING', 3000, 'NOW_PLAYING');
+        await waitFor(() => app.state().queue, 3000, 'played');
+        app.act({ type: 'open-now-playing' });
         svc.state.player = Object.assign({}, svc.state.player, { state: 'playing', track: TRACK, position: 1, duration: 320, queueIndex: 0, queueLength: 2, quality: 'HIGH' });
         await waitFor(() => app.state().player && app.state().player.state === 'playing', 3000, 'playing');
         svc.state.player = Object.assign({}, svc.state.player, { skipped: [{ id: 17927865, error: 'not-available' }] });
@@ -380,7 +389,7 @@ test('contract 2: the service skips a track of the queue (player.skipped): now p
         assert.strictEqual(app.state().screen, 'LIST');
         await ctx.loops.MAIN();
         const t = ctx.frames[ctx.frames.length - 1].texts.filter((x) => x.s === 'Aerodynamic')[0];
-        assert.strictEqual(t.color, themes.theme('m_tricolour').dim, 'greyed out');
+        assert.strictEqual(t.color, require('../apps/cmocan_tidal/screens').palette(themes.theme('m_tricolour')).off, 'greyed out');
         noErrors(ctx);
     } finally { app.stop(); await svc.close(); }
 });
