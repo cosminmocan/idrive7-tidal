@@ -216,7 +216,7 @@ test('check.js: exit 0 when the service answers status on its socket, 1 when not
             c.on('exit', (code) => resolve({ code: code, out: out }));
         });
         assert.strictEqual(r.code, 0, r.out);
-        assert.ok(/cmocan-tidal 0\.1\.0/.test(r.out), r.out);
+        assert.ok(r.out.indexOf('cmocan-tidal ' + comp().version + ' answers') >= 0, r.out + ' (the service says component.json\'s version)');
     } finally { await h.close(); }
     const r = childProcess.spawnSync(process.execPath, [path.join(DIR, 'check.js'), path.join(os.tmpdir(), 'cmocan-none.sock')],
         { env: Object.assign({}, process.env, { CMOCAN_CHECK_TRIES: '2', CMOCAN_CHECK_WAIT_MS: '50' }), encoding: 'utf8' });
