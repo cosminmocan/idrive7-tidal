@@ -15,8 +15,17 @@
  *   login-requested           a login-start was sent;  login-started {url, userCode, expiresIn, now}: its answer
  *   tick {now}                the clock: a login code's expiry
  *   open-library, open-list {key, title, kind, source: {cmd, params}}, list-loaded {key, offset, total, items, stale},
- *   list-failed {key, code}, open-now-playing, played, back, dismiss, cursor {sel, top}
- *   open-search, type {text}, search-submit, driving {moving}      (search and the rules while driving: D7)
+ *   list-failed {key, code}, open-now-playing, played {queue}, back, dismiss, cursor {sel, top}
+ *   open-search, open-keyboard, close-keyboard, key {key}, search-submit, driving {moving}   (search, the rules while
+ *                             driving: D7)
+ *   focus {area, bar, tab, row, key}   where the controller is (U1): area 'page' (a list's row, a message's choice,
+ *                             search's letters), 'bar' (bar: 0 PREVIOUS, 1 PLAY / PAUSE, 2 NEXT), 'tabs' (tab: 0 LIBRARY,
+ *                             1 NOW PLAYING, then SETTINGS), 'progress' (now playing's progress line); row: a message
+ *                             page's choice; key: the search letter
+ *   show-library              the LIBRARY tab: where the library was left (the list open, its row)
+ *   show-queue                the list that plays (played's queue), on the playing track
+ * A new screen or another list puts the controller on the page (now playing: on PLAY / PAUSE in the bar).
+ * played {queue: {key, title, tracks}}: a track was started from a list; the screen stays (the owner's decision).
  * Node 8.9.4 syntax.
  */
 
@@ -27,6 +36,11 @@ const PLAYER_STATES = ['idle', 'loading', 'playing', 'paused', 'buffering', 'err
 const NO_SERVICE_TEXT = 'The TIDAL service is not installed or not running';
 const MOVING_TEXT = 'Search can be typed only while the car is parked';
 const MAX_QUERY = 200;
+const AREAS = ['page', 'bar', 'tabs', 'progress'];
+const BAR_BUTTONS = 3;
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split(''), DIGITS = '0123456789'.split('');
+/** search's one row of characters: letters (or digits), the switch between them, space, delete, OK */
+function speller(digits) { return (digits ? DIGITS : LETTERS).concat([digits ? 'ABC' : '123', 'SPACE', 'DEL', 'OK']); }
 
 /** what each error code does: the screen it leads to (null: the screen stays) and the message shown */
 const ERRORS = {
@@ -57,16 +71,20 @@ function initial() {
         login: null,
         stack: [],
         library: { sel: 0, top: 0 },
-        search: { query: '', keyboard: false },
+        search: { query: '', keyboard: false, key: 0, digits: false },
         moving: false,
         offlineBrowse: false,
         unavailable: {},
+        focus: { area: 'page', bar: 1, tab: 0, row: 0 },
+        queue: null,
+        errorCode: null,
     };
 }
 
 /* ---------- small helpers ---------- */
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const isNum = (v) => typeof v === 'number' && isFinite(v);
+const isIndex = (v) => typeof v === 'number' && isFinite(v) && v >= 0 && Math.floor(v) === v;
 function assign(a, b) { const o = {}; Object.keys(a).forEach((k) => { o[k] = a[k]; }); Object.keys(b).forEach((k) => { o[k] = b[k]; }); return o; }
 function top(s) { return s.stack.length ? s.stack[s.stack.length - 1] : null; }
 function withTop(s, f) { const st = s.stack.slice(); st[st.length - 1] = f; return assign(s, { stack: st }); }
@@ -194,7 +212,7 @@ function onError(s, code, extra) {
     if (code === 'login-expired' || code === 'not-logged-in') n = assign(n, { login: null });
     if (code === 'no-service') n = assign(n, { starting: false });
     if (!e.screen) return assign(n, { message: e.message });
-    if (e.screen === 'ERROR') return assign(n, { screen: 'ERROR', message: e.message, back: s.screen === 'ERROR' ? s.back : s.screen });
+    if (e.screen === 'ERROR') return assign(n, { screen: 'ERROR', message: e.message, errorCode: code, back: s.screen === 'ERROR' ? s.back : s.screen });
     if (e.screen === 'OFFLINE') n = assign(n, { offlineBrowse: false });
     return assign(n, { screen: e.screen, message: e.message });
 }
@@ -210,9 +228,6 @@ function onBack(s) {
             return assign(s, { screen: to, back: null });
         }
         case 'LIST': {
-            const f = top(s);
-            // the keyboard over results that are there: back closes the keyboard only
-            if (s.search.keyboard && f && f.kind === 'search' && f.source.params.query) return assign(s, { search: assign(s.search, { keyboard: false }) });
             const st = s.stack.slice(0, -1);
             return assign(s, { stack: st, screen: st.length ? 'LIST' : 'LIBRARY', search: assign(s.search, { keyboard: false }) });
         }
@@ -246,7 +261,54 @@ function submitSearch(s) {
 }
 function frameIndex(s, key) { for (let i = s.stack.length - 1; i >= 0; i--) if (s.stack[i].key === key) return i; return -1; }
 
+/** where the controller goes on a screen it comes to: the page (now playing with a track: PLAY / PAUSE in the bar) */
+function arrive(n, s) {
+    const np = n.screen === 'NOW_PLAYING';
+    return { area: np && trackOn(n) ? 'bar' : 'page', bar: np ? 1 : s.focus.bar, tab: np ? 1 : 0, row: 0 };
+}
 function reduce(s, ev) {
+    const n = step(s, ev);
+    if (n === s) return n;
+    const a = top(s), b = top(n);
+    if (n.screen !== s.screen || n.stack.length !== s.stack.length || (a && b && a.key !== b.key)) return assign(n, { focus: arrive(n, s) });
+    return n;
+}
+
+function onFocus(s, ev) {
+    const o = {};
+    if (ev.area !== undefined) { if (AREAS.indexOf(ev.area) < 0) return s; o.area = ev.area; }
+    if (ev.bar !== undefined) { if (!isIndex(ev.bar) || ev.bar >= BAR_BUTTONS) return s; o.bar = ev.bar; }
+    if (ev.tab !== undefined) { if (!isIndex(ev.tab) || ev.tab > 9) return s; o.tab = ev.tab; }
+    if (ev.row !== undefined) { if (!isIndex(ev.row) || ev.row > 9) return s; o.row = ev.row; }
+    let n = s;
+    if (ev.key !== undefined) {
+        if (!isIndex(ev.key) || ev.key >= speller(s.search.digits).length) return s;
+        if (ev.key !== s.search.key) n = assign(n, { search: assign(s.search, { key: ev.key }) });
+    }
+    const changed = Object.keys(o).filter((k) => o[k] !== s.focus[k]);
+    return changed.length ? assign(n, { focus: assign(s.focus, o) }) : n;
+}
+
+/** the list that plays, on the playing track (push right on now playing) */
+function showQueue(s) {
+    const q = s.queue, i = q ? frameIndex(s, q.key) : -1;
+    if (i < 0) return s;
+    const f = s.stack[i], id = s.player && s.player.track ? s.player.track.id : null;
+    let j = -1;
+    if (id != null) for (let k = 0; k < f.items.length; k++) if (isObj(f.items[k]) && f.items[k].id === id) { j = k; break; }
+    const st = s.stack.slice(0, i + 1);
+    if (j >= 0) st[i] = assign(f, { sel: j, top: Math.max(0, j - 2) });
+    return assign(s, { screen: 'LIST', stack: st, back: null, message: null });
+}
+
+/** row j of frame f can be played (or opened): not a track the service cannot stream */
+function playable(s, f, j) {
+    if (f.kind !== 'tracks' && f.kind !== 'search') return true;
+    const it = f.items[j];
+    return !isObj(it) || (it.streamReady !== false && !(s.unavailable && s.unavailable[it.id]));
+}
+
+function step(s, ev) {
     if (!isObj(ev) || typeof ev.type !== 'string') return s;
     switch (ev.type) {
         case 'status': return onStatus(s, ev);
@@ -279,6 +341,10 @@ function reduce(s, ev) {
             const items = isNum(ev.offset) && ev.offset > 0 ? f.items.concat(ev.items) : ev.items.slice();
             const st = s.stack.slice();
             st[i] = assign(f, { items: items, total: isNum(ev.total) ? ev.total : items.length, loading: false, error: null, stale: ev.stale === true });
+            // the knob starts on the first row that can be played
+            if (!(isNum(ev.offset) && ev.offset > 0) && f.sel === 0 && !playable(s, st[i], 0)) {
+                for (let j = 1; j < items.length; j++) if (playable(s, st[i], j)) { st[i] = assign(st[i], { sel: j, top: 0 }); break; }
+            }
             return assign(s, { stack: st });
         }
         case 'list-failed': {
@@ -289,9 +355,21 @@ function reduce(s, ev) {
             return onError(assign(s, { stack: st }), st[i].error, ev);
         }
         case 'open-now-playing':
-        case 'played':
             if (s.screen === 'NOW_PLAYING') return s;
             return assign(s, { screen: 'NOW_PLAYING', back: s.screen, message: null });
+        case 'played': {
+            // the list it was started from: now playing's caption, its next track, push right back to it
+            const q = ev.queue;
+            if (!isObj(q) || typeof q.key !== 'string' || !Array.isArray(q.tracks)) return s;
+            return assign(s, { queue: { key: q.key, title: typeof q.title === 'string' ? q.title : '', tracks: q.tracks.filter(isObj) } });
+        }
+        case 'show-library': {
+            if (s.service.login !== 'logged-in') return s;
+            const to = s.service.online === false && !s.offlineBrowse ? 'OFFLINE' : s.stack.length ? 'LIST' : 'LIBRARY';
+            if (to === s.screen) return s.focus.area === 'page' ? s : assign(s, { focus: assign(s.focus, { area: 'page' }) });
+            return assign(s, { screen: to, message: null, back: null });
+        }
+        case 'show-queue': return showQueue(s);
         case 'back': return onBack(s);
         case 'dismiss':
             if (s.screen === 'ERROR') return onBack(s);
@@ -313,16 +391,26 @@ function reduce(s, ev) {
             const f = top(s);
             if (!f || f.kind !== 'search' || s.screen !== 'LIST') return s;
             if (s.moving) return assign(s, { message: MOVING_TEXT });
-            return assign(s, { search: assign(s.search, { keyboard: true }), message: null });
+            return assign(s, { search: assign(s.search, { keyboard: true }), message: null, focus: assign(s.focus, { area: 'page' }) });
+        }
+        case 'close-keyboard': {
+            const f = top(s);
+            if (!s.search.keyboard || !f || f.kind !== 'search' || !f.items.length) return s;
+            return assign(s, { search: assign(s.search, { keyboard: false }) });
         }
         case 'key': {
             if (!s.search.keyboard || s.moving || typeof ev.key !== 'string') return s;
             const q = s.search.query;
             if (ev.key === 'SEARCH') return submitSearch(s);
+            if (ev.key === 'DIGITS') {
+                const d = !s.search.digits;
+                return assign(s, { search: assign(s.search, { digits: d, key: speller(d).indexOf(d ? 'ABC' : '123') }) });
+            }
             const next = ev.key === 'DEL' ? q.slice(0, -1) : ev.key === 'CLEAR' ? '' : (q + ev.key).slice(0, MAX_QUERY);
             return next === q ? s : assign(s, { search: assign(s.search, { query: next }) });
         }
         case 'search-submit': return submitSearch(s);
+        case 'focus': return onFocus(s, ev);
         case 'cursor': {
             if (!isNum(ev.sel) || !isNum(ev.top)) return s;
             if (s.screen === 'LIST' && s.stack.length) return withTop(s, assign(top(s), { sel: ev.sel, top: ev.top }));
@@ -339,4 +427,21 @@ function wantsLoginCode(s) { return s.screen === 'LOGIN' && !s.login && s.servic
 /** a track is on: playing, paused or on its way */
 function trackOn(s) { const p = s.player; return !!(p && p.track && ['playing', 'paused', 'buffering', 'loading'].indexOf(p.state) >= 0); }
 
-module.exports = { SCREENS: SCREENS, ERRORS: ERRORS, initial: initial, reduce: reduce, top: top, wantsLoginCode: wantsLoginCode, trackOn: trackOn, NO_SERVICE_TEXT: NO_SERVICE_TEXT };
+/** now playing has a progress line to seek in: a track on (not an error) with a known length */
+function seekable(s) {
+    const p = s.player;
+    return !!(p && p.track && p.state !== 'idle' && p.state !== 'error' && ((p.duration && p.duration > 0) || (p.track.duration && p.track.duration > 0)));
+}
+/** where the controller is, as it acts: now playing with a track has no other place on its page than the progress line */
+function area(s) {
+    const a = s.focus.area;
+    if (s.screen === 'NOW_PLAYING') {
+        if (a === 'progress') return seekable(s) ? 'progress' : 'bar';
+        if (a === 'page' && trackOn(s)) return 'bar';
+        return a;
+    }
+    return a === 'progress' ? 'bar' : a;
+}
+
+module.exports = { SCREENS: SCREENS, ERRORS: ERRORS, initial: initial, reduce: reduce, top: top, wantsLoginCode: wantsLoginCode, trackOn: trackOn, seekable: seekable,
+    area: area, speller: speller, playable: playable, NO_SERVICE_TEXT: NO_SERVICE_TEXT, MOVING_TEXT: MOVING_TEXT };

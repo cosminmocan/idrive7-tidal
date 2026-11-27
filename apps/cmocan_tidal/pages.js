@@ -1,0 +1,63 @@
+'use strict';
+/**
+ * pages.js - what each screen offers, as data (no drawing, no I/O): the header's tabs, the bar's words, and the
+ * message pages (no internet, no service, an error, the login, nothing playing) with their choices. screens.js
+ * draws them, nav.js moves through them, tidal.js hands the tabs and the bar's words to the kit.
+ *
+ *   tabs(state)        { tabs: ['Library', 'Now playing'] (none before the login: the kit adds Settings), sel }
+ *   tabCount(state)    the tabs the controller goes along: the app's and the kit's SETTINGS
+ *   bar(state)         the bar's words: ['Previous', 'Pause' | 'Play', 'Next'] (the word says what a press does)
+ *   BAR                the bar's buttons (app.json ids), in that order
+ *   message(state)     a message page: { icon, title, lines: [text], choices: [{ label, act }] }, or null for the screens
+ *                      drawn otherwise (lists, now playing with a track); the login's choices are in it too
+ * Node 8.9.4 syntax.
+ */
+const NP = require('./nowplaying');
+const M = require('./model');
+
+const BAR = ['BTN_PREVIOUS', 'BTN_PLAY', 'BTN_NEXT'];
+const TABS = ['Library', 'Now playing'];
+
+function tabs(s) {
+    if (s.service.login !== 'logged-in' || s.screen === 'LOGIN' || s.screen === 'NO_SERVICE') return { tabs: [], sel: -1 };
+    return { tabs: TABS.slice(), sel: s.screen === 'NOW_PLAYING' ? 1 : 0 };
+}
+function tabCount(s) { return tabs(s).tabs.length + 1; }
+
+function bar(s) { return ['Previous', NP.playPause(s.player) === 'pause' ? 'Pause' : 'Play', 'Next']; }
+
+const ERROR_TEXT = {
+    'not-found': 'TIDAL does not have this any more.',
+    'rate-limited': 'TIDAL asked to wait a moment. Try again shortly.',
+    'tidal-error': 'TIDAL could not answer this time. Try again in a moment.',
+};
+const NEW_CODE = { label: 'New code', act: { type: 'login-new' } };
+
+function message(s) {
+    switch (s.screen) {
+        case 'NO_SERVICE':
+            if (s.starting) return { icon: null, title: 'Connecting to the TIDAL service...', lines: [], choices: [] };
+            return { icon: 'warn', title: 'No TIDAL service', lines: [M.NO_SERVICE_TEXT + '.', 'Install "cmocan-tidal" from the Store, then open the app again.'],
+                choices: [{ label: 'Try again', act: { type: 'retry' } }] };
+        case 'OFFLINE': {
+            const choices = [{ label: 'Try again', act: { type: 'retry' } }];
+            if (s.service.login === 'logged-in') choices.push({ label: 'Open the library (lists from before)', act: { type: 'open-library' } });
+            return { icon: 'warn', title: 'No internet', lines: ['The car is not online right now. Lists you opened before still work.'], choices: choices };
+        }
+        case 'ERROR':
+            return { icon: 'warn', title: s.message || 'Something went wrong', lines: ERROR_TEXT[s.errorCode] ? [ERROR_TEXT[s.errorCode]] : [], choices: [{ label: 'Back', act: { type: 'back' } }] };
+        case 'NOW_PLAYING': {
+            const p = s.player;
+            if (p && p.track && p.state !== 'idle') return null;
+            return { icon: null, title: 'Nothing is playing', lines: ['Choose a track in the library.'], choices: [{ label: 'Open the library', act: { type: 'show-library' } }] };
+        }
+        case 'LOGIN': {
+            const l = s.login;
+            const offer = !!(l && !l.requesting && (l.failed || l.denied || l.expired || l.url));
+            return { login: true, choices: offer ? [NEW_CODE] : [] };
+        }
+        default: return null;
+    }
+}
+
+module.exports = { tabs: tabs, tabCount: tabCount, bar: bar, message: message, BAR: BAR };

@@ -22,6 +22,7 @@ const NP = require('./nowplaying');
 const NP_cmd = NP.playPause;
 
 const W = 1600, H = 520, TOP = 44, BOTTOM = 512;
+const COLS = { num: { x: 60, w: 56 }, title: { x: 130, w: 760 }, sub: { x: 920, w: 460 }, right: { x: 1540, w: 120 } };
 const ACCENT = '#33d6ff', RED = '#ff4d4d', ROW_SEL = '#33d6ff2e', BTN = '#ffffff1f';
 
 /* ---------- pieces ---------- */
@@ -123,13 +124,13 @@ function drawRows(c, rows, cur) {
     const cv = c.cv, t = c.t;
     const r = L.range(cur, rows.length);
     for (let i = r.first; i < r.last; i++) {
-        const row = rows[i], y = L.Y0 + (i - r.first) * L.ROW_H, mid = y + L.ROW_H / 2 + 8;
+        const row = rows[i], y = 122 + (i - r.first) * 62, mid = y + L.ROW_H / 2 + 8;
         if (i === cur.sel) cv.roundRect(40, y + 3, W - 100, L.ROW_H - 6, 10, ROW_SEL);
-        const col = row.dim ? t.dim : t.text;
-        if (row.kind === 'tracks' || row.kind === 'search') txt(c, String((row.index != null ? row.index : i) + 1), L.COLS.num.x + L.COLS.num.w, mid, 20, t.dim, { align: 'right' });
-        txt(c, row.label, L.COLS.title.x, mid, 24, col, { font: row.kind === 'menu' ? 'bold' : 'label', w: L.COLS.title.w });
-        if (row.sub) txt(c, row.sub, L.COLS.sub.x, mid, 20, t.dim, { w: L.COLS.sub.w });
-        if (row.right) txt(c, row.right, L.COLS.right.x, mid, 20, t.dim, { align: 'right', w: L.COLS.right.w });
+        const col = row.dim || row.off ? t.dim : t.text;
+        if (row.kind === 'tracks' || row.kind === 'search') txt(c, String((row.index != null ? row.index : i) + 1), COLS.num.x + COLS.num.w, mid, 20, t.dim, { align: 'right' });
+        txt(c, row.label, COLS.title.x, mid, 24, col, { font: row.kind === 'menu' ? 'bold' : 'label', w: COLS.title.w });
+        if (row.sub) txt(c, row.sub, COLS.sub.x, mid, 20, t.dim, { w: COLS.sub.w });
+        if (row.right) txt(c, row.right, COLS.right.x, mid, 20, t.dim, { align: 'right', w: COLS.right.w });
         target(c, { x: 40, y: y, w: W - 100, h: L.ROW_H, key: 'row:' + i, row: i, act: { type: 'row', index: i } }, 10);
     }
     if (rows.length > L.VISIBLE) {
@@ -229,7 +230,7 @@ function drawNowPlaying(c) {
     const by = TOP + 252;
     // a place for the finger and the controller while there is something to seek in (not on an error)
     const seekable = !!dur && p.state !== 'error';
-    const seeking = seekable && c.ui.seeking === true, onBar = seekable && c.ui.focus === 'bar';
+    const seeking = seekable && c.ui.seeking === true, onBar = seekable && c.s.focus && c.s.focus.area === 'progress';
     c.info.barFocus = onBar;
     if (onBar) cv.strokeRoundRect(x - 14, by - 16, w + 28, 40, 20, 3, '#ffffff');
     cv.roundRect(x, by, w, 8, 4, BTN);

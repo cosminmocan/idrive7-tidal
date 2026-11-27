@@ -164,7 +164,9 @@ function createApp(ctx, kit) {
                 command(a.cmd);
                 return;
             case 'login-new': loggingIn = false; login(true); return;
-            case 'focus': focus = a.index; render(); return;
+            case 'bar': if (a.id === 'BTN_PLAY') playPause(); else if (a.id === 'BTN_NEXT' || a.id === 'BTN_PREVIOUS') act({ type: 'control', cmd: a.id === 'BTN_NEXT' ? 'next' : 'prev' }); return;
+            case 'tab': if (a.index === 0) dispatch({ type: 'show-library' }); else if (a.index === 1) dispatch({ type: 'open-now-playing' }); return;
+            case 'retry': poll(); return;
             case 'seek-step': if (seeker.nudge(a.steps)) seeker.commit(500); return;
             case 'seek-to': if (seeker.set(a.position)) seeker.commit(0); return;
             case 'row': L.rowActs(s, a.index).forEach(act); dispatch({ type: 'cursor', sel: a.index, top: L.cursor(s).top }); return;
