@@ -4,6 +4,7 @@
  * album.py, mix.py, session.py search and mixes), mapped to the objects of docs/PROTOCOL.md ("Objects").
  *
  * A list is fetched in pages of at most pageSize until `limit` items, the end of the list, or MAX_PAGES requests.
+ * The mixes and a mix's tracks come whole in one page (TIDAL's /pages): the module pages them itself, with total.
  * An item that cannot be read is dropped; a track that cannot be streamed is kept with streamReady false.
  */
 const E = require('./errors');
@@ -154,27 +155,42 @@ function createLibrary(ctx, api, o) {
         return needLogin() || paged('albums/' + albumId + '/tracks', {}, pg, plain, track);
     }
 
-    function mixes() {
+    /** a list TIDAL sends whole (a page's module): the module pages it; total is what it can give */
+    function slice(items, pg) {
+        return { items: items.slice(pg.offset, pg.offset + pg.limit), total: items.length };
+    }
+
+    function mixes(offset, limit) {
+        const pg = paging(offset, limit);
+        if (!pg) return bad('offset or limit out of range');
         return needLogin() || api.get('pages/my_collection_my_mixes', { deviceType: 'BROWSER' }).then((json) => {
             const items = [];
-            let total;
             modules(json).filter((m) => m.type === 'MIX_LIST' && isObj(m.pagedList)).forEach((m) => {
                 (Array.isArray(m.pagedList.items) ? m.pagedList.items : []).forEach((x) => { const v = mix(x); if (v) items.push(v); });
-                if (typeof m.pagedList.totalNumberOfItems === 'number') total = (total || 0) + m.pagedList.totalNumberOfItems;
             });
-            return total === undefined ? { items: items } : { items: items, total: total };
+            return slice(items, pg);
         });
     }
 
-    function mixTracks(mixId) {
+    function mixTracks(mixId, offset, limit) {
         if (typeof mixId !== 'string' || !MIX_ID.test(mixId)) return bad('bad mix id');
+        const pg = paging(offset, limit);
+        if (!pg) return bad('offset or limit out of range');
         return needLogin() || api.get('pages/mix', { mixId: mixId, deviceType: 'BROWSER' }).then((json) => {
             const list = modules(json).filter((m) => m.type === 'TRACK_LIST' && isObj(m.pagedList))[0];
             // tidalapi: a page without its track list means the mix is not there
             if (!list) throw E.tidalError('not-found', 'no such mix: ' + mixId);
-            const items = (Array.isArray(list.pagedList.items) ? list.pagedList.items : []).map(track).filter(Boolean);
-            const total = list.pagedList.totalNumberOfItems;
-            return typeof total === 'number' ? { items: items, total: total } : { items: items };
+            return slice((Array.isArray(list.pagedList.items) ? list.pagedList.items : []).map(track).filter(Boolean), pg);
+        });
+    }
+
+    /** one track by id (tidalapi media.py Track._get: GET tracks/<id>), for "now playing" after a restart */
+    function oneTrack(trackId) {
+        if (!posInt(trackId)) return bad('bad track id');
+        return needLogin() || api.get('tracks/' + trackId, {}).then((json) => {
+            const t = track(json);
+            if (!t || t.id !== trackId) throw E.tidalError('not-found', 'no such track: ' + trackId);
+            return t;
         });
     }
 
@@ -186,7 +202,7 @@ function createLibrary(ctx, api, o) {
             (json) => (isObj(json.tracks) ? plain(json.tracks) : { items: [] }), track);
     }
 
-    return { favorites: favorites, playlists: playlists, playlist: playlistTracks, album: albumTracks, mixes: mixes, mix: mixTracks, search: search };
+    return { favorites: favorites, playlists: playlists, playlist: playlistTracks, album: albumTracks, mixes: mixes, mix: mixTracks, track: oneTrack, search: search };
 }
 
 module.exports = { createLibrary: createLibrary, mapTrack: track, mapAlbum: album, mapPlaylist: playlist, mapMix: mix };
