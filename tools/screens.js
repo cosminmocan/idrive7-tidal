@@ -65,18 +65,19 @@ const MIXES = [
 function status(o) {
     return {
         type: 'status',
-        state: Object.assign({ login: 'logged-in', online: true, version: '0.1.0', prefs: { quality: 'LOSSLESS' },
-            player: { state: 'idle', track: null, position: 0, duration: null, queueIndex: -1, queueLength: 0, quality: null, error: null } }, o || {}),
+        state: Object.assign({ login: 'logged-in', loginPending: null, loginError: null, online: true, version: '0.1.0', prefs: { quality: 'HIGH' },
+            player: { state: 'idle', track: null, position: 0, duration: null, queueIndex: -1, queueLength: 0, quality: null, error: null, skipped: [] } }, o || {}),
     };
 }
-const player = (state, o) => Object.assign({ state: state, track: TRACKS[0], position: 98, duration: 320, queueIndex: 2, queueLength: 14, quality: 'LOSSLESS', error: null }, o || {});
+const player = (state, o) => Object.assign({ state: state, track: TRACKS[0], position: 98, duration: 320, queueIndex: 2, queueLength: 14, quality: 'HIGH', error: null, skipped: [] }, o || {});
 function from(events) { return events.reduce((s, e) => M.reduce(s, e), M.initial()); }
 function list(kind, items, extra) {
     return [status(), { type: 'open-list', key: 'k', title: extra && extra.title || 'Favourite tracks', kind: kind, source: { cmd: extra && extra.cmd || 'favorites', params: { kind: 'tracks' } } },
         { type: 'list-loaded', key: 'k', offset: 0, total: extra && extra.total != null ? extra.total : items.length, items: items, stale: !!(extra && extra.stale) }];
 }
 const knob = (n) => { const out = []; for (let i = 0; i < n; i++) out.push({ type: 'cursor', sel: i + 1, top: Math.max(0, i + 1 - 5) }); return out; };
-const login = [status({ login: 'logged-out' }), { type: 'login-requested' }, { type: 'login-started', url: 'https://link.tidal.com/ABCDE', userCode: 'ABCDE', expiresIn: 300, now: NOW - 60000 }, status({ login: 'login-pending' })];
+const login = [status({ login: 'logged-out' }), { type: 'login-requested' }, { type: 'login-started', url: 'https://link.tidal.com/ABCDE', userCode: 'ABCDE', expiresIn: 300, now: NOW - 60000 },
+    status({ login: 'login-pending', loginPending: { url: 'https://link.tidal.com/ABCDE', userCode: 'ABCDE', expiresAt: NOW + 240000 } })];
 
 function cases() {
     const big = [];
@@ -91,6 +92,8 @@ function cases() {
         ['login-again', login.concat([{ type: 'error', code: 'login-expired' }, { type: 'login-requested' },
             { type: 'login-started', url: 'https://link.tidal.com/FGHIJ', userCode: 'FGHIJ', expiresIn: 300, now: NOW }]), {}],
         ['login-expired', login.concat([{ type: 'tick', now: NOW + 600000 }]), {}],
+        ['login-denied', [status({ login: 'logged-out', loginError: 'login-denied' })], {}],
+        ['login-pending-restart', [status({ login: 'login-pending', loginPending: { url: 'https://link.tidal.com/KLMNO', userCode: 'KLMNO', expiresAt: NOW + 150000 } })], {}],
         ['login-failed', [status({ login: 'logged-out' }), { type: 'login-requested' }, { type: 'login-failed', code: 'tidal-error' }], {}],
         ['library', [status()], {}],
         ['library-playing', [status({ player: player('playing') }), { type: 'cursor', sel: 5, top: 0 }], {}],
@@ -115,6 +118,8 @@ function cases() {
         ['now-playing-buffering', [status({ player: player('buffering', { position: 3 }) }), { type: 'open-now-playing' }], { cover: true }],
         ['now-playing-loading', [status({ player: player('loading', { position: 0, duration: null }) }), { type: 'open-now-playing' }], {}],
         ['now-playing-error', [status({ player: player('error', { error: 'decode' }) }), { type: 'open-now-playing' }], { cover: true }],
+        ['now-playing-skipped', list('tracks', TRACKS).concat([status({ player: player('playing', { queueIndex: 0, queueLength: 8 }) }), { type: 'played' },
+            status({ player: player('playing', { queueIndex: 0, queueLength: 8, skipped: [{ id: TRACKS[5].id, error: 'not-available' }] }) })]), { cover: true, position: 98.4 }],
         ['now-playing-idle', [status(), { type: 'open-now-playing' }], {}],
         ['now-playing-volume', [status({ player: player('playing') }), { type: 'open-now-playing' }], { cover: true, volume: { volume: 23, muted: false, max: 62 } }],
         ['now-playing-muted', [status({ player: player('playing') }), { type: 'open-now-playing' }], { cover: true, volume: { volume: 23, muted: true, max: 62 } }],
