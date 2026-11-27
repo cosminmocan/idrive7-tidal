@@ -294,6 +294,32 @@ test('at start, a quality setting that differs from the service\'s is sent once'
     } finally { app.stop(); await svc.close(); }
 });
 
+test('contract 2: mixes, a mix and an album are asked for by page, and the next page comes as the knob nears the end', async () => {
+    const sock = tmpSock();
+    const svc = await createFakeService({ socketPath: sock, state: { login: 'logged-in' } });
+    const many = [];
+    for (let i = 0; i < 120; i++) many.push(Object.assign({}, TRACK, { id: 1000 + i, title: 'T' + i }));
+    svc.answer = (r) => (r.cmd === 'album' ? { id: r.id, ok: true, total: many.length, items: many.slice(r.offset, r.offset + r.limit) } : undefined);
+    const { ctx, app } = start(sock);
+    try {
+        await waitFor(() => app.state().screen === 'LIBRARY', 3000, 'LIBRARY');
+        app.act({ type: 'open-list', key: 'mixes', title: 'Mixes', kind: 'mixes', source: { cmd: 'mixes', params: {} } });
+        await waitFor(() => lastOf(svc, 'mixes'), 2000, 'mixes asked for');
+        assert.deepStrictEqual([lastOf(svc, 'mixes').offset, lastOf(svc, 'mixes').limit], [0, 50]);
+        await waitFor(() => app.state().stack[0].items.length === 1, 2000, 'mixes loaded');
+        app.input({ press: true });
+        await waitFor(() => lastOf(svc, 'mix'), 2000, 'mix asked for');
+        assert.deepStrictEqual([lastOf(svc, 'mix').mixId, lastOf(svc, 'mix').offset, lastOf(svc, 'mix').limit], ['0123456789abcdef0123456789abcd', 0, 50]);
+        app.act({ type: 'open-list', key: 'album:1', title: 'Album', kind: 'tracks', source: { cmd: 'album', params: { albumId: 17927863 } } });
+        await waitFor(() => app.state().stack.length === 3 && app.state().stack[2].items.length === 50, 2000, 'the first page');
+        for (let i = 0; i < 48; i++) app.input({ knob: 1 });
+        await waitFor(() => app.state().stack[2].items.length === 100, 2000, 'the second page');
+        assert.deepStrictEqual(svc.requests.filter((r) => r.cmd === 'album').map((r) => r.offset), [0, 50]);
+        svc.requests.forEach((r) => assert.deepStrictEqual(P.validateRequest(r), [], JSON.stringify(r)));
+        noErrors(ctx);
+    } finally { app.stop(); await svc.close(); }
+});
+
 test('errors from the service: a list that is not found shows ERROR; back returns', async () => {
     const sock = tmpSock();
     const svc = await createFakeService({ socketPath: sock, state: { login: 'logged-in' } });
