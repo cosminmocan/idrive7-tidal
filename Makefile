@@ -1,5 +1,5 @@
 # cmocan-tidal. Everything runs in Docker; see WORKPLAN.md section 3.
-.PHONY: test test-node8 test-node-current e2e player test-player
+.PHONY: test test-node8 test-node-current e2e player test-player hooks test-hooks
 
 test: test-node8 test-node-current
 
@@ -52,3 +52,11 @@ player:
 test-player:
 	@$(MAKE) -s -C native/tidal-player target asan
 	@sh native/tidal-player/tools/test-player.sh
+
+# the kingfisher secret scan on every commit and push (docs/SECRETS.md); run once after cloning
+hooks:
+	@git config core.hooksPath tools/git-hooks && echo "hooks installed: pre-commit and pre-push scan with kingfisher (docs/SECRETS.md)"
+
+# the hooks against a scratch repository (needs kingfisher on this computer)
+test-hooks:
+	@sh tools/test-git-hooks.sh

@@ -1,0 +1,15 @@
+#!/bin/sh
+# pre-push: kingfisher secret scan of the whole committed history before anything leaves this computer, in case a
+# commit got past the pre-commit hook (git commit --no-verify, a commit made elsewhere, a hook not installed then).
+# It scans a fresh clone of every branch, so only what is in git counts: git-ignored local files (the TIDAL session
+# in reference/, build output) are never scanned here, and never pushed. Blocks on any finding not assessed in
+# docs/SECRETS.md (tools/kingfisher-baseline.yaml).
+# Installed by `make hooks` (git config core.hooksPath tools/git-hooks). Tested by tools/test-git-hooks.sh.
+ROOT=$(git rev-parse --show-toplevel) || exit 1
+COMMON=$(cd "$(git rev-parse --git-common-dir)" && pwd -P) || exit 1
+T=$(mktemp -d "${TMPDIR:-/tmp}/kf-prepush.XXXXXX") || exit 1
+trap 'rm -rf "${T:?}/clone"; rmdir "${T:?}"' EXIT
+git clone -q --no-local "$COMMON" "$T/clone" || { echo "pre-push: could not clone for the scan" >&2; exit 1; }
+# every local branch, the ones about to be pushed included
+git -C "$T/clone" fetch -q origin '+refs/heads/*:refs/remotes/origin/*' || { echo "pre-push: could not fetch for the scan" >&2; exit 1; }
+KF_HOOK=pre-push sh "$ROOT/tools/git-hooks/kingfisher-scan" "$T/clone" --git-history full
