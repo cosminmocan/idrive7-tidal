@@ -17,9 +17,6 @@ process.on('uncaughtException', (e) => { console.log('uncaught: ' + (e && e.stac
 
 const DIR = path.join(ROOT, 'native', 'cmocan-tidal');
 const comp = () => JSON.parse(fs.readFileSync(path.join(DIR, 'component.json'), 'utf8'));
-// files other streams make (docs/INTERNAL-API.md: A owns lib/ and cacert.pem; B builds the player)
-const FOREIGN = [/^lib\//, /^cacert\.pem$/, /^\.\.\/tidal-player\//];
-const foreign = (from) => FOREIGN.some((r) => r.test(from));
 
 /** a unit file as { section: { key: [values] } } */
 function unit(name) {
@@ -59,22 +56,36 @@ test('component.json: a tool for iDrive 7 with internet for uid 13150, its requi
     assert.ok(!c.activate && !c.postInstall && !c.dropins, 'no install step and no change to units it does not own');
 });
 
-test('every file component.json names exists (other streams\' files once they are merged)', () => {
+// what `make player` builds (native/tidal-player/build.mk, build.sh): git ignores it, so a checkout has it only after
+// a build; every other file the tool ships is in the repository
+const PLAYER_BUILD = { 'tidal-player': '../tidal-player/build/out/tidal-player', 'FFMPEG-LICENSE': '../tidal-player/build/FFMPEG-LICENSE' };
+
+test('the player and its FFmpeg licence are shipped from where the player\'s build puts them', () => {
+    const c = comp();
+    Object.keys(PLAYER_BUILD).forEach((p) => {
+        const f = c.files.filter((x) => x.path === p)[0];
+        assert.ok(f, p + ' is shipped');
+        assert.strictEqual(f.from, PLAYER_BUILD[p], p + ' comes from the player\'s build output');
+    });
+});
+
+test('every file component.json names exists (the player\'s build output once `make player` has run)', () => {
     const c = comp();
     const pending = [];
+    const buildOutputs = Object.keys(PLAYER_BUILD).map((k) => PLAYER_BUILD[k]);
     c.files.forEach((f) => {
         assert.ok(/^[0-7]{4}$/.test(f.mode), f.path + ': mode');
         assert.ok(f.path.indexOf('..') < 0 && f.path[0] !== '/', f.path + ': a path inside the version folder');
         const there = fs.existsSync(path.join(DIR, f.from)) && fs.statSync(path.join(DIR, f.from)).isFile();
         if (there) return;
-        assert.ok(foreign(f.from), f.from + ' is missing');
+        assert.ok(buildOutputs.indexOf(f.from) >= 0, f.from + ' is missing');
         pending.push(f.from);
     });
     c.units.forEach((u) => assert.ok(fs.existsSync(path.join(DIR, u.from)), u.from + ' is missing'));
     c.check.concat(c.deactivate.slice(1, 2)).forEach((s) => assert.ok(c.files.some((f) => f.path === s), s + ' is shipped'));
     const exec = c.files.filter((f) => f.mode === '0755').map((f) => f.path);
     assert.deepStrictEqual(exec, ['tidal-player'], 'the player is the only executable');
-    if (pending.length) console.log('       (not merged yet, from streams A and B: ' + pending.join(', ') + ')');
+    if (pending.length) console.log('       (not built yet, run `make player`: ' + pending.join(', ') + ')');
 });
 
 test('every module the service loads is in the package', () => {
