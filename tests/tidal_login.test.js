@@ -187,4 +187,23 @@ test('a second loginStart replaces the first code', () => withEnv({}, (env) => {
     });
 }));
 
+test('loginCancel stops a pending login: the next poll says expired and asks nobody, even once approved', () => withEnv({}, (env) =>
+    env.tidal.loginStart().then(() => {
+        const before = env.fake.log.length;
+        env.tidal.loginCancel();
+        env.fake.approve();
+        env.clock.t += 2000;
+        return env.tidal.loginPoll().then((r) => {
+            assert.deepStrictEqual(r, { state: 'expired' });
+            assert.strictEqual(env.fake.log.length, before, 'no request after the cancel');
+            assert.strictEqual(env.tidal.loggedIn(), false);
+        });
+    })));
+
+test('loginCancel with no login pending does nothing', () => withEnv({}, (env) => {
+    env.tidal.loginCancel();
+    assert.strictEqual(env.fake.log.length, 0);
+    assert.strictEqual(env.tidal.loggedIn(), false);
+}));
+
 run();
