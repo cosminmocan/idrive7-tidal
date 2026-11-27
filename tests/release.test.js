@@ -47,6 +47,18 @@ test('versions compare as numbers, not text', () => {
     assert.throws(() => R.compare('0.1', '0.1.0'), /x\.y\.z/);
 });
 
+test('unchanged() is false when only a catalog field changed (a new requirement), though no package did', () => {
+    const pub = cat([['cmocan-tidal', '0.1.1', 'aa'], ['cmocan_tidal', '0.1.0', 'bb']]);
+    const same = JSON.parse(JSON.stringify(pub));
+    same.components[0].artifact.url = 'https://api.github.com/other-address';   // the address differs by design
+    assert.strictEqual(R.unchanged(same, pub), true);
+    const req = JSON.parse(JSON.stringify(pub));
+    req.components[1].requires = { 'mgu-deploy': '0.7.0' };
+    assert.strictEqual(R.unchanged(req, pub), false, 'a new requirement must be published');
+    assert.deepStrictEqual(R.plan(req, pub), [], 'without a version bump: the package is the same');
+    assert.strictEqual(R.unchanged(pub, null), false, 'nothing published yet');
+});
+
 function tree() {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'release-'));
     fs.mkdirSync(path.join(d, 'native')); fs.mkdirSync(path.join(d, 'native', 'cmocan-tidal'));
