@@ -314,9 +314,11 @@ queue. All answer at once; the effect shows in `status`.
 
 #### `seek`
 
-Moves the playing (or paused) track to `position`, in seconds from its start (0 or more; past the end counts as the
-end). It answers at once; `status.player.position` continues from there, and `player.state` is `loading` while the
-player catches up. With nothing playing it is `bad-request`. How: the service starts a new player for the track with
+Moves the playing (or paused) track to `position`, in seconds from its start (0 or more). It answers at once;
+`status.player.position` continues from there, and `player.state` is `loading` while the player catches up. **A seek
+while paused stays `paused`** at the new position (an app must not wait for `loading` then; a `resume` during the
+catch-up shows `playing` at once). **At or past the end** the next track starts (after the last one: `idle`); a
+paused track's next one starts paused. With nothing playing it is `bad-request`. How: the service starts a new player for the track with
 `MGU_START_MS` (section 2); the download starts again at the file's beginning.
 
 ```json request
@@ -342,7 +344,8 @@ track. With TIDAL's QR login, `LOSSLESS` is granted as `HIGH` (`docs/live-check-
 
 #### `log`
 
-The service's newest log lines (at most 200, `lines` asks for fewer), oldest first, each starting with its time. For
+The service's newest log lines (at most 200, `lines` asks for fewer), oldest first, each starting with its time
+(`hh:mm:ss`) and at most 300 characters after it. For
 the app's QR log, so a problem in the car can be read without a computer. A line never holds a token, and no
 address with a token in it.
 
@@ -389,7 +392,7 @@ bmw-test-apps; gapless playback is not a goal of version 1).
 | `MGU_AUDIO` | `alsa:plug:smartx:CarLifeMedia_CF_48_STEREO` | `alsa:<device>`, `null` (decode, discard), or `wav:<path>` (tests) |
 | `MGU_RUN_AS` | none | user to become; started as root without it, the player refuses to run (exit 3). Started as another user, it is ignored (and logged) |
 | `MGU_GROUPS` | `mgu_alsa,audio` | extra groups to take; a group the unit does not have is skipped and logged |
-| `MGU_START_MS` | `0` | where playing starts, in ms from the track's start (a seek): the sound before it is decoded and thrown away, not played and not paced (as fast as the input arrives); the first `tick`'s `pos` is this position. Past the end: `end` at once |
+| `MGU_START_MS` | `0` | where playing starts, in ms from the track's start (a seek): the sound before it is decoded and thrown away, not played and not paced (as fast as the input arrives); the first `tick`'s `pos` is this position. Past the end: `end` at once. Not a whole number of ms, or negative: logged, plays from 0; over 24 h: capped. The service sends whole ms, capped at 24 h, and leaves it out for position 0 |
 | `MGU_PREBUFFER_MS` | `1500` | sound queued before playing starts, and again after the input ran dry |
 | `MGU_ALSA_US` | `64000` | ALSA buffer in µs |
 
