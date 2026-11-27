@@ -347,27 +347,26 @@ test('now playing: while seeking the bar and the time show the target; state loa
     assert.ok(l.cv.has('Loading...') && l.cv.has('3:20'), l.cv.all());
 });
 
-test('the controller on now playing: pushed up goes onto the bar, there the knob and left / right wind 10 s a step', () => {
+test('the controller on now playing (U1): it starts on PAUSE in the bar; pushed up it is on the progress line, where the knob and left / right wind 10 s a step', () => {
     const s = playing();
-    const info = drawn(s, { position: 40, duration: 320 }).info;
-    assert.deepStrictEqual(N.input(s, info, { knob: 1 }), [{ type: 'focus', index: 2 }], 'on the buttons the knob goes along them, as before');
-    assert.deepStrictEqual(N.input(s, info, { tilt: 'W' }), [{ type: 'back' }], 'left is back, as before');
-    assert.deepStrictEqual(N.input(s, info, { tilt: 'N' }), [{ type: 'focus', index: 'bar' }], 'up: the bar');
-    assert.deepStrictEqual(N.input(s, drawn(s, { focus: 2 }).info, { tilt: 'N' }), [{ type: 'focus', index: 'bar' }]);
-    const on = drawn(s, { position: 40, duration: 320, focus: 'bar' }).info;
-    assert.strictEqual(on.barFocus, true);
-    assert.deepStrictEqual(N.input(s, on, { knob: 1 }), [{ type: 'seek-step', steps: 1 }]);
-    assert.deepStrictEqual(N.input(s, on, { knob: -3 }), [{ type: 'seek-step', steps: -3 }]);
-    assert.deepStrictEqual(N.input(s, on, { tilt: 'E' }), [{ type: 'seek-step', steps: 1 }]);
-    assert.deepStrictEqual(N.input(s, on, { tilt: 'W' }), [{ type: 'seek-step', steps: -1 }]);
-    assert.deepStrictEqual(N.input(s, on, { tilt: 'S' }), [{ type: 'focus', index: 1 }], 'down: back to play / pause');
-    assert.deepStrictEqual(N.input(s, on, { press: true }), [{ type: 'focus', index: 1 }], 'a press leaves the bar too');
-    assert.deepStrictEqual(N.input(s, on, { tilt: 'N' }), []);
-    // no bar (nothing playing): up is what it was, and a stale bar focus does nothing odd
-    const idle = playing('idle', { track: null });
-    const none = drawn(idle, { focus: 'bar' }).info;
-    assert.strictEqual(none.barFocus, false);
-    assert.deepStrictEqual(N.input(idle, none, { knob: 1 }).filter((a) => a.type === 'seek-step'), []);
+    const go = (st, ev) => N.input(st, null, ev).reduce((x, a) => M.reduce(x, a), st);
+    assert.deepStrictEqual([s.focus.area, s.focus.bar], ['bar', 1]);
+    assert.deepStrictEqual(N.input(s, null, { knob: 1 }), [{ type: 'focus', area: 'bar', bar: 2 }], 'on the bar the knob goes along its buttons');
+    assert.deepStrictEqual(N.input(s, null, { tilt: 'W' }), [{ type: 'back' }], 'left is back');
+    assert.deepStrictEqual(N.input(s, null, { tilt: 'N' }), [{ type: 'focus', area: 'progress' }], 'up: the progress line');
+    const on = go(s, { tilt: 'N' });
+    assert.strictEqual(drawn(on, { position: 40, duration: 320 }).info.barFocus, true);
+    assert.deepStrictEqual(N.input(on, null, { knob: 1 }), [{ type: 'seek-step', steps: 1 }]);
+    assert.deepStrictEqual(N.input(on, null, { knob: -3 }), [{ type: 'seek-step', steps: -3 }]);
+    assert.deepStrictEqual(N.input(on, null, { tilt: 'E' }), [{ type: 'seek-step', steps: 1 }]);
+    assert.deepStrictEqual(N.input(on, null, { tilt: 'W' }), [{ type: 'seek-step', steps: -1 }]);
+    assert.deepStrictEqual(N.input(on, null, { tilt: 'S' }), [{ type: 'focus', area: 'bar' }], 'down: back to the bar');
+    assert.deepStrictEqual(N.input(on, null, { press: true }), [{ type: 'focus', area: 'bar' }], 'a press leaves the line too');
+    assert.deepStrictEqual(go(on, { tilt: 'N' }).focus.area, 'tabs', 'up again: the tabs');
+    // nothing to seek in (nothing playing): no progress line, a stale focus on it does nothing odd
+    const idle = M.reduce(playing('idle', { track: null }), { type: 'focus', area: 'progress' });
+    assert.strictEqual(drawn(idle).info.barFocus, false);
+    assert.deepStrictEqual(N.input(idle, null, { knob: 1 }).filter((a) => a.type === 'seek-step'), []);
 });
 
 test('a tap on the bar (where only taps arrive) seeks to that point', () => {

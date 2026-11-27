@@ -26,7 +26,7 @@ function listOf(items, kind, extra) {
 /** apply what nav returns: model events go through the model, the rest is returned */
 function apply(s, out) {
     const acts = [];
-    out.forEach((a) => { const n = M.reduce(s, a); if (n !== s || a.type === 'cursor') s = n; else acts.push(a); });
+    out.forEach((a) => { const n = M.reduce(s, a); if (n !== s || a.type === 'cursor' || a.type === 'focus') s = n; else acts.push(a); });
     return { s: s, acts: acts };
 }
 function drawn(s, ui) { const cv = spyCanvas(); const info = S.draw(cv, theme, s, Object.assign({ now: 0 }, ui || {})); return { cv: cv, info: info }; }
@@ -89,10 +89,11 @@ test('the knob moves one row per step and stops at both ends', () => {
     s = apply(s, N.input(s, null, { knob: 1 })).s;
     s = apply(s, N.input(s, null, { knob: 5 })).s;
     assert.strictEqual(M.top(s).sel, 2, 'stops at the bottom');
-    s = apply(s, N.input(s, null, { tilt: 'N' })).s;
-    assert.strictEqual(M.top(s).sel, 1, 'pushed up: one row up');
-    s = apply(s, N.input(s, null, { tilt: 'S' })).s;
-    assert.strictEqual(M.top(s).sel, 2, 'pushed down: one row down');
+    // U1: pushed up / down the controller leaves the list for the tabs / the bar; the row stays (tests/app_nav.test.js)
+    const up = apply(s, N.input(s, null, { tilt: 'N' })).s;
+    assert.deepStrictEqual([M.top(up).sel, up.focus.area], [2, 'tabs'], 'pushed up: the tabs');
+    const down = apply(s, N.input(s, null, { tilt: 'S' })).s;
+    assert.deepStrictEqual([M.top(down).sel, down.focus.area], [2, 'bar'], 'pushed down: the bar');
 });
 
 test('a press plays from that row, with the ids of the list the user is in', () => {
