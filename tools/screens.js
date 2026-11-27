@@ -120,6 +120,11 @@ function cases() {
         ['now-playing-error', [status({ player: player('error', { error: 'decode' }) }), { type: 'open-now-playing' }], { cover: true }],
         ['now-playing-skipped', list('tracks', TRACKS).concat([status({ player: player('playing', { queueIndex: 0, queueLength: 8 }) }), { type: 'played' },
             status({ player: player('playing', { queueIndex: 0, queueLength: 8, skipped: [{ id: TRACKS[5].id, error: 'not-available' }] }) })]), { cover: true, position: 98.4 }],
+        // phase 2 (S2), seek: the bar under a finger (or wound with the wheel), and with the controller on it
+        ['now-playing-seeking', [status({ player: player('playing') }), { type: 'open-now-playing' }], { cover: true, position: 200, seeking: true }],
+        ['now-playing-seeking-paused', [status({ player: player('paused') }), { type: 'open-now-playing' }], { cover: true, position: 12, seeking: true }],
+        ['now-playing-bar-focus', [status({ player: player('playing') }), { type: 'open-now-playing' }], { cover: true, position: 98.4, focus: 'bar' }],
+        ['now-playing-bar-focus-seeking', [status({ player: player('playing') }), { type: 'open-now-playing' }], { cover: true, position: 128.4, focus: 'bar', seeking: true }],
         ['now-playing-idle', [status(), { type: 'open-now-playing' }], {}],
         ['now-playing-volume', [status({ player: player('playing') }), { type: 'open-now-playing' }], { cover: true, volume: { volume: 23, muted: false, max: 62 } }],
         ['now-playing-muted', [status({ player: player('playing') }), { type: 'open-now-playing' }], { cover: true, volume: { volume: 23, muted: true, max: 62 } }],
@@ -138,7 +143,7 @@ function render(c) {
     r.clear(t.bg);
     const u = c.ui || {};
     S.draw(r, t, c.state, {
-        now: u.now || NOW, focus: u.focus, position: u.position, volume: u.volume,
+        now: u.now || NOW, focus: u.focus, position: u.position, volume: u.volume, seeking: u.seeking,
         cover: (id) => (u.cover && id === COVER_ID ? { id: COVER_IMAGE, w: COVER_SIZE, h: COVER_SIZE } : null),
     });
     const cv = new Canvas(W, H);

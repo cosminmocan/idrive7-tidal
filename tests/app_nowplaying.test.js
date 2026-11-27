@@ -65,6 +65,10 @@ test('each control sends the right command (knob along them, press, tap); play /
     assert.strictEqual(NP.playPause(null), null, 'nothing to play');
     ['pause', 'resume', 'next', 'prev'].forEach((c) => assert.ok(P.COMMANDS.indexOf(c) >= 0, c));
     assert.deepStrictEqual(N.input(s, info, { tilt: 'W' }), [{ type: 'back' }]);
+    // phase 2 (S2): the progress bar is above the buttons, pushed up goes onto it (tests/app_seek.test.js)
+    assert.deepStrictEqual(N.input(s, info, { tilt: 'N' }), [{ type: 'focus', index: 'bar' }]);
+    assert.deepStrictEqual(N.input(s, info, { tilt: 'E' }), [{ type: 'focus', index: 2 }], 'right and down still go along the buttons');
+    assert.strictEqual(info.hits.filter((h) => h.button).length, 3, 'the bar is not a button: the knob does not stop on it');
 });
 
 test('progress follows status and moves on between answers while playing, not while paused', () => {
@@ -227,6 +231,11 @@ test('the steering wheel: skip right is next, left is previous, on release, only
     assert.deepStrictEqual(skips, [1, -1], 'nothing on: the radio keeps its own skip');
     [null, undefined, 42, {}, [], { operationPushButtonAudioAutomaticTuningSteeringWheel: 7 }, 'KEINE_AKTION'].forEach((x) => w.onSwitch(x));
     assert.deepStrictEqual(skips, [1, -1], 'garbage does nothing');
+    // phase 2 (S2): with a seek given, a long press winds instead (tests/app_seek.test.js); a short one is still a skip
+    const steps = [];
+    const w2 = createWheel({ skip: (d) => skips.push(d), active: () => true, seek: { step: (d) => steps.push(d), end: () => steps.push('end') } });
+    w2.onSwitch(v('SUCHLAUF_AUFWAERTS_MENUE_SKIP_RECHTS')); w2.onSwitch(v('KEINE_AKTION'));
+    assert.deepStrictEqual([skips, steps], [[1, -1, 1], []]);
     assert.strictEqual(NP.skipCmd(1), 'next');
     assert.strictEqual(NP.skipCmd(-1), 'prev');
     // "a track is on": the model's view
