@@ -27,10 +27,14 @@ async function waitFor(fn, ms, what) {
     throw new Error('waited in vain for ' + (what || fn.toString()));
 }
 
+const SPEC = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'apps', 'cmocan_tidal', 'app.json'), 'utf8'));
+
 function fakeCtx() {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cmocan-data-'));
     const handlers = {}, loops = {}, frames = [], logs = [], watched = {}, setL = [];
-    const values = { quality: 'LOSSLESS', wheel: true };
+    // the settings as a fresh install has them: app.json's defaults
+    const values = {};
+    SPEC.settings.forEach((x) => { values[x.key] = x.default; });
     const ctx = {
         dataDir, handlers, loops, frames, logs, watched,
         log: { info() {}, debug() {}, warn(m) { logs.push('warn ' + m); }, error(m, e) { logs.push('error ' + m + (e ? ' ' + (e.stack || e) : '')); } },
@@ -88,14 +92,59 @@ test('logged out: a login code is asked for by itself, once, and shown; logged i
     } finally { app.stop(); await svc.close(); }
 });
 
-test('a login already pending in the service (the app restarted): cancelled and started again to get its code', async () => {
+test('contract 2: a login already pending in the service (the app restarted): its code from the status, no login-cancel, no login-start', async () => {
     const sock = tmpSock();
-    const svc = await createFakeService({ socketPath: sock, state: { login: 'login-pending' } });
-    const { app } = start(sock);
+    const lp = { url: 'https://link.tidal.com/KLMNO', userCode: 'KLMNO', expiresAt: Date.now() + 200000 };
+    const svc = await createFakeService({ socketPath: sock, state: { login: 'login-pending', loginPending: lp } });
+    const { ctx, app } = start(sock);
     try {
         await waitFor(() => app.state().login && app.state().login.url, 3000, 'a code');
+        await sleep(500);
+        assert.strictEqual(app.state().login.userCode, 'KLMNO');
         const c = cmds(svc);
-        assert.ok(c.indexOf('login-cancel') >= 0 && c.indexOf('login-cancel') < c.indexOf('login-start'), c.join(','));
+        assert.ok(c.indexOf('login-cancel') < 0 && c.indexOf('login-start') < 0, c.join(','));
+        await ctx.loops.MAIN();
+        const cv = ctx.frames[ctx.frames.length - 1];
+        assert.ok(cv.has('KLMNO') && app.info().qr, cv.all());
+        assert.ok(cv.has(/valid for 4 more minutes/), cv.all());
+        noErrors(ctx);
+    } finally { app.stop(); await svc.close(); }
+});
+
+test('contract 2: the login refused on the phone (loginError login-denied): its message, no new code until asked; then one', async () => {
+    const sock = tmpSock();
+    const svc = await createFakeService({ socketPath: sock, state: { login: 'logged-out', loginError: 'login-denied' } });
+    const { ctx, app } = start(sock);
+    try {
+        await waitFor(() => app.state().screen === 'LOGIN', 3000, 'LOGIN');
+        await sleep(500);
+        assert.strictEqual(cmds(svc).indexOf('login-start'), -1, 'no code by itself');
+        await ctx.loops.MAIN();
+        assert.ok(ctx.frames[ctx.frames.length - 1].has(/refused on the phone/i), ctx.frames[ctx.frames.length - 1].all());
+        app.input({ press: true });
+        await waitFor(() => app.state().login && app.state().login.userCode === 'ABCDE', 3000, 'a new code');
+        assert.strictEqual(cmds(svc).filter((c) => c === 'login-start').length, 1);
+        assert.strictEqual(cmds(svc).indexOf('login-cancel'), -1, 'nothing to cancel');
+        noErrors(ctx);
+    } finally { app.stop(); await svc.close(); }
+});
+
+test('contract 2: the code runs out while shown (pending -> logged-out, login-expired): "expired", a new code on request', async () => {
+    const sock = tmpSock();
+    const svc = await createFakeService({ socketPath: sock });
+    const { ctx, app } = start(sock);
+    try {
+        await waitFor(() => app.state().login && app.state().login.url, 3000, 'a code');
+        await waitFor(() => app.state().service.login === 'login-pending', 3000, 'pending');
+        svc.state.login = 'logged-out'; svc.state.loginPending = null; svc.state.loginError = 'login-expired';
+        await waitFor(() => app.state().login && app.state().login.expired, 3000, 'expired');
+        await ctx.loops.MAIN();
+        assert.ok(ctx.frames[ctx.frames.length - 1].has(/code expired/i));
+        await sleep(400);
+        assert.strictEqual(cmds(svc).filter((c) => c === 'login-start').length, 1, 'not by itself');
+        app.input({ press: true });
+        await waitFor(() => cmds(svc).filter((c) => c === 'login-start').length === 2, 3000, 'asked again');
+        await waitFor(() => app.state().login && app.state().login.url && !app.state().login.expired, 3000, 'a new code shown');
     } finally { app.stop(); await svc.close(); }
 });
 
@@ -224,15 +273,42 @@ test('status is asked for every 1 to 2 s by default', async () => {
     } finally { app.stop(); await svc.close(); }
 }, { timeout: 15000 });
 
+test('contract 2: the quality setting: HIGH by default, "High (AAC 320)"; Lossless says it plays as High for now; labels short', () => {
+    const q = SPEC.settings.filter((x) => x.key === 'quality')[0];
+    assert.strictEqual(q.default, 'HIGH');
+    assert.strictEqual(q.default, P.DEFAULT_QUALITY, 'the same default as the service');
+    const labels = {};
+    q.options.forEach((o) => { labels[o[0]] = o[1]; });
+    assert.deepStrictEqual(Object.keys(labels).sort(), P.QUALITIES.slice().sort());
+    assert.strictEqual(labels.HIGH, 'High (AAC 320)');
+    assert.ok(/Lossless \(FLAC\)/.test(labels.LOSSLESS) && /as High/.test(labels.LOSSLESS), labels.LOSSLESS);
+    q.options.forEach((o) => assert.ok(o[1].length <= 40, 'short enough for the HMI list: ' + o[1]));
+    assert.ok(q.label.length <= 40, q.label);
+});
+
 test('the quality setting is sent to the service when it changes', async () => {
     const sock = tmpSock();
     const svc = await createFakeService({ socketPath: sock, state: { login: 'logged-in' } });
     const { ctx, app } = start(sock);
     try {
         await waitFor(() => app.state().screen === 'LIBRARY', 3000, 'LIBRARY');
+        ctx.settings.set('quality', 'LOSSLESS');
+        await waitFor(() => lastOf(svc, 'prefs') && lastOf(svc, 'prefs').quality === 'LOSSLESS', 2000, 'prefs sent');
+        assert.strictEqual(svc.state.prefs.quality, 'LOSSLESS');
         ctx.settings.set('quality', 'HIGH');
-        await waitFor(() => lastOf(svc, 'prefs') && lastOf(svc, 'prefs').quality === 'HIGH', 2000, 'prefs sent');
-        assert.strictEqual(svc.state.prefs.quality, 'HIGH');
+        await waitFor(() => lastOf(svc, 'prefs').quality === 'HIGH', 2000, 'HIGH sent');
+    } finally { app.stop(); await svc.close(); }
+});
+
+test('contract 2: at start, the default setting (HIGH) equals the service default: nothing is sent', async () => {
+    const sock = tmpSock();
+    const svc = await createFakeService({ socketPath: sock, state: { login: 'logged-in' } });
+    const { ctx, app } = start(sock);
+    try {
+        assert.strictEqual(ctx.settings.get('quality'), 'HIGH');
+        await waitFor(() => app.state().screen === 'LIBRARY', 3000, 'LIBRARY');
+        await sleep(600);
+        assert.strictEqual(cmds(svc).filter((c) => c === 'prefs').length, 0, cmds(svc).join(','));
     } finally { app.stop(); await svc.close(); }
 });
 
@@ -240,12 +316,65 @@ test('at start, a quality setting that differs from the service\'s is sent once'
     const sock = tmpSock();
     const svc = await createFakeService({ socketPath: sock, state: { login: 'logged-in' } });
     const ctx = fakeCtx();
-    ctx.settings.set('quality', 'HIGH');
+    ctx.settings.set('quality', 'LOSSLESS');
     const app = createApp(ctx, { socketPath: sock, pollMs: 150, parked: parkedKit.watch(ctx, ctx.log), setImage() {}, decodeJpeg: decodeJpeg });
     try {
-        await waitFor(() => svc.state.prefs.quality === 'HIGH', 3000, 'HIGH sent');
+        await waitFor(() => svc.state.prefs.quality === 'LOSSLESS', 3000, 'LOSSLESS sent');
         await sleep(600);
         assert.strictEqual(cmds(svc).filter((c) => c === 'prefs').length, 1);
+    } finally { app.stop(); await svc.close(); }
+});
+
+test('contract 2: mixes, a mix and an album are asked for by page, and the next page comes as the knob nears the end', async () => {
+    const sock = tmpSock();
+    const svc = await createFakeService({ socketPath: sock, state: { login: 'logged-in' } });
+    const many = [];
+    for (let i = 0; i < 120; i++) many.push(Object.assign({}, TRACK, { id: 1000 + i, title: 'T' + i }));
+    svc.answer = (r) => (r.cmd === 'album' ? { id: r.id, ok: true, total: many.length, items: many.slice(r.offset, r.offset + r.limit) } : undefined);
+    const { ctx, app } = start(sock);
+    try {
+        await waitFor(() => app.state().screen === 'LIBRARY', 3000, 'LIBRARY');
+        app.act({ type: 'open-list', key: 'mixes', title: 'Mixes', kind: 'mixes', source: { cmd: 'mixes', params: {} } });
+        await waitFor(() => lastOf(svc, 'mixes'), 2000, 'mixes asked for');
+        assert.deepStrictEqual([lastOf(svc, 'mixes').offset, lastOf(svc, 'mixes').limit], [0, 50]);
+        await waitFor(() => app.state().stack[0].items.length === 1, 2000, 'mixes loaded');
+        app.input({ press: true });
+        await waitFor(() => lastOf(svc, 'mix'), 2000, 'mix asked for');
+        assert.deepStrictEqual([lastOf(svc, 'mix').mixId, lastOf(svc, 'mix').offset, lastOf(svc, 'mix').limit], ['0123456789abcdef0123456789abcd', 0, 50]);
+        app.act({ type: 'open-list', key: 'album:1', title: 'Album', kind: 'tracks', source: { cmd: 'album', params: { albumId: 17927863 } } });
+        await waitFor(() => app.state().stack.length === 3 && app.state().stack[2].items.length === 50, 2000, 'the first page');
+        for (let i = 0; i < 48; i++) app.input({ knob: 1 });
+        await waitFor(() => app.state().stack[2].items.length === 100, 2000, 'the second page');
+        assert.deepStrictEqual(svc.requests.filter((r) => r.cmd === 'album').map((r) => r.offset), [0, 50]);
+        svc.requests.forEach((r) => assert.deepStrictEqual(P.validateRequest(r), [], JSON.stringify(r)));
+        noErrors(ctx);
+    } finally { app.stop(); await svc.close(); }
+});
+
+test('contract 2: the service skips a track of the queue (player.skipped): now playing tells the user, the list greys it out', async () => {
+    const sock = tmpSock();
+    const svc = await createFakeService({ socketPath: sock, state: { login: 'logged-in' } });
+    const two = [TRACK, Object.assign({}, TRACK, { id: 17927865, title: 'Aerodynamic' })];
+    svc.answer = (r) => (r.cmd === 'favorites' ? { id: r.id, ok: true, total: 2, items: two } : undefined);
+    const { ctx, app } = start(sock);
+    try {
+        await waitFor(() => app.state().screen === 'LIBRARY', 3000, 'LIBRARY');
+        app.input({ press: true });
+        await waitFor(() => app.state().screen === 'LIST' && app.state().stack[0].items.length === 2, 3000, 'list loaded');
+        app.input({ press: true });
+        await waitFor(() => app.state().screen === 'NOW_PLAYING', 3000, 'NOW_PLAYING');
+        svc.state.player = Object.assign({}, svc.state.player, { state: 'playing', track: TRACK, position: 1, duration: 320, queueIndex: 0, queueLength: 2, quality: 'HIGH' });
+        await waitFor(() => app.state().player && app.state().player.state === 'playing', 3000, 'playing');
+        svc.state.player = Object.assign({}, svc.state.player, { skipped: [{ id: 17927865, error: 'not-available' }] });
+        await waitFor(() => app.state().message === 'Skipped: Aerodynamic (not available)', 3000, 'the notice');
+        await ctx.loops.MAIN();
+        assert.ok(ctx.frames[ctx.frames.length - 1].has('Skipped: Aerodynamic (not available)'), ctx.frames[ctx.frames.length - 1].all());
+        app.act({ type: 'back' });
+        assert.strictEqual(app.state().screen, 'LIST');
+        await ctx.loops.MAIN();
+        const t = ctx.frames[ctx.frames.length - 1].texts.filter((x) => x.s === 'Aerodynamic')[0];
+        assert.strictEqual(t.color, themes.theme('m_tricolour').dim, 'greyed out');
+        noErrors(ctx);
     } finally { app.stop(); await svc.close(); }
 });
 

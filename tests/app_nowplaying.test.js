@@ -111,9 +111,60 @@ test('buffering, loading and a player error are shown', () => {
     assert.ok(drawn(playing('buffering')).cv.has(/buffering/i));
     assert.ok(drawn(playing('loading')).cv.has(/loading/i));
     const e = drawn(playing('error', { error: 'decode' })).cv;
-    assert.ok(e.has(/error/i) && e.has(/decode/), e.all());
+    assert.ok(e.has(NP.errorText('decode')), e.all());
     const idle = drawn(M.reduce(playing('idle', { track: null }), { type: 'status', state: Object.assign(defaultState(), { login: 'logged-in' }) })).cv;
     assert.ok(idle.has(/nothing is playing/i), idle.all());
+});
+
+test('contract 2: a skipped track: the notice shows on now playing (for a few seconds), the track is greyed out in its list', () => {
+    const other = Object.assign({}, TRACK, { id: 555, title: 'Gone track' });
+    let s = M.reduce(M.reduce(M.initial(), { type: 'status', state: Object.assign(defaultState(), { login: 'logged-in' }) }),
+        { type: 'open-list', key: 'k', title: 'T', kind: 'tracks', source: { cmd: 'album', params: { albumId: 1 } } });
+    s = M.reduce(s, { type: 'list-loaded', key: 'k', offset: 0, total: 2, items: [TRACK, other] });
+    const st = Object.assign(defaultState(), { login: 'logged-in' });
+    st.player = Object.assign({}, st.player, { state: 'playing', track: TRACK, position: 1, duration: 320, queueIndex: 0, queueLength: 2, quality: 'HIGH' });
+    s = M.reduce(M.reduce(s, { type: 'status', state: st }), { type: 'played' });
+    const st2 = JSON.parse(JSON.stringify(st));
+    st2.player.skipped = [{ id: 555, error: 'not-available' }];
+    s = M.reduce(s, { type: 'status', state: st2 });
+    const on = drawn(s, { now: 1000, toastUntil: 5000 }).cv;
+    assert.ok(on.has('Skipped: Gone track (not available)'), on.all());
+    assert.ok(!drawn(s, { now: 6000, toastUntil: 5000 }).cv.has(/Skipped/), 'gone after its time');
+    const list = drawn(M.reduce(s, { type: 'back' }), { now: 6000, toastUntil: 5000 }).cv;
+    assert.strictEqual(list.texts.filter((x) => x.s === 'Gone track')[0].color, theme.dim, 'greyed out');
+    assert.strictEqual(list.texts.filter((x) => x.s === TRACK.title)[0].color, theme.text);
+});
+
+test('contract 2: player.error: a message of its own for every code of both lists (control socket, player), never the raw code', () => {
+    const codes = P.ERROR_CODES.concat(P.PLAYER_ERROR_CODES);
+    assert.deepStrictEqual(P.PLAYER_ERROR_CODES, ['input', 'decode', 'audio', 'internal']);
+    codes.forEach((code) => {
+        const m = NP.errorText(code);
+        assert.ok(typeof m === 'string' && m.length > 8 && m !== code && m !== NP.errorText('something-new'), code + ': ' + m);
+        const cv = drawn(playing('error', { error: code })).cv;
+        assert.ok(cv.has(m), code + '\n' + cv.all());
+        assert.ok(!cv.texts.some((t) => t.s.indexOf('(' + code + ')') >= 0), 'the raw code shown for ' + code);
+    });
+    const player = P.PLAYER_ERROR_CODES.map(NP.errorText);
+    assert.strictEqual(new Set(player).size, player.length, 'each player code its own message');
+    assert.strictEqual(new Set(codes.map(NP.errorText)).size, codes.length, 'each code its own message');
+    // an unknown code or none: a plain message, no throw (rule R1)
+    [undefined, null, 42, 'something-new'].forEach((c) => assert.ok(/playback/i.test(NP.errorText(c)), String(c)));
+    assert.ok(drawn(playing('error', { error: null })).cv.has(NP.errorText(null)));
+});
+
+test('contract 2: now playing shows the quality TIDAL granted (player.quality), not the setting', () => {
+    assert.strictEqual(NP.qualityText('HIGH'), 'AAC 320');
+    assert.strictEqual(NP.qualityText('LOSSLESS'), 'FLAC');
+    [null, undefined, 7, 'HI_RES'].forEach((q) => assert.strictEqual(NP.qualityText(q), '', String(q)));
+    const st = Object.assign(defaultState(), { login: 'logged-in', prefs: { quality: 'LOSSLESS' } });
+    st.player = Object.assign({}, st.player, { state: 'playing', track: TRACK, position: 1, duration: 320, queueIndex: 0, queueLength: 14, quality: 'HIGH' });
+    const s = M.reduce(M.reduce(M.initial(), { type: 'status', state: st }), { type: 'open-now-playing' });
+    const cv = drawn(s).cv;
+    assert.ok(cv.has(/AAC 320/), cv.all());
+    assert.ok(!cv.has(/FLAC|LOSSLESS|\bHIGH\b/), cv.all());
+    assert.ok(drawn(playing('playing', { quality: 'LOSSLESS' })).cv.has(/FLAC/));
+    assert.ok(!drawn(playing('loading', { quality: null })).cv.has(/AAC|FLAC/), 'not known yet: nothing');
 });
 
 test('a missing cover shows a placeholder; a cover that came is drawn', () => {

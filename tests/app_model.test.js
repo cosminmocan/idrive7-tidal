@@ -120,6 +120,88 @@ test('login: the service gives up on a pending code (back to logged-out) -> expi
     assert.strictEqual(s.login.expired, true);
 });
 
+test('contract 2: a login pending in the service (the app restarted): its code comes from status.loginPending, none is asked for', () => {
+    const lp = { url: 'https://link.tidal.com/ABCDE', userCode: 'ABCDE', expiresAt: 1795000300000 };
+    let s = go(M.initial(), status({ login: 'login-pending', loginPending: lp }));
+    assert.strictEqual(s.screen, 'LOGIN');
+    assert.deepStrictEqual([s.login.url, s.login.userCode, s.login.expiresAt, s.login.expired, s.login.requesting], [lp.url, 'ABCDE', lp.expiresAt, false, false]);
+    assert.strictEqual(M.wantsLoginCode(s), false, 'no login-start while one is pending');
+    // the same code in the next status changes nothing; past its time the clock still expires it
+    assert.strictEqual(M.reduce(s, status({ login: 'login-pending', loginPending: lp })).login, s.login);
+    s = go(s, { type: 'tick', now: lp.expiresAt });
+    assert.strictEqual(s.login.expired, true);
+    assert.strictEqual(go(s, status({ login: 'login-pending', loginPending: lp })).login.expired, true, 'the old code is not shown again');
+    // a new code (asked for on the phone or by another app run) replaces the shown one
+    const lp2 = { url: 'https://link.tidal.com/FGHIJ', userCode: 'FGHIJ', expiresAt: lp.expiresAt + 300000 };
+    assert.strictEqual(go(s, status({ login: 'login-pending', loginPending: lp2 })).login.userCode, 'FGHIJ');
+    // asked for, then the status carries it before the login-start answer does
+    s = go(M.initial(), status({ login: 'logged-out' }), { type: 'login-requested' }, status({ login: 'login-pending', loginPending: lp }));
+    assert.strictEqual(s.login.userCode, 'ABCDE');
+    // garbage in loginPending: ignored (rule R1), still no login-start while pending
+    [null, 'x', { url: 7 }, { url: 'https://a', userCode: '' }, { url: 'https://a', userCode: 'A', expiresAt: 'soon' }].forEach((bad) => {
+        const b = go(M.initial(), status({ login: 'login-pending', loginPending: bad }));
+        assert.strictEqual(b.screen, 'LOGIN');
+        assert.ok(!b.login || !b.login.url, JSON.stringify(bad));
+        assert.strictEqual(M.wantsLoginCode(b), false, JSON.stringify(bad));
+    });
+});
+
+test('contract 2: status.loginError: login-expired -> the code expired, login-denied -> refused; a new code only on request', () => {
+    const lp = { url: 'https://link.tidal.com/ABCDE', userCode: 'ABCDE', expiresAt: 1795000300000 };
+    const pending = status({ login: 'login-pending', loginPending: lp });
+    // while the app watched the code
+    let s = go(M.initial(), pending, status({ login: 'logged-out', loginError: 'login-denied' }));
+    assert.deepStrictEqual([s.screen, s.login.expired, s.login.denied], ['LOGIN', true, true]);
+    assert.strictEqual(M.wantsLoginCode(s), false);
+    s = go(M.initial(), pending, status({ login: 'logged-out', loginError: 'login-expired' }));
+    assert.deepStrictEqual([s.login.expired, !!s.login.denied], [true, false]);
+    assert.strictEqual(M.wantsLoginCode(s), false);
+    // the app started after the login ended
+    s = go(M.initial(), status({ login: 'logged-out', loginError: 'login-denied' }));
+    assert.deepStrictEqual([s.screen, s.login.denied, M.wantsLoginCode(s)], ['LOGIN', true, false]);
+    s = go(M.initial(), status({ login: 'logged-out', loginError: 'login-expired' }));
+    assert.deepStrictEqual([s.login.expired, !!s.login.denied, M.wantsLoginCode(s)], [true, false, false]);
+    // asked for again: a stale status with the old loginError does not undo it
+    s = go(s, { type: 'login-requested' }, status({ login: 'logged-out', loginError: 'login-expired' }));
+    assert.strictEqual(s.login.requesting, true);
+    s = go(s, { type: 'login-started', url: 'https://link.tidal.com/FGHIJ', userCode: 'FGHIJ', expiresIn: 300, now: 0 }, status({ login: 'logged-out', loginError: 'login-expired' }));
+    assert.deepStrictEqual([s.login.userCode, s.login.expired], ['FGHIJ', false]);
+    // no loginError and logged out: a code is asked for by itself; garbage loginError is ignored
+    assert.strictEqual(M.wantsLoginCode(go(M.initial(), status({ login: 'logged-out' }))), true);
+    assert.strictEqual(M.wantsLoginCode(go(M.initial(), status({ login: 'logged-out', loginError: 'nope' }))), true);
+});
+
+test('contract 2: player.skipped: a newly skipped track is greyed out and named in a notice; the count when its title is not known', () => {
+    const T2 = Object.assign({}, TRACK, { id: 2, title: 'Second' }), T3 = Object.assign({}, TRACK, { id: 3, title: 'Third' });
+    const playingWith = (skipped) => { const st = defaultState(); st.login = 'logged-in'; st.player = Object.assign({}, st.player, { state: 'playing', track: TRACK, queueIndex: 0, queueLength: 3, skipped: skipped }); return { type: 'status', state: st }; };
+    let s = go(libraryState(), { type: 'open-list', key: 'k', title: 'T', kind: 'tracks', source: { cmd: 'playlist', params: { uuid: 'u' } } },
+        { type: 'list-loaded', key: 'k', offset: 0, total: 3, items: [TRACK, T2, T3] }, playingWith([]), { type: 'open-now-playing' });
+    assert.deepStrictEqual(s.player.skipped, []);
+    s = go(s, playingWith([{ id: 2, error: 'not-available' }]));
+    assert.strictEqual(s.message, 'Skipped: Second (not available)');
+    assert.strictEqual(s.unavailable[2], true, 'greyed out in the lists');
+    assert.strictEqual(s.screen, 'NOW_PLAYING');
+    const same = go(s, { type: 'dismiss' }, playingWith([{ id: 2, error: 'not-available' }]));
+    assert.strictEqual(same.message, null, 'told once');
+    s = go(s, playingWith([{ id: 2, error: 'not-available' }, { id: 3, error: 'not-found' }]));
+    assert.strictEqual(s.message, 'Skipped: Third (not found)');
+    s = go(s, playingWith([{ id: 2, error: 'not-available' }, { id: 3, error: 'not-found' }, { id: 98, error: 'not-available' }, { id: 99, error: 'tidal-error' }]));
+    assert.strictEqual(s.message, 'Skipped 2 tracks that could not be played');
+    s = go(s, playingWith([{ id: 97, error: 'not-available' }]));
+    assert.strictEqual(s.message, 'Skipped 1 track (not available)', 'a new queue: its own skips; a title not in the lists: the count');
+    // the app started while the queue had skips already: greyed out, no notice
+    const fresh = go(M.initial(), playingWith([{ id: 2, error: 'not-available' }]));
+    assert.strictEqual(fresh.message, null);
+    assert.strictEqual(fresh.unavailable[2], true);
+    // garbage (rule R1)
+    ['x', null, [1, null, { id: 'a' }, { error: 'not-available' }, { id: -1, error: 'x' }], {}].forEach((bad) => {
+        const st = defaultState(); st.login = 'logged-in'; st.player = Object.assign({}, st.player, { skipped: bad });
+        const b = go(libraryState(), { type: 'status', state: st });
+        assert.ok(Array.isArray(b.player.skipped), JSON.stringify(bad));
+        assert.strictEqual(b.screen, 'LIBRARY');
+    });
+});
+
 test('lists: open (loading), loaded, deeper, back pops, back from the first goes to the library', () => {
     let s = go(libraryState(), { type: 'open-list', key: 'playlists', title: 'Playlists', kind: 'playlists', source: { cmd: 'playlists' } });
     assert.strictEqual(s.screen, 'LIST');

@@ -69,14 +69,24 @@ function drawLogin(c) {
         button(c, 60, TOP + 240, 300, 64, 'New code', { type: 'login-new' }, 'login-new', true);
         return;
     }
-    if (!l || l.requesting || !l.url) {
+    if (!l || l.requesting) {
         txt(c, 'Getting a code...', 60, TOP + 160, 26, t.dim);
+        return;
+    }
+    if (l.denied) {
+        txt(c, 'The login was refused on the phone.', 60, TOP + 160, 28, t.text, { font: 'bold' });
+        txt(c, 'Get a new code to try again.', 60, TOP + 200, 22, t.dim);
+        button(c, 60, TOP + 240, 300, 64, 'New code', { type: 'login-new' }, 'login-new', true);
         return;
     }
     if (l.expired) {
         txt(c, 'The code expired.', 60, TOP + 160, 28, t.text, { font: 'bold' });
         txt(c, 'Get a new one and scan it with your phone.', 60, TOP + 200, 22, t.dim);
         button(c, 60, TOP + 240, 300, 64, 'New code', { type: 'login-new' }, 'login-new', true);
+        return;
+    }
+    if (!l.url) {
+        txt(c, 'Getting a code...', 60, TOP + 160, 26, t.dim);
         return;
     }
     const m = QR.matrix(l.url);
@@ -205,9 +215,10 @@ function drawNowPlaying(c) {
     txt(c, (tr.artists || []).join(', '), x, TOP + 134, 28, t.text, { w: w });
     if (tr.album && tr.album.title) txt(c, tr.album.title, x, TOP + 172, 22, t.dim, { w: w });
     let state = NP_STATE[p.state] || '';
-    if (p.state === 'error') state = 'Playback error' + (p.error ? ' (' + p.error + ')' : '');
-    if (state) txt(c, state, x, TOP + 220, 24, p.state === 'error' ? RED : ACCENT, { font: 'bold', w: w });
-    const right = [p.queueLength > 0 && p.queueIndex >= 0 ? 'Track ' + (p.queueIndex + 1) + ' of ' + p.queueLength : '', p.quality || ''].filter(Boolean).join('   ');
+    if (p.state === 'error') state = NP.errorText(p.error);
+    // the state's text leaves room for the track number and quality on the right of the same line
+    if (state) txt(c, state, x, TOP + 220, 24, p.state === 'error' ? RED : ACCENT, { font: 'bold', w: w - 320 });
+    const right = [p.queueLength > 0 && p.queueIndex >= 0 ? 'Track ' + (p.queueIndex + 1) + ' of ' + p.queueLength : '', NP.qualityText(p.quality)].filter(Boolean).join('   ');
     if (right) txt(c, right, W - 60, TOP + 220, 20, t.dim, { align: 'right' });
     // the progress
     const pos = typeof c.ui.position === 'number' ? c.ui.position : p.position;
@@ -252,7 +263,7 @@ function draw(cv, t, s, ui) {
     const fn = DRAW[s.screen];
     if (fn) fn(c);
     if (c.ui.volume) drawVolume(c, c.ui.volume);
-    if (s.message && (s.screen === 'LIBRARY' || s.screen === 'LIST') && (!c.ui.toastUntil || !c.ui.now || c.ui.now < c.ui.toastUntil)) drawToast(c, s.message);
+    if (s.message && (s.screen === 'LIBRARY' || s.screen === 'LIST' || s.screen === 'NOW_PLAYING') && (!c.ui.toastUntil || !c.ui.now || c.ui.now < c.ui.toastUntil)) drawToast(c, s.message);
     return c.info;
 }
 

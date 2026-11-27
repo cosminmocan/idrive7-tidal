@@ -30,8 +30,8 @@
                   ["BTN_PREV", "Previous"], ["BTN_NEXT", "Next"], ["BTN_LIBRARY", "Library"], ["BTN_SETTINGS", "Settings"]] }
   ],
   "settings": [
-    { "key": "quality", "label": "Sound quality (from the next track)", "type": "choice", "default": "LOSSLESS",
-      "options": [["LOSSLESS", "Lossless (FLAC 16-bit 44.1 kHz)"], ["HIGH", "High (AAC 320 kbit/s)"]] },
+    { "key": "quality", "label": "Sound quality (from the next track)", "type": "choice", "default": "HIGH",
+      "options": [["HIGH", "High (AAC 320)"], ["LOSSLESS", "Lossless (FLAC), plays as High for now"]] },
     { "key": "wheel", "label": "Skip on the steering wheel: next / previous track (while a track plays)", "type": "bool", "default": true }
   ]
 }

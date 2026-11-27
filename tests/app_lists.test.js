@@ -185,9 +185,19 @@ test('more rows are asked for when the knob nears the end of what is loaded (pag
     assert.strictEqual(L.needMore(M.top(s)), null);
     for (let i = 0; i < 46; i++) s = apply(s, N.input(s, null, { knob: 1 })).s;
     assert.deepStrictEqual(L.needMore(M.top(s)), { key: 'k', cmd: 'favorites', params: { kind: 'tracks', offset: 50, limit: 50 } });
-    const album = M.reduce(M.reduce(loggedIn(), { type: 'open-list', key: 'a', title: 'T', kind: 'tracks', source: { cmd: 'album', params: { albumId: 1 } } }),
-        { type: 'list-loaded', key: 'a', offset: 0, total: 60, items: items });
-    assert.strictEqual(L.needMore(Object.assign({}, M.top(album), { sel: 49 })), null, 'album is not paged in the contract');
+});
+
+test('contract 2: album, mix and mixes are paged like the others (offset, limit, total)', () => {
+    const items = [];
+    for (let i = 0; i < 50; i++) items.push(track(i));
+    const opened = (key, cmd, params, kind, list) => M.reduce(M.reduce(loggedIn(), { type: 'open-list', key: key, title: 'T', kind: kind, source: { cmd: cmd, params: params } }),
+        { type: 'list-loaded', key: key, offset: 0, total: 60, items: list });
+    const near = (s) => L.needMore(Object.assign({}, M.top(s), { sel: 49 }));
+    assert.deepStrictEqual(near(opened('a', 'album', { albumId: 1 }, 'tracks', items)), { key: 'a', cmd: 'album', params: { albumId: 1, offset: 50, limit: 50 } });
+    assert.deepStrictEqual(near(opened('m', 'mix', { mixId: 'm1' }, 'tracks', items)), { key: 'm', cmd: 'mix', params: { mixId: 'm1', offset: 50, limit: 50 } });
+    const mixes = items.map((t, i) => ({ id: 'm' + i, title: 'Mix ' + i, coverId: null }));
+    assert.deepStrictEqual(near(opened('x', 'mixes', {}, 'mixes', mixes)), { key: 'x', cmd: 'mixes', params: { offset: 50, limit: 50 } });
+    ['favorites', 'playlists', 'playlist', 'album', 'mixes', 'mix', 'search'].forEach((c) => assert.ok(L.PAGED[c], c + ' is paged'));
 });
 
 run();
