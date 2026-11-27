@@ -207,7 +207,8 @@ function createNetx(o) {
                         chunks.push(d);
                         idle();
                     });
-                    res.on('aborted', () => finish(netError('offline', 'the connection broke during the answer (' + host + ')')));
+                    // Node 8 says 'aborted' also when the server closed after the whole answer, before it was read
+                    res.on('aborted', () => { if (!res.complete) finish(netError('offline', 'the connection broke during the answer (' + host + ')')); });
                     res.on('error', (e) => finish(wrap(e, host)));
                     res.on('end', () => {
                         if (res.complete === false) { finish(netError('offline', 'the connection broke during the answer (' + host + ')')); return; }
@@ -295,9 +296,11 @@ function createNetx(o) {
                         if (!pt.write(d)) { flowing = false; res.pause(); clearTimeout(timer); } else idle();
                     });
                     pt.on('drain', () => { if (ended) return; flowing = true; res.resume(); idle(); });
-                    res.on('aborted', broke);
+                    // Node 8 says 'aborted' (and 'close') also when the server closed the connection after the whole
+                    // answer had arrived, while the reader is behind: the rest is still to come, then 'end'
+                    res.on('aborted', () => { if (!res.complete) broke(); });
                     res.on('error', (e) => failStream(wrap(e, host)));
-                    res.on('close', () => { if (!ended) broke(); });
+                    res.on('close', () => { if (!ended && !res.complete) broke(); });
                     res.on('end', () => {
                         if (ended) return;
                         if (res.complete === false || (expected >= 0 && got < expected)) { broke(); return; }
