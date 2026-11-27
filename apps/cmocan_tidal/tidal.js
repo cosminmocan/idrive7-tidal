@@ -224,6 +224,9 @@ function createApp(ctx, kit) {
     }
     if (ctx.settings.onChange) ctx.settings.onChange((k) => { if (k === 'quality') sendQuality(); });
 
+    // the playing track on the instrument cluster, where cluster-render is installed (it runs itself and ends with the app)
+    require('./cluster').forApp(ctx, kit, { request: (cmd, p) => ask(cmd, p, SLOW_MS), player: () => s.player, speakers: () => audio.state(), stopped: () => stopped });
+
     /* ---------- start ---------- */
     loopHandle = ctx.loop('MAIN', 2, draw);
     timers.push(setInterval(poll, kit.pollMs || POLL_MS));

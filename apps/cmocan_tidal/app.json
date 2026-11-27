@@ -34,6 +34,7 @@
   "settings": [
     { "key": "quality", "label": "Sound quality (from the next track)", "type": "choice", "default": "HIGH",
       "options": [["HIGH", "High (AAC 320)"], ["LOSSLESS", "Lossless (FLAC), plays as High for now"]] },
-    { "key": "wheel", "label": "Skip on the steering wheel: next / previous track (while a track plays)", "type": "bool", "default": true }
+    { "key": "wheel", "label": "Skip on the steering wheel: next / previous track (while a track plays)", "type": "bool", "default": true },
+    { "key": "cluster", "label": "Show the track on the instrument cluster", "type": "bool", "default": true }
   ]
 }
