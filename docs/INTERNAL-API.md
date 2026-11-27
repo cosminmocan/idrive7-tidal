@@ -1,8 +1,19 @@
 # Internal module interfaces (stream A ↔ stream C)
 
-The service (stream C) uses the TIDAL client (stream A) as JavaScript modules, inside `client.js`, which runs as
-the tool's internet uid (13150). These interfaces let C build and test against fakes of A while A is being written,
-and let A's modules drop in later with no change to C. Node 8.9.4 syntax; Promises; no npm packages.
+The service (stream C) uses the TIDAL client (stream A) as JavaScript modules. These interfaces let C build and
+test against fakes of A, and A's modules drop in with no change to C. Node 8.9.4 syntax; Promises; no npm packages.
+
+## Where each part runs
+
+| Process | Runs as | Holds |
+|---|---|---|
+| `service.js` | root | the control socket, the state folder (0700, root's), **the TIDAL module (`lib/tidal.js`)**: the session and the cover cache are written only by root |
+| `client.js` | the internet uid 13150 | **only the network**: `lib/netx.js`. The service gives `createTidal` a `netx` with exactly the shape below, whose `request` goes to `client.js` over IPC (JSON lines on stdin/stdout) and whose `openStream` bytes come back in frames (stream id, length) on fd 4 |
+| the player | root, then nobody (+ `mgu_alsa`, `audio`) | the sound (docs/PROTOCOL.md section 2) |
+
+Why the TIDAL module is not in `client.js`: as uid 13150 it could not write `session.json` into the root-only state
+folder, and the login must stay root's (WORKPLAN.md, decisions). The mgu-uplink lets only 13150 out, so every byte
+from TIDAL still goes through `client.js`.
 
 Ownership in `native/cmocan-tidal/`:
 
@@ -36,7 +47,10 @@ netx.request({ method, url, headers, body, timeoutMs, maxBytes })
                                   //    (default 4 MiB); rejects with code 'offline' or 'tidal-error'
 netx.openStream({ url, headers, timeoutMs })
                                   // -> Promise<{ status, headers, stream: Readable }> for the track's bytes;
-                                  //    the caller sends "Range: bytes=<n>-" to continue after a break;
+                                  //    resolves with ANY HTTP status (the caller checks it: 200, 206, or not);
+                                  //    follows up to 3 redirects; `request` never rejects because of a status;
+                                  //    the caller sends "Range: bytes=<n>-" to continue after a break (TIDAL's
+                                  //    stream servers answer 206, docs/live-check-results.md);
                                   //    the stream errors (never just ends) when the connection breaks or
                                   //    stays idle past timeoutMs
 netx.close()                      // ends kept-alive connections
@@ -56,15 +70,18 @@ tidal.loggedIn()                          // -> boolean (a session is loaded)
 tidal.loginStart()                        // -> Promise<{ url, userCode, expiresIn, interval }>; url starts with https://
 tidal.loginPoll()                         // -> Promise<{ state: 'pending' | 'authorized' | 'expired' | 'denied' }>
                                           //    'authorized': the session is saved; never polls faster than interval
-tidal.logout()                            // -> Promise: session file and cover cache deleted
+tidal.loginCancel()                       // stops a pending login: the next loginPoll() answers 'expired'
+tidal.logout()                            // -> Promise: session file and cover cache deleted; stops a pending login
 
 // lists: items are the objects of docs/PROTOCOL.md ("Objects"); total when TIDAL says
 tidal.favorites(kind, offset, limit)      // kind 'tracks' | 'albums' -> Promise<{ items, total }>
 tidal.playlists(offset, limit)
 tidal.playlist(uuid, offset, limit)
 tidal.album(albumId, offset, limit)
-tidal.mixes()
-tidal.mix(mixId)
+tidal.mixes(offset, limit)                // paged as the others (the module pages TIDAL's answer itself if
+tidal.mix(mixId, offset, limit)           //    TIDAL does not), total always given
+tidal.track(trackId)                      // -> Promise<track>: one track by id (contract object), for "now playing"
+                                          //    after a restart; rejects with not-found
 tidal.search(query, offset, limit)        // tracks only
 
 tidal.streamUrl(trackId, quality)         // quality 'LOSSLESS' | 'HIGH' -> Promise<{ url, codec: 'flac' | 'aac', quality }>

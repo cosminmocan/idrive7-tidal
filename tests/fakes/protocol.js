@@ -12,6 +12,8 @@ const ERROR_CODES = ['offline', 'not-logged-in', 'login-expired', 'not-found', '
 const PLAYER_EVENTS = ['open', 'audio', 'tick', 'end', 'error'];
 const PLAYER_ERROR_CODES = ['input', 'decode', 'audio', 'internal'];
 const STATE_FILES = ['session', 'prefs', 'queue'];
+const LOGIN_ERRORS = ['login-expired', 'login-denied'];
+const DEFAULT_QUALITY = 'HIGH';
 const LOGIN_STATES = ['logged-out', 'login-pending', 'logged-in'];
 const PLAYER_STATES = ['idle', 'loading', 'playing', 'paused', 'buffering', 'error'];
 const QUALITIES = ['LOSSLESS', 'HIGH'];
@@ -65,7 +67,8 @@ const REQUEST_PARAMS = {
     playlists: (e, r) => paging(e, r),
     playlist: (e, r) => { nestr(e, r, 'uuid'); paging(e, r); },
     album: (e, r) => { int(e, r, 'albumId', 1); paging(e, r); },
-    mix: (e, r) => { nestr(e, r, 'mixId'); },
+    mixes: (e, r) => paging(e, r),
+    mix: (e, r) => { nestr(e, r, 'mixId'); paging(e, r); },
     search: (e, r) => { if (nestr(e, r, 'query')) need(e, r.query.length <= 200, 'query is at most 200 characters'); paging(e, r); },
     cover: (e, r) => { nestr(e, r, 'coverId'); },
     play: (e, r) => {
@@ -89,6 +92,18 @@ function validateRequest(r) {
 function status(errs, s) {
     if (!need(errs, isObj(s), 'state must be an object')) return;
     oneOf(errs, s, 'login', LOGIN_STATES); bool(errs, s, 'online');
+    // the pending login's details: there exactly while login is login-pending
+    if (need(errs, s.loginPending !== undefined, 'loginPending is required (null when no login is pending)')) {
+        if (s.login === 'login-pending') {
+            if (need(errs, isObj(s.loginPending), 'loginPending must be {url, userCode, expiresAt} while login-pending')) {
+                const lp = s.loginPending;
+                if (str(errs, lp, 'url')) need(errs, /^https:\/\//.test(lp.url), 'loginPending.url must start with https://');
+                nestr(errs, lp, 'userCode'); int(errs, lp, 'expiresAt', 0);
+            }
+        } else need(errs, s.loginPending === null, 'loginPending must be null unless login-pending');
+    }
+    if (need(errs, s.loginError !== undefined, 'loginError is required (null when none)')) nullable(errs, s, 'loginError', () => oneOf(errs, s, 'loginError', LOGIN_ERRORS));
+    if (s.children !== undefined) need(errs, isObj(s.children), 'children must be an object');
     if (need(errs, isObj(s.player), 'state.player must be an object')) {
         const p = s.player;
         oneOf(errs, p, 'state', PLAYER_STATES);
@@ -97,6 +112,9 @@ function status(errs, s) {
         int(errs, p, 'queueIndex', -1); int(errs, p, 'queueLength', 0);
         nullable(errs, p, 'quality', () => oneOf(errs, p, 'quality', QUALITIES));
         nullable(errs, p, 'error', () => oneOf(errs, p, 'error', ERROR_CODES.concat(PLAYER_ERROR_CODES)));
+        if (need(errs, Array.isArray(p.skipped), 'player.skipped must be a list ([] when none)')) {
+            p.skipped.forEach((k, i) => need(errs, isObj(k) && isInt(k.id) && k.id > 0 && ERROR_CODES.indexOf(k.error) >= 0, 'player.skipped[' + i + '] must be {id, error}'));
+        }
     }
     if (need(errs, isObj(s.prefs), 'state.prefs must be an object')) oneOf(errs, s.prefs, 'quality', QUALITIES);
     nestr(errs, s, 'version');
@@ -189,6 +207,7 @@ function sampleParams(cmd) {
 module.exports = {
     COMMANDS: COMMANDS, ERROR_CODES: ERROR_CODES, PLAYER_EVENTS: PLAYER_EVENTS, PLAYER_ERROR_CODES: PLAYER_ERROR_CODES,
     STATE_FILES: STATE_FILES, PLAYER_STATES: PLAYER_STATES, QUALITIES: QUALITIES, MAX_LIMIT: MAX_LIMIT,
+    LOGIN_ERRORS: LOGIN_ERRORS, DEFAULT_QUALITY: DEFAULT_QUALITY,
     validateRequest: validateRequest, validateAnswer: validateAnswer, validatePlayerEvent: validatePlayerEvent,
     validateState: validateState, parsePlayerLine: parsePlayerLine, sampleParams: sampleParams,
 };

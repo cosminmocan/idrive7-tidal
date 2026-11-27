@@ -88,6 +88,49 @@ test('answers: error answers carry a known code, ok answers carry their fields',
     assert.deepStrictEqual(P.validateAnswer('search', { id: 3, ok: false, error: 'rate-limited', retryAfter: 30 }), []);
 });
 
+// contract 2 (2026-11-27): what the streams needed, now required
+const fakeService = require('./fakes/fake_service');
+function statusWith(change) {
+    const s = JSON.parse(JSON.stringify(fakeService.defaultState()));
+    change(s);
+    return { id: 1, ok: true, state: s };
+}
+
+test('status: a pending login carries its link, code and end, so the app can show it again after a restart', () => {
+    assert.deepStrictEqual(P.validateAnswer('status', statusWith((s) => { s.login = 'login-pending'; s.loginPending = { url: 'https://link.tidal.com/ABCDE', userCode: 'ABCDE', expiresAt: 1795000000000 }; })), []);
+    assert.ok(P.validateAnswer('status', statusWith((s) => { s.login = 'login-pending'; s.loginPending = null; })).length > 0, 'pending without its details');
+    assert.ok(P.validateAnswer('status', statusWith((s) => { s.login = 'logged-in'; s.loginPending = { url: 'https://x', userCode: 'A', expiresAt: 1 }; })).length > 0, 'details while not pending');
+    assert.ok(P.validateAnswer('status', statusWith((s) => { delete s.loginPending; })).length > 0, 'loginPending is required (null when none)');
+});
+
+test('status: loginError says why the last login ended without one: login-expired or login-denied', () => {
+    ['login-expired', 'login-denied', null].forEach((e) => assert.deepStrictEqual(P.validateAnswer('status', statusWith((s) => { s.loginError = e; })), [], String(e)));
+    assert.ok(P.validateAnswer('status', statusWith((s) => { s.loginError = 'offline'; })).length > 0);
+    assert.ok(P.validateAnswer('status', statusWith((s) => { delete s.loginError; })).length > 0, 'loginError is required (null when none)');
+});
+
+test('status: player.skipped lists the tracks passed over, with the reason', () => {
+    assert.deepStrictEqual(P.validateAnswer('status', statusWith((s) => { s.player.skipped = [{ id: 5, error: 'not-available' }]; })), []);
+    assert.ok(P.validateAnswer('status', statusWith((s) => { s.player.skipped = [{ id: 5 }]; })).length > 0, 'reason missing');
+    assert.ok(P.validateAnswer('status', statusWith((s) => { delete s.player.skipped; })).length > 0, 'skipped is required ([] when none)');
+});
+
+test('status: children is optional; when there it is an object', () => {
+    assert.deepStrictEqual(P.validateAnswer('status', statusWith((s) => { s.children = { client: { running: true }, player: { running: false } }; })), []);
+    assert.ok(P.validateAnswer('status', statusWith((s) => { s.children = 'fine'; })).length > 0);
+});
+
+test('album, mix and mixes are paged like the other lists', () => {
+    assert.deepStrictEqual(P.validateRequest({ id: 1, cmd: 'album', albumId: 3, offset: 50, limit: 50 }), []);
+    assert.deepStrictEqual(P.validateRequest({ id: 1, cmd: 'mix', mixId: 'abc', offset: 0, limit: 100 }), []);
+    assert.deepStrictEqual(P.validateRequest({ id: 1, cmd: 'mixes', offset: 0, limit: 20 }), []);
+    assert.ok(P.validateRequest({ id: 1, cmd: 'mix', mixId: 'abc', limit: 500 }).length > 0, 'limit too large');
+});
+
+test('the default quality is HIGH (version 1: the QR login gets AAC 320 at most)', () => {
+    assert.strictEqual(fakeService.defaultState().prefs.quality, 'HIGH');
+});
+
 test('player events: unknown events and bad fields are refused', () => {
     assert.ok(P.validatePlayerEvent({ ev: 'boom' }).length > 0);
     assert.ok(P.validatePlayerEvent({ ev: 'tick', pos: -1, state: 'playing', buffered: 0, dropped: 0 }).length > 0, 'negative position');

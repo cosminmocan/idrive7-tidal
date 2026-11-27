@@ -25,8 +25,8 @@ const COVER = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA==';
 
 function defaultState() {
     return {
-        login: 'logged-out', online: true, version: '0.0.0-fake', prefs: { quality: 'LOSSLESS' },
-        player: { state: 'idle', track: null, position: 0, duration: null, queueIndex: -1, queueLength: 0, quality: null, error: null },
+        login: 'logged-out', online: true, version: '0.0.0-fake', prefs: { quality: 'HIGH' }, loginPending: null, loginError: null,
+        player: { state: 'idle', track: null, position: 0, duration: null, queueIndex: -1, queueLength: 0, quality: null, error: null, skipped: [] },
     };
 }
 
@@ -35,9 +35,12 @@ function cannedAnswer(svc, r) {
     const items = (list) => ok({ total: list.length, items: list });
     switch (r.cmd) {
         case 'status': return ok({ state: svc.state });
-        case 'login-start': svc.state.login = 'login-pending'; return ok({ url: 'https://link.tidal.com/ABCDE', userCode: 'ABCDE', expiresIn: 300 });
-        case 'login-cancel': if (svc.state.login === 'login-pending') svc.state.login = 'logged-out'; return ok();
-        case 'logout': svc.state.login = 'logged-out'; return ok();
+        case 'login-start':
+            svc.state.login = 'login-pending'; svc.state.loginError = null;
+            svc.state.loginPending = { url: 'https://link.tidal.com/ABCDE', userCode: 'ABCDE', expiresAt: Date.now() + 300000 };
+            return ok({ url: svc.state.loginPending.url, userCode: 'ABCDE', expiresIn: 300 });
+        case 'login-cancel': if (svc.state.login === 'login-pending') { svc.state.login = 'logged-out'; svc.state.loginPending = null; } return ok();
+        case 'logout': svc.state.login = 'logged-out'; svc.state.loginPending = null; return ok();
         case 'favorites': return items(r.kind === 'albums' ? [ALBUM] : [TRACK]);
         case 'playlists': return items([PLAYLIST]);
         case 'mixes': return items([MIX]);

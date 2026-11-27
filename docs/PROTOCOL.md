@@ -27,7 +27,8 @@ A change to the contract changes this document, the validator and the test toget
 ### Requests
 
 `{"id": <integer ≥ 1>, "cmd": "<command>", ...parameters}`. Paged commands take `offset` (≥ 0, default 0) and
-`limit` (1 to 100, default 50).
+`limit` (1 to 100, default 50): `favorites`, `playlists`, `playlist`, `album`, `mixes`, `mix`, `search`. Their answers
+carry `total` when it is known.
 
 ### Answers
 
@@ -68,32 +69,54 @@ Text is as TIDAL sends it (UTF-8). Converting it for the car's fonts is the app'
 
 ```json answer status
 {"id": 1, "ok": true, "state": {
-  "login": "logged-in", "online": true, "version": "0.1.0",
-  "prefs": {"quality": "LOSSLESS"},
+  "login": "logged-in", "loginPending": null, "loginError": null, "online": true, "version": "0.1.0",
+  "prefs": {"quality": "HIGH"},
   "player": {
     "state": "playing",
     "track": {"id": 17927864, "title": "One More Time", "artists": ["Daft Punk"],
               "album": {"id": 17927863, "title": "Discovery"}, "coverId": "24f52ab0-e7d6-414d-a650-20a4c686aa57",
               "duration": 320, "streamReady": true, "explicit": false},
-    "position": 42.5, "duration": 320, "queueIndex": 0, "queueLength": 14, "quality": "LOSSLESS", "error": null}}}
+    "position": 42.5, "duration": 320, "queueIndex": 0, "queueLength": 14, "quality": "HIGH", "error": null,
+    "skipped": [{"id": 17927870, "error": "not-available"}]},
+  "children": {"client": {"running": true, "restarts": 0}, "player": {"running": true, "exits": 3}}}}
 ```
 
-`login` is `logged-out`, `login-pending` or `logged-in`. `player.state` is `idle`, `loading`, `playing`, `paused`,
-`buffering` or `error`; with `error`, `player.error` names it (a control-socket code, or a player code from
-section 2). `queueIndex` is -1 with an empty queue. `position` and `duration` are seconds; `duration` is null while
-not known.
+| Field | |
+|---|---|
+| `login` | `logged-out`, `login-pending` or `logged-in` |
+| `loginPending` | while `login-pending`: `{url, userCode, expiresAt}` (`expiresAt` in ms since 1970), so the app shows the same code again after it restarts; otherwise null |
+| `loginError` | why the last login ended without logging in: `login-expired` (the code ran out) or `login-denied` (refused on the phone); null once a login starts or succeeds |
+| `prefs.quality` | `HIGH` by default (version 1: TIDAL's QR login gets AAC 320 at most) |
+| `player.state` | `idle`, `loading`, `playing`, `paused`, `buffering` or `error`; with `error`, `player.error` names it: a control-socket code (section 1), or a player code (`input`, `decode`, `audio`, `internal`, section 2). The app has a message for each |
+| `player.track` | the track playing, or null; the service looks it up when it does not know it from a list (after a restart) |
+| `player.quality` | what TIDAL granted for this track, which can be lower than `prefs.quality` |
+| `player.skipped` | the tracks of this queue passed over, newest last, each `{id, error}` (`not-available`, ...); `[]` when none. The app tells the user and greys them out |
+| `queueIndex` | -1 with an empty queue |
+| `position`, `duration` | seconds; `duration` is null while not known |
+| `children` | optional, for the log and the Status page only: the service's child processes |
 
 ```json answer status
 {"id": 2, "ok": true, "state": {
-  "login": "logged-out", "online": false, "version": "0.1.0", "prefs": {"quality": "LOSSLESS"},
+  "login": "login-pending", "loginPending": {"url": "https://link.tidal.com/ABCDE", "userCode": "ABCDE", "expiresAt": 1795000300000},
+  "loginError": null, "online": true, "version": "0.1.0", "prefs": {"quality": "HIGH"},
   "player": {"state": "idle", "track": null, "position": 0, "duration": null, "queueIndex": -1, "queueLength": 0,
-             "quality": null, "error": null}}}
+             "quality": null, "error": null, "skipped": []}}}
+```
+
+```json answer status
+{"id": 3, "ok": true, "state": {
+  "login": "logged-out", "loginPending": null, "loginError": "login-denied", "online": false, "version": "0.1.0",
+  "prefs": {"quality": "HIGH"},
+  "player": {"state": "idle", "track": null, "position": 0, "duration": null, "queueIndex": -1, "queueLength": 0,
+             "quality": null, "error": null, "skipped": []}}}
 ```
 
 #### `login-start`
 
 Starts TIDAL's device login. The app shows `url` as a QR code, with `userCode` beside it. The service polls TIDAL;
-`status.login` becomes `logged-in`, or goes back to `logged-out` when the code expires (`expiresIn` seconds).
+`status.login` becomes `logged-in`, or goes back to `logged-out` with `status.loginError` when the code expires
+(`expiresIn` seconds) or the login is refused. While it is pending, `status.loginPending` carries the same `url` and
+`userCode`. A `login-start` while one is pending answers that pending one.
 
 ```json request
 {"id": 3, "cmd": "login-start"}
@@ -105,7 +128,8 @@ Starts TIDAL's device login. The app shows `url` as a QR code, with `userCode` b
 
 #### `login-cancel`, `logout`
 
-`login-cancel` stops a pending login. `logout` deletes the session and the cover cache.
+`login-cancel` stops a pending login (the service stops polling and tells the TIDAL module). `logout` deletes the
+session and the cover cache.
 
 ```json request
 {"id": 4, "cmd": "login-cancel"}
@@ -173,7 +197,7 @@ answer is `offline`:
 #### `album`
 
 ```json request
-{"id": 11, "cmd": "album", "albumId": 17927863}
+{"id": 11, "cmd": "album", "albumId": 17927863, "offset": 0, "limit": 50}
 ```
 
 ```json answer album
@@ -185,19 +209,19 @@ answer is `offline`:
 #### `mixes`, `mix`
 
 ```json request
-{"id": 12, "cmd": "mixes"}
+{"id": 12, "cmd": "mixes", "offset": 0, "limit": 50}
 ```
 
 ```json answer mixes
-{"id": 12, "ok": true, "items": [{"id": "0123456789abcdef0123456789abcd", "title": "My Mix 1", "subTitle": "Daft Punk, Justice", "coverId": null}]}
+{"id": 12, "ok": true, "total": 1, "items": [{"id": "0123456789abcdef0123456789abcd", "title": "My Mix 1", "subTitle": "Daft Punk, Justice", "coverId": null}]}
 ```
 
 ```json request
-{"id": 13, "cmd": "mix", "mixId": "0123456789abcdef0123456789abcd"}
+{"id": 13, "cmd": "mix", "mixId": "0123456789abcdef0123456789abcd", "offset": 0, "limit": 50}
 ```
 
 ```json answer mix
-{"id": 13, "ok": true, "items": [
+{"id": 13, "ok": true, "total": 1, "items": [
   {"id": 17927864, "title": "One More Time", "artists": ["Daft Punk"], "album": null,
    "coverId": null, "duration": 320, "streamReady": true, "explicit": false}]}
 ```
@@ -290,7 +314,8 @@ queue. All answer at once; the effect shows in `status`.
 
 #### `prefs`
 
-Without `quality` it only reads. `quality` is `LOSSLESS` or `HIGH`; a new quality applies from the next track.
+Without `quality` it only reads. `quality` is `HIGH` (the default) or `LOSSLESS`; a new quality applies from the next
+track. With TIDAL's QR login, `LOSSLESS` is granted as `HIGH` (`docs/live-check-results.md`).
 
 ```json request
 {"id": 23, "cmd": "prefs", "quality": "HIGH"}
@@ -323,7 +348,7 @@ bmw-test-apps; gapless playback is not a goal of version 1).
 |---|---|
 | Started by | `service.js` as **root**; the player drops to `MGU_RUN_AS` with the groups `MGU_GROUPS` itself, before it reads a byte (Node cannot give a child extra groups). The car's sound plugin refuses root and the tools' internet uids (Emby in the car: `snd_pcm_open` "Operation not permitted" as uid 13101) |
 | stdin | the track's bytes as TIDAL serves them (FLAC, or AAC in MP4), from the first byte, read once, never seeked. End of input = the file is complete |
-| fd 3 | commands, one a line: `pause`, `resume`, `volume <0..1>`, `quit`. Unknown lines are ignored |
+| fd 3 | commands, one a line: `pause`, `resume`, `volume <0..1>`, `quit`. Unknown lines are ignored. **fd 3 closing means `quit`**: so a player never outlives a service that died. The service keeps fd 3 open for the player's whole life |
 | stdout | events, one a line: `MGU ` and a JSON object. Any other line is a log line |
 | stderr | log lines |
 | Output | always **48 000 Hz, stereo, 16-bit**: the player resamples itself, and does not rely on ALSA's `plug:` |
@@ -333,7 +358,7 @@ bmw-test-apps; gapless playback is not a goal of version 1).
 | Variable | Default | |
 |---|---|---|
 | `MGU_AUDIO` | `alsa:plug:smartx:CarLifeMedia_CF_48_STEREO` | `alsa:<device>`, `null` (decode, discard), or `wav:<path>` (tests) |
-| `MGU_RUN_AS` | none | user to become; started as root without it, the player refuses to run (exit 3) |
+| `MGU_RUN_AS` | none | user to become; started as root without it, the player refuses to run (exit 3). Started as another user, it is ignored (and logged) |
 | `MGU_GROUPS` | `mgu_alsa,audio` | extra groups to take; a group the unit does not have is skipped and logged |
 | `MGU_PREBUFFER_MS` | `1500` | sound queued before playing starts, and again after the input ran dry |
 | `MGU_ALSA_US` | `64000` | ALSA buffer in µs |
@@ -348,7 +373,8 @@ not say.
 ```
 
 `audio` when the sound device's state changes. `busy`: another player holds it; the player tries again every
-second and keeps decoding into its queue meanwhile.
+second and keeps decoding into its queue meanwhile. After **30 s** without the device it gives up: `error` with code
+`audio`, exit 6.
 
 ```json player-event
 {"ev": "audio", "state": "open", "device": "plug:smartx:CarLifeMedia_CF_48_STEREO"}
@@ -359,7 +385,9 @@ second and keeps decoding into its queue meanwhile.
 ```
 
 `tick` every 500 ms: `pos` (seconds played), `state` (`playing`, `paused`, `buffering`), `buffered` (seconds
-queued), `dropped` (sound frames lost, total).
+queued), `dropped` (sound frames lost, total). Before playing starts (the prebuffer) and while the device is not
+open, the state is `buffering`. Sound the device does not take within 250 ms is dropped and counted in `dropped`;
+the clock goes on.
 
 ```json player-event
 {"ev": "tick", "pos": 42.5, "state": "playing", "buffered": 3.2, "dropped": 0}
@@ -383,8 +411,8 @@ or broken), `audio` (the device cannot be opened, after retrying), `internal`.
 | Code | |
 |---|---|
 | 0 | played to the end, or `quit` / SIGTERM (within 2.5 s, sound device closed first) |
-| 2 | bad environment |
-| 3 | refused: running as root |
+| 2 | bad environment (after an `error` with code `internal`) |
+| 3 | refused: running as root (after an `error` with code `internal`) |
 | 4 | input error |
 | 5 | decode error |
 | 6 | audio error |
@@ -408,7 +436,7 @@ rename) and has `"version": 1`; a file that does not parse or has another versio
 ### `prefs.json`
 
 ```json state prefs
-{"version": 1, "quality": "LOSSLESS"}
+{"version": 1, "quality": "HIGH"}
 ```
 
 ### `queue.json`

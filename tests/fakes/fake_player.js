@@ -38,6 +38,8 @@ try {
         }
     });
     ctl.on('error', () => {});
+    // fd 3 closing means quit (docs/PROTOCOL.md section 2), as the real player
+    ctl.on('end', () => finish(EXIT.ok));
 } catch (e) { /* no fd 3: no commands */ }
 process.on('SIGTERM', () => finish(EXIT.ok));
 
