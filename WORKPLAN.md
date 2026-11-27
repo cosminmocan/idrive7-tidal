@@ -42,7 +42,11 @@ has not seen the earlier discussion can pick up any task.
    - `service_playback` "a download broken for longer than the outage time ends in offline" timed out once under
      x86 emulation (passed alone 3 of 3, and in every full run since): watch it;
    - the 40 screen pictures wait for the owner's approval (D8), with 3 new and 8 changed in contract 2.
-4. Then phase I: I1 end to end, I2 packages, I3 long run.
+4. **Phase I:** I1 done (2026-11-27): `make e2e`, 9 scenarios with the real service, TIDAL client, player and the
+   app's client and state machine against the fake TIDAL, WAVs equal to the reference sample for sample; 11/11
+   three runs in a row (~160 s each). It found one bug: `netx.js` took Node 8's `aborted` after a whole answer as a
+   break (fixed test-first). Scenarios 6 and 8 use the injected clock. I2 done: `make dist`, the catalog layout,
+   **published** as release 0.1.0 (`make release`, automatic patch bump). **Next: I3**, the 2-hour run.
 
 ### Decision 2026-11-27: AAC 320 for version 1, lossless later
 
