@@ -1,5 +1,5 @@
 # cmocan-tidal. Everything runs in Docker; see WORKPLAN.md section 3.
-.PHONY: test test-node8 test-node-current e2e player test-player hooks test-hooks
+.PHONY: test test-node8 test-node-current e2e player test-player hooks test-hooks dist usb
 
 test: test-node8 test-node-current
 
@@ -52,6 +52,17 @@ player:
 test-player:
 	@$(MAKE) -s -C native/tidal-player target asan
 	@sh native/tidal-player/tools/test-player.sh
+
+# the install packages (task I2, docs/INSTALL.md): dist/idrive7-tidal/ (catalog.json, the tool kit, the app, its
+# icon), checked (check-target on the player inside, kingfisher, mgu-store's usb-repo, tests/dist.test.js); mgu-store
+# is cloned into build/mgu-store at a fixed commit (MGU_STORE=<a checkout> to use another, tools/dist.sh)
+dist: player
+	@sh tools/dist.sh
+
+# dist/idrive7-tidal onto a USB stick for the car's Store: make usb STICK=/Volumes/<name>; or the published release:
+# make usb STICK=/Volumes/<name> FROM=github:<owner>/<repo> (asks for the read-only token)
+usb:
+	@sh tools/dist.sh usb "$(STICK)" "$(FROM)"
 
 # the kingfisher secret scan on every commit and push (docs/SECRETS.md); run once after cloning
 hooks:

@@ -73,8 +73,10 @@ const SECRET_PATTERNS = [
     ['a MAC address', /\b[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}\b/],
     ['a TIDAL user or session id field with a value', /["'](userId|user_id|sessionId|session_id)["']\s*:\s*(["'][^"']{2,}["']|\d{3,})/],
 ];
-// third-party texts shipped as they are, read for every pattern but the e-mail one (their authors' addresses)
+// third-party texts shipped as they are, read for every pattern but the e-mail and MAC ones (their authors'
+// addresses; cacert.pem's certificate fingerprints are written as aa:bb:cc:...)
 const THIRD_PARTY_TEXT = ['files/FFMPEG-LICENSE', 'files/cacert.pem'];
+const OWN_FILES_ONLY = ['an e-mail address (an account name)', 'a MAC address'];
 
 function isText(buf) {
     return buf.indexOf(0) < 0;
@@ -109,7 +111,7 @@ function checkNoSecrets(label, members) {
         if (m.type !== 'file' || !isText(m.data)) return;
         const text = m.data.toString('utf8');
         SECRET_PATTERNS.forEach((p) => {
-            if (p[0].indexOf('e-mail') === 0 && THIRD_PARTY_TEXT.indexOf(m.name) >= 0) return;
+            if (OWN_FILES_ONLY.indexOf(p[0]) >= 0 && THIRD_PARTY_TEXT.indexOf(m.name) >= 0) return;
             const hit = p[1].exec(text);
             assert.ok(!hit, label + ': ' + m.name + ' holds ' + p[0] + (hit ? ' near offset ' + hit.index : ''));
         });
