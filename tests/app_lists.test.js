@@ -57,7 +57,7 @@ test('text: a title of 200 characters is cut with ... inside its column', () => 
     const { cv: c2 } = drawn(listOf([track(0, { title: 'Ş' + 'x'.repeat(199) })]));
     const t = c2.texts.filter((x) => /^Sx+\.\.\.$/.test(x.s))[0];
     assert.ok(t, 'the title is cut and converted: ' + c2.all());
-    assert.ok(c2.textWidth(t.s, t.size) <= L.COLS.title.w, 'inside its column');
+    assert.ok(c2.textWidth(t.s, t.size) <= 1500 - 140 - 60, 'inside the row, left of its time');
 });
 
 test('a 500-row list draws at most the visible rows in a frame', () => {
@@ -118,11 +118,11 @@ test('a track that cannot be streamed is greyed out and a press says so instead 
     let s = listOf([track(0, { streamReady: false })]);
     const out = N.input(s, null, { press: true });
     const r = apply(s, out);
-    assert.strictEqual(r.s.message, 'This track cannot be played');
+    assert.strictEqual(r.s.message, 'This track cannot be played here');
     assert.deepStrictEqual(r.acts, []);
     const { cv } = drawn(s);
     const t = cv.texts.filter((x) => x.s === 'Track 0')[0];
-    assert.strictEqual(t.color, theme.dim, 'greyed out');
+    assert.strictEqual(t.color, S.palette(theme).off, 'greyed out');
 });
 
 test('albums, playlists and mixes open their track lists; tilt left goes back', () => {

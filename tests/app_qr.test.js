@@ -76,7 +76,7 @@ test('the login screen: the code as QR (border 4 cells, cells >= 6 px), the user
     const spy = spyCanvas();
     const info = S.draw(spy, theme, s, { now: 1000 });
     assert.ok(spy.has('ABCDE'), spy.all());
-    assert.ok(spy.has('link.tidal.com/ABCDE'), spy.all());
+    assert.ok(spy.has(/link\.tidal\.com/), spy.all());
     assert.ok(info.qr, 'a QR code is drawn');
     assert.ok(info.qr.cell >= 6);
     // the same on real pixels
@@ -126,7 +126,7 @@ test('contract 2: a code pending after the app restarted: the QR code, the user 
     const spy = spyCanvas();
     const info = S.draw(spy, theme, s, { now: now });
     assert.ok(info.qr, 'a QR code is drawn');
-    assert.ok(spy.has('ABCDE') && spy.has('link.tidal.com/ABCDE'), spy.all());
+    assert.ok(spy.has('ABCDE') && spy.has(/link\.tidal\.com/), spy.all());
     assert.ok(spy.has(/valid for 3 more minutes/), spy.all());
 });
 

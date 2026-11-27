@@ -330,8 +330,7 @@ test('now playing: the progress bar is a place for a finger, wider than it is dr
     assert.ok(b, 'a bar');
     assert.ok(b.h >= 48, 'tall enough for a finger: ' + b.h);
     assert.ok(b.bar.w > 600 && b.bar.x >= b.x && b.bar.dur === 320, JSON.stringify(b));
-    assert.strictEqual(info.hits.filter((h) => h.button).length, 3, 'the bar is not one of the buttons');
-    info.hits.filter((h) => h.button).forEach((h) => assert.ok(h.y >= b.y + b.h || h.y + h.h <= b.y, 'no button under the bar\'s place'));
+    assert.strictEqual(info.hits.filter((h) => h.button).length, 0, 'U1: no buttons on the page (the bar has them)');
     assert.strictEqual(barOf(drawn(playing('idle', { track: null })).info), undefined);
     assert.strictEqual(barOf(drawn(playing('loading', { duration: null, track: Object.assign({}, TRACK, { duration: null }) })).info), undefined, 'no duration: nowhere to point at');
     assert.strictEqual(barOf(drawn(playing('error', { error: 'decode' })).info), undefined, 'not on an error');
@@ -340,9 +339,10 @@ test('now playing: the progress bar is a place for a finger, wider than it is dr
 test('now playing: while seeking the bar and the time show the target; state loading shows as before', () => {
     const a = drawn(playing(), { position: 200, duration: 320, seeking: true });
     assert.ok(a.cv.has('3:20'), a.cv.all());
-    assert.strictEqual(a.cv.texts.filter((t) => t.s === '3:20')[0].color, S.ACCENT, 'the target\'s time stands out');
+    const target = a.cv.texts.filter((t) => t.s === '3:20')[0];
+    assert.deepStrictEqual([target.color, target.opts.font], [theme.text, 'bold'], 'the target\'s time stands out');
     const b = drawn(playing(), { position: 200, duration: 320 });
-    assert.notStrictEqual(b.cv.texts.filter((t) => t.s === '3:20')[0].color, S.ACCENT);
+    assert.strictEqual(b.cv.texts.filter((t) => t.s === '3:20')[0].color, theme.dim);
     const l = drawn(playing('loading', { position: 200 }), { position: 200, duration: 320 });
     assert.ok(l.cv.has('Loading...') && l.cv.has('3:20'), l.cv.all());
 });

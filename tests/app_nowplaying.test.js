@@ -36,39 +36,30 @@ function playing(state, extra) {
 function drawn(s, ui) { const cv = spyCanvas(); const info = S.draw(cv, theme, s, Object.assign({ now: 0 }, ui || {})); return { cv: cv, info: info }; }
 const btn = (info, cmd) => info.hits.filter((h) => h.button && h.act && h.act.cmd === cmd)[0];
 
-test('now playing shows the cover place, the title and artists (converted), the times and three controls', () => {
+test('now playing shows the cover place, the title and artists (converted), the times; no controls of its own (U1: the bar has them)', () => {
     const { cv, info } = drawn(playing(), { position: 42.5, duration: 320 });
     assert.ok(cv.has('Stirile de azi'), cv.all());
     assert.ok(cv.has('Ana Blandiana, Grigore'), cv.all());
     assert.ok(cv.has('Discovery'), 'the album');
     assert.ok(cv.has('0:42') && cv.has('5:20'), cv.all());
-    assert.strictEqual(info.hits.filter((h) => h.button).length, 3);
-    assert.ok(btn(info, 'prev') && btn(info, 'pause') && btn(info, 'next'));
+    assert.strictEqual(info.hits.filter((h) => h.button).length, 0);
+    assert.ok(!btn(info, 'prev') && !btn(info, 'pause') && !btn(info, 'next'));
 });
 
-test('each control sends the right command (knob along them, press, tap); play / pause follows the state', () => {
+test('each control sends the right command (U1: the bar\'s PREVIOUS, PLAY / PAUSE, NEXT, the knob along them); play / pause follows the state', () => {
     const s = playing();
-    const { info } = drawn(s);
-    assert.deepStrictEqual(N.input(s, info, { press: true }), [{ type: 'control', cmd: 'pause' }], 'a press with nothing focused: play / pause');
-    const p = btn(info, 'prev'), n = btn(info, 'next');
-    assert.deepStrictEqual(N.input(s, info, { tap: { x: p.x + 2, y: p.y + 2 } }), [{ type: 'control', cmd: 'prev' }]);
-    assert.deepStrictEqual(N.input(s, info, { tap: { x: n.x + 2, y: n.y + 2 } }), [{ type: 'control', cmd: 'next' }]);
-    assert.deepStrictEqual(N.input(s, info, { knob: 1 }), [{ type: 'focus', index: 2 }], 'the knob starts at play / pause');
-    const f2 = drawn(s, { focus: 2 }).info;
-    assert.deepStrictEqual(N.input(s, f2, { press: true }), [{ type: 'control', cmd: 'next' }]);
-    const f0 = drawn(s, { focus: 0 }).info;
-    assert.deepStrictEqual(N.input(s, f0, { press: true }), [{ type: 'control', cmd: 'prev' }]);
-    const ps = playing('paused');
-    assert.deepStrictEqual(N.input(ps, drawn(ps).info, { press: true }), [{ type: 'control', cmd: 'resume' }]);
+    assert.deepStrictEqual(N.input(s, null, { press: true }), [{ type: 'bar', id: 'BTN_PLAY' }], 'the controller starts on play / pause');
+    assert.deepStrictEqual(N.input(s, null, { knob: 1 }), [{ type: 'focus', area: 'bar', bar: 2 }]);
+    const next = M.reduce(s, { type: 'focus', area: 'bar', bar: 2 }), prev = M.reduce(s, { type: 'focus', area: 'bar', bar: 0 });
+    assert.deepStrictEqual(N.input(next, null, { press: true }), [{ type: 'bar', id: 'BTN_NEXT' }]);
+    assert.deepStrictEqual(N.input(prev, null, { press: true }), [{ type: 'bar', id: 'BTN_PREVIOUS' }]);
     ['playing', 'buffering', 'loading'].forEach((st) => assert.strictEqual(NP.playPause(playing(st).player), 'pause', st));
     ['paused', 'error'].forEach((st) => assert.strictEqual(NP.playPause(playing(st).player), 'resume', st));
     assert.strictEqual(NP.playPause(null), null, 'nothing to play');
     ['pause', 'resume', 'next', 'prev'].forEach((c) => assert.ok(P.COMMANDS.indexOf(c) >= 0, c));
-    assert.deepStrictEqual(N.input(s, info, { tilt: 'W' }), [{ type: 'back' }]);
-    // phase 2 (S2): the progress bar is above the buttons, pushed up goes onto it (tests/app_seek.test.js)
-    assert.deepStrictEqual(N.input(s, info, { tilt: 'N' }), [{ type: 'focus', index: 'bar' }]);
-    assert.deepStrictEqual(N.input(s, info, { tilt: 'E' }), [{ type: 'focus', index: 2 }], 'right and down still go along the buttons');
-    assert.strictEqual(info.hits.filter((h) => h.button).length, 3, 'the bar is not a button: the knob does not stop on it');
+    assert.deepStrictEqual(N.input(s, null, { tilt: 'W' }), [{ type: 'back' }]);
+    // phase 2 (S2): the progress line is above, pushed up goes onto it (tests/app_seek.test.js)
+    assert.deepStrictEqual(N.input(s, null, { tilt: 'N' }), [{ type: 'focus', area: 'progress' }]);
 });
 
 test('progress follows status and moves on between answers while playing, not while paused', () => {
@@ -127,7 +118,7 @@ test('contract 2: a skipped track: the notice shows on now playing (for a few se
     s = M.reduce(s, { type: 'list-loaded', key: 'k', offset: 0, total: 2, items: [TRACK, other] });
     const st = Object.assign(defaultState(), { login: 'logged-in' });
     st.player = Object.assign({}, st.player, { state: 'playing', track: TRACK, position: 1, duration: 320, queueIndex: 0, queueLength: 2, quality: 'HIGH' });
-    s = M.reduce(M.reduce(s, { type: 'status', state: st }), { type: 'played' });
+    s = M.reduce(M.reduce(s, { type: 'status', state: st }), { type: 'open-now-playing' });
     const st2 = JSON.parse(JSON.stringify(st));
     st2.player.skipped = [{ id: 555, error: 'not-available' }];
     s = M.reduce(s, { type: 'status', state: st2 });
@@ -135,7 +126,7 @@ test('contract 2: a skipped track: the notice shows on now playing (for a few se
     assert.ok(on.has('Skipped: Gone track (not available)'), on.all());
     assert.ok(!drawn(s, { now: 6000, toastUntil: 5000 }).cv.has(/Skipped/), 'gone after its time');
     const list = drawn(M.reduce(s, { type: 'back' }), { now: 6000, toastUntil: 5000 }).cv;
-    assert.strictEqual(list.texts.filter((x) => x.s === 'Gone track')[0].color, theme.dim, 'greyed out');
+    assert.strictEqual(list.texts.filter((x) => x.s === 'Gone track')[0].color, S.palette(theme).off, 'greyed out');
     assert.strictEqual(list.texts.filter((x) => x.s === TRACK.title)[0].color, theme.text);
 });
 
