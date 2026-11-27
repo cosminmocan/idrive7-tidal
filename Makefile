@@ -1,5 +1,5 @@
 # cmocan-tidal. Everything runs in Docker; see WORKPLAN.md section 3.
-.PHONY: test test-node8 test-node-current e2e player test-player hooks test-hooks release soak dist usb
+.PHONY: test test-node8 test-node-current test-render e2e player test-player hooks test-hooks release soak dist usb
 
 test: test-node8 test-node-current
 
@@ -8,6 +8,12 @@ test-node8:
 
 test-node-current:
 	@sh tools/run-tests.sh current
+
+# the app's pictures drawn by the real renderer: mgu-render built from mgu-store at a fixed commit (cloned into
+# build/, its own test image with Mesa's llvmpipe), replaying the byte stream the app sends (tests/render_*.test.js,
+# tools/test-render.sh). Not part of `make test` (there those tests skip)
+test-render:
+	@sh tools/test-render.sh
 
 # the end-to-end test (task I1, tests/e2e.test.js): the fake TIDAL, the real service with its client.js child, the
 # real player writing WAVs, the app's client and model; in the player's test image (ubuntu:18.04 amd64, Node 8.10),
