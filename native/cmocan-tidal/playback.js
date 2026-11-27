@@ -128,6 +128,8 @@ function createPlayback(opts) {
         else if (ev.ev === 'tick') {
             if (typeof ev.pos === 'number' && ev.pos >= 0) c.position = ev.pos;
             if (c.paused) c.state = 'paused';
+            // a player started by a seek says buffering while it throws away the sound before the position: still loading
+            else if (ev.state === 'buffering' && c.startMs && !c.said) c.state = 'loading';
             else if (ev.state === 'buffering' || ev.state === 'playing') c.state = ev.state;
             // once for each player, when its sound starts: what plays, and how
             if (ev.state === 'playing' && !c.said) {
