@@ -169,6 +169,9 @@ test('app.json: for iDrive 7, requires the tool (at most its version) and a rend
     assert.ok(s.requires && SEMVER.test(s.requires['cmocan-tidal'] || ''), 'requires cmocan-tidal');
     assert.ok(cmpVersions(c.version, s.requires['cmocan-tidal']) >= 0, 'the tool\'s version meets the app\'s requirement');
     assert.ok(SEMVER.test(s.requires['mgu-render'] || ''), 'requires a renderer (mgu-render; any installed renderer counts)');
+    // the deploy tool generates oap-sdk from the car's donor at install (the app ships none): it must be new enough
+    assert.ok(SEMVER.test(s.requires['mgu-deploy'] || ''), 'requires mgu-deploy (it generates oap-sdk on install)');
+    assert.ok(cmpVersions(s.requires['mgu-deploy'], '0.7.0') >= 0, 'mgu-deploy 0.7.0 or newer, as the tool');
 });
 
 test('the app needs no internet of its own: no internet in app.json, no http/https/tls/dgram in its code (only the service\'s socket)', () => {
