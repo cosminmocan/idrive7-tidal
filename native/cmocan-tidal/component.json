@@ -38,7 +38,7 @@
     { "path": "lib/tidal/session.js", "from": "lib/tidal/session.js", "mode": "0644" },
     { "path": "lib/tidal/stream.js", "from": "lib/tidal/stream.js", "mode": "0644" },
     { "path": "cacert.pem", "from": "cacert.pem", "mode": "0644" },
-    { "path": "tidal-player", "from": "../tidal-player/build/tidal-player", "mode": "0755" },
+    { "path": "tidal-player", "from": "../tidal-player/build/out/tidal-player", "mode": "0755" },
     { "path": "FFMPEG-LICENSE", "from": "../tidal-player/build/FFMPEG-LICENSE", "mode": "0644" },
     { "path": "README.md", "from": "README.md", "mode": "0644" }
   ],
