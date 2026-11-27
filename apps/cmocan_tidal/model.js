@@ -49,7 +49,7 @@ const ERRORS = {
     'not-logged-in': { screen: 'LOGIN', message: 'Please log in' },
     'login-expired': { screen: 'LOGIN', message: 'Please log in again' },
     'not-found': { screen: 'ERROR', message: 'Not found' },
-    'not-available': { screen: null, message: 'This track cannot be played' },
+    'not-available': { screen: null, message: 'This track cannot be played here' },
     'rate-limited': { screen: 'ERROR', message: 'Busy, try again shortly' },
     'tidal-error': { screen: 'ERROR', message: 'TIDAL error' },
     'bad-request': { screen: null, message: '' },
@@ -399,15 +399,22 @@ function step(s, ev) {
             return assign(s, { search: assign(s.search, { keyboard: false }) });
         }
         case 'key': {
-            if (!s.search.keyboard || s.moving || typeof ev.key !== 'string') return s;
-            const q = s.search.query;
-            if (ev.key === 'SEARCH') return submitSearch(s);
+            if (s.moving || typeof ev.key !== 'string') return s;
+            let b = s;
+            if (!s.search.keyboard) {
+                // a letter tapped while the controller is on the results: typing again
+                const f = top(s);
+                if (s.screen !== 'LIST' || !f || f.kind !== 'search') return s;
+                b = assign(s, { search: assign(s.search, { keyboard: true }) });
+            }
+            const q = b.search.query;
+            if (ev.key === 'SEARCH') return submitSearch(b);
             if (ev.key === 'DIGITS') {
-                const d = !s.search.digits;
-                return assign(s, { search: assign(s.search, { digits: d, key: speller(d).indexOf(d ? 'ABC' : '123') }) });
+                const d = !b.search.digits;
+                return assign(b, { search: assign(b.search, { digits: d, key: speller(d).indexOf(d ? 'ABC' : '123') }) });
             }
             const next = ev.key === 'DEL' ? q.slice(0, -1) : ev.key === 'CLEAR' ? '' : (q + ev.key).slice(0, MAX_QUERY);
-            return next === q ? s : assign(s, { search: assign(s.search, { query: next }) });
+            return next === q ? b : assign(b, { search: assign(b.search, { query: next }) });
         }
         case 'search-submit': return submitSearch(s);
         case 'focus': return onFocus(s, ev);

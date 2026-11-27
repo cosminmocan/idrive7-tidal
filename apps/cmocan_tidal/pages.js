@@ -6,6 +6,8 @@
  *
  *   tabs(state)        { tabs: ['Library', 'Now playing'] (none before the login: the kit adds Settings), sel }
  *   tabCount(state)    the tabs the controller goes along: the app's and the kit's SETTINGS
+ *   area(state)        where the controller is: 'page', 'bar', 'tabs' or 'progress' (model.js area; a page with
+ *                      nothing on it: 'bar')
  *   bar(state)         the bar's words: ['Previous', 'Pause' | 'Play', 'Next'] (the word says what a press does)
  *   BAR                the bar's buttons (app.json ids), in that order
  *   message(state)     a message page: { icon, title, lines: [text], choices: [{ label, act }] }, or null for the screens
@@ -23,6 +25,13 @@ function tabs(s) {
     return { tabs: TABS.slice(), sel: s.screen === 'NOW_PLAYING' ? 1 : 0 };
 }
 function tabCount(s) { return tabs(s).tabs.length + 1; }
+
+/** where the controller is, as it acts and shows (model.js area; a page with nothing on it: the bar) */
+function area(s) {
+    const a = M.area(s);
+    if (a === 'page' && s.screen === 'NOW_PLAYING' && !message(s)) return 'bar';
+    return a;
+}
 
 function bar(s) { return ['Previous', NP.playPause(s.player) === 'pause' ? 'Pause' : 'Play', 'Next']; }
 
@@ -60,4 +69,4 @@ function message(s) {
     }
 }
 
-module.exports = { tabs: tabs, tabCount: tabCount, bar: bar, message: message, BAR: BAR };
+module.exports = { tabs: tabs, tabCount: tabCount, area: area, bar: bar, message: message, BAR: BAR };

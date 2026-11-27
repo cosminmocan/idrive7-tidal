@@ -42,12 +42,6 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const isList = (s) => s.screen === 'LIBRARY' || s.screen === 'LIST';
 const letters = (s) => s.screen === 'LIST' && s.search.keyboard && !s.moving && M.top(s) && M.top(s).kind === 'search';
 
-/** where the controller is, as it acts (a page with nothing on it: the bar) */
-function area(s) {
-    const a = M.area(s);
-    if (a === 'page' && s.screen === 'NOW_PLAYING' && !P.message(s)) return 'bar';
-    return a;
-}
 function tabOf(s) { return s.screen === 'NOW_PLAYING' ? 1 : 0; }
 const toTabs = (s) => [{ type: 'focus', area: 'tabs', tab: Math.min(tabOf(s), P.tabCount(s) - 1) }];
 const toBar = [{ type: 'focus', area: 'bar' }];
@@ -144,7 +138,7 @@ function input(s, info, ev) {
     const knob = typeof ev.knob === 'number' && isFinite(ev.knob) ? Math.round(ev.knob) : 0;
     const tilt = TILTS.indexOf(ev.tilt) >= 0 ? ev.tilt : null, press = ev.press === true;
     if (!knob && !tilt && !press) return [];
-    switch (area(s)) {
+    switch (P.area(s)) {
         case 'bar': return barPlace(s, knob, tilt, press);
         case 'tabs': return tabPlace(s, knob, tilt, press);
         case 'progress': return progressPlace(s, knob, tilt, press);
@@ -155,4 +149,4 @@ function input(s, info, ev) {
     }
 }
 
-module.exports = { input: input, hitAt: hitAt, area: area, speller: (s) => M.speller(s.search.digits), BAR: P.BAR };
+module.exports = { input: input, hitAt: hitAt, area: P.area, speller: (s) => M.speller(s.search.digits), BAR: P.BAR };
