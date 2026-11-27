@@ -84,6 +84,7 @@ and if it works copy that session to the car. The player keeps its FLAC decoder.
 | Video | parked only, after version 1 |
 | Licence | GPL-3.0-or-later (we build on GPL code: `tvh-player`, `car_audio.js`) |
 | Distribution | none: the app is for the owner's own car and is not published. The TIDAL client id is the one `tidalapi` ships |
+| Install | the Store's **catalog** layout: a GitHub release `catalog` in the private repo (no binary in git), or a USB stick (`docs/INSTALL.md`). **`make release`** bumps the patch of every changed component automatically, then publishes; everything uploaded is scanned for secrets first (owner, 2026-11-27) |
 | Method | test first (section 3) |
 | Where tests run | in Docker (OrbStack). Node is not installed on the Mac and does not need to be |
 

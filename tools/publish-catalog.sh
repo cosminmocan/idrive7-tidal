@@ -10,6 +10,8 @@
 #      which the head unit downloads with its token from a private repository (tools/dist_catalog.js release),
 #      and uploaded last, so the Store never lists an artifact that is not there yet;
 #   4. assets catalog.json no longer names are removed.
+# Before any upload, tools/scan-dist.sh scans every file (packages unpacked) for secrets, and the release's
+# catalog.json again before it goes up: an upload is not a push, so the git hooks never see it.
 # Nothing else on GitHub changes. Only a higher version is an update for the car: raise the version in
 # native/cmocan-tidal/component.json (and service.js) or apps/cmocan_tidal/app.json before `make dist`.
 set -eu
@@ -23,6 +25,9 @@ WORK=build/catalog-release
 command -v gh >/dev/null || { echo "the GitHub CLI (gh) is needed" >&2; exit 1; }
 rm -rf "$WORK" && mkdir -p "$WORK"
 
+# an upload is not a git push, so the hooks never see it: scan exactly what goes up first (docs/SECRETS.md)
+sh tools/scan-dist.sh "$OUT" || { echo "publish: the secret scan did not pass: nothing was uploaded" >&2; exit 1; }
+
 if ! gh release view catalog -R "$REPO" >/dev/null 2>&1; then
     gh release create catalog -R "$REPO" --title "Store catalog" --latest=false \
         --notes "The car's Store reads this release (catalog.json): the TIDAL service and app. Made by tools/publish-catalog.sh."
@@ -31,6 +36,8 @@ gh release upload catalog -R "$REPO" --clobber "$OUT"/*.tgz "$OUT"/*.png
 gh api "repos/$REPO/releases/tags/catalog" > "$WORK/release.json"
 docker run --rm -v "$ROOT:/w" -w /w node:22-slim \
     node tools/dist_catalog.js release "$OUT/catalog.json" "$WORK/release.json" "$WORK/catalog.json"
+mkdir -p "$WORK/scan" && cp "$WORK/catalog.json" "$WORK/scan/"
+sh tools/scan-dist.sh "$WORK/scan" || { echo "publish: the release's catalog.json did not pass the secret scan: not uploaded" >&2; exit 1; }
 gh release upload catalog -R "$REPO" --clobber "$WORK/catalog.json"
 
 keep=$(cd "$OUT" && ls ./*.tgz ./*.png | sed 's#^\./##'; echo catalog.json)

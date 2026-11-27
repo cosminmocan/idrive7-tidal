@@ -1,5 +1,5 @@
 # cmocan-tidal. Everything runs in Docker; see WORKPLAN.md section 3.
-.PHONY: test test-node8 test-node-current e2e player test-player hooks test-hooks dist usb
+.PHONY: test test-node8 test-node-current e2e player test-player hooks test-hooks release dist usb
 
 test: test-node8 test-node-current
 
@@ -70,4 +70,8 @@ hooks:
 
 # the hooks against a scratch repository (needs kingfisher on this computer)
 test-hooks:
-	@sh tools/test-git-hooks.sh
+	@sh tools/test-git-hooks.sh && sh tools/test-scan-dist.sh
+
+# build, bump the patch of what changed, test, commit, push, publish the Store's catalog release (tools/release.sh)
+release:
+	@sh tools/release.sh

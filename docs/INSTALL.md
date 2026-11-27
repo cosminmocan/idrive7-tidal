@@ -63,20 +63,29 @@ kingfisher scan of everything in both packages (unpacked), mgu-store's `usb-repo
 preparation of the app (above), and `tests/dist.test.js` on Node 8.9.4 and current Node (ids and versions, iDrive 7,
 internet, R10, no token, account, TIDAL session or car address, the player byte for byte).
 
-**Versions.** The car updates a component only to a higher version. For a new release raise the version in
-`native/cmocan-tidal/component.json` and `service.js` (the tool), or in `apps/cmocan_tidal/app.json` (the app); when
-the app needs a newer service, raise its `requires` too.
+**Versions.** The car updates a component only to a higher version. `make release` (below) does it: every component
+whose new package differs from the published one gets the next patch version (builds are byte-identical, so a
+different package means a changed component; an unchanged one keeps its version and the car is not asked to
+reinstall it). A new service version also raises the app's `requires`, so the app follows. A minor or major version
+is raised by hand in `native/cmocan-tidal/component.json` and `service.js`, or `apps/cmocan_tidal/app.json`
+(`tests/release.test.js` checks the files agree).
 
 ## 2. Publish to the private repository
 
 ```sh
-gh auth status                                   # signed in with an account that may write this repository
-sh tools/publish-catalog.sh cosminmocan/idrive7-tidal
+gh auth status        # signed in with an account that may write this repository
+make release          # on main, clean, level with GitHub
 ```
 
-It makes the release `catalog` the first time (not "latest", not a draft), uploads the two packages and the icon,
-then writes and uploads `catalog.json` with each artifact's API address, and removes assets it no longer names. It
-pushes no commit; the release's tag `catalog` is made by GitHub on the default branch.
+`make release` builds, bumps the patch of what changed (above), runs `make test`, commits and pushes the new versions
+(both through the secret-scan hooks), then publishes with `tools/publish-catalog.sh`. When nothing changed since the
+published release it stops and publishes nothing.
+
+The publishing step makes the release `catalog` the first time (not "latest", not a draft), uploads the two packages
+and the icon, then writes and uploads `catalog.json` with each artifact's API address, and removes assets it no
+longer names. **Before any upload** it scans exactly what goes up with kingfisher (`tools/scan-dist.sh`: every file,
+the packages unpacked), and the release's `catalog.json` again before it goes up: an upload is not a git push, so
+the git hooks never see it. The release's tag `catalog` is made by GitHub on the default branch.
 
 ## 3. A read-only token for the car
 
