@@ -12,7 +12,8 @@
  *
  *   node tools/e2e/service-main.js '<json: { dir, sock, stateDir, leasePath, baseUrls, playerBin, wavDir, tickMs }>'
  *
- * Forked with an IPC channel. To the test: { ev: 'ready' } { ev: 'log', line } { ev: 'player', n, id, wav, pid }
+ * Forked with an IPC channel. To the test: { ev: 'ready' } { ev: 'log', line } { ev: 'player', n, id, wav, pid, startMs }
+ * (startMs: the MGU_START_MS the service gave the player, 0 without a seek)
  * { ev: 'child', kind, pid } { ev: 'exit', code }. From the test (each answered by { re: id, value }):
  * { op: 'skew', ms } (the clock moves on by ms), { op: 'status' } (the service's status, which is not a request on
  * the socket: the app's watch does not see it), { op: 'stop' } (the service ends, its children first).
@@ -65,7 +66,7 @@ const svc = createService({
         const c = cp.spawn(bin, args, so);
         const p = pendingPlayer || { n: null, id: null, wav: null };
         pendingPlayer = null;
-        send({ ev: 'player', n: p.n, id: p.id, wav: p.wav, pid: c.pid });
+        send({ ev: 'player', n: p.n, id: p.id, wav: p.wav, pid: c.pid, startMs: Number((so.env && so.env.MGU_START_MS) || 0) });
         send({ ev: 'child', kind: 'player', pid: c.pid });
         return c;
     },
