@@ -9,8 +9,13 @@ test-node8:
 test-node-current:
 	@sh tools/run-tests.sh current
 
+# the end-to-end test (task I1, tests/e2e.test.js): the fake TIDAL, the real service with its client.js child, the
+# real player writing WAVs, the app's client and model; in the player's test image (ubuntu:18.04 amd64, Node 8.10),
+# unprivileged. Not part of `make test` (there it skips)
 e2e:
-	@echo "make e2e: not written yet (task I1)"; exit 1
+	@$(MAKE) -s -C native/tidal-player target
+	@docker image inspect tidal-player-test:1 >/dev/null 2>&1 || sh native/tidal-player/build.sh image
+	@sh tools/e2e/run.sh
 
 # ---- the car app (stream D): the kit's build.py, preview.js and emu.js in Docker (Python 3 + Node 22) ----
 # The image is made once from node:22-slim with python3 added. Without oap-sdk/ (BMW's SDK, never in the repository)
