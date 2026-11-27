@@ -111,7 +111,7 @@ test('buffering, loading and a player error are shown', () => {
     assert.ok(drawn(playing('buffering')).cv.has(/buffering/i));
     assert.ok(drawn(playing('loading')).cv.has(/loading/i));
     const e = drawn(playing('error', { error: 'decode' })).cv;
-    assert.ok(e.has(/error/i) && e.has(/decode/), e.all());
+    assert.ok(e.has(NP.errorText('decode')), e.all());
     const idle = drawn(M.reduce(playing('idle', { track: null }), { type: 'status', state: Object.assign(defaultState(), { login: 'logged-in' }) })).cv;
     assert.ok(idle.has(/nothing is playing/i), idle.all());
 });
@@ -133,6 +133,24 @@ test('contract 2: a skipped track: the notice shows on now playing (for a few se
     const list = drawn(M.reduce(s, { type: 'back' }), { now: 6000, toastUntil: 5000 }).cv;
     assert.strictEqual(list.texts.filter((x) => x.s === 'Gone track')[0].color, theme.dim, 'greyed out');
     assert.strictEqual(list.texts.filter((x) => x.s === TRACK.title)[0].color, theme.text);
+});
+
+test('contract 2: player.error: a message of its own for every code of both lists (control socket, player), never the raw code', () => {
+    const codes = P.ERROR_CODES.concat(P.PLAYER_ERROR_CODES);
+    assert.deepStrictEqual(P.PLAYER_ERROR_CODES, ['input', 'decode', 'audio', 'internal']);
+    codes.forEach((code) => {
+        const m = NP.errorText(code);
+        assert.ok(typeof m === 'string' && m.length > 8 && m !== code && m !== NP.errorText('something-new'), code + ': ' + m);
+        const cv = drawn(playing('error', { error: code })).cv;
+        assert.ok(cv.has(m), code + '\n' + cv.all());
+        assert.ok(!cv.texts.some((t) => t.s.indexOf('(' + code + ')') >= 0), 'the raw code shown for ' + code);
+    });
+    const player = P.PLAYER_ERROR_CODES.map(NP.errorText);
+    assert.strictEqual(new Set(player).size, player.length, 'each player code its own message');
+    assert.strictEqual(new Set(codes.map(NP.errorText)).size, codes.length, 'each code its own message');
+    // an unknown code or none: a plain message, no throw (rule R1)
+    [undefined, null, 42, 'something-new'].forEach((c) => assert.ok(/playback/i.test(NP.errorText(c)), String(c)));
+    assert.ok(drawn(playing('error', { error: null })).cv.has(NP.errorText(null)));
 });
 
 test('a missing cover shows a placeholder; a cover that came is drawn', () => {
