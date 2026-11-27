@@ -35,6 +35,7 @@
     { "key": "quality", "label": "Sound quality (from the next track)", "type": "choice", "default": "HIGH",
       "options": [["HIGH", "High (AAC 320)"], ["LOSSLESS", "Lossless (FLAC), plays as High for now"]] },
     { "key": "wheel", "label": "Steering wheel: press for next / previous track, hold to wind (while a track plays)", "type": "bool", "default": true },
-    { "key": "cluster", "label": "Show the track on the instrument cluster", "type": "bool", "default": true }
+    { "key": "cluster", "label": "Show the track on the instrument cluster", "type": "bool", "default": true },
+    { "key": "hmiBack", "label": "Back arrow: one level up in lists (trial)", "type": "bool", "default": false }
   ]
 }

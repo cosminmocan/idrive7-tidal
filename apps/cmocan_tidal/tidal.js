@@ -33,6 +33,7 @@ const { createSvcLog } = require('./svclog');
 const { createCcu } = require('./ccu');
 const P = require('./pages');
 const { hookDisplay } = require('./kitfocus');
+const { createHmiBack } = require('./hmiback');
 
 const W = 1600, H = 520;
 const POLL_MS = 1500;
@@ -258,6 +259,17 @@ function createApp(ctx, kit) {
     // where the kit runs the screen: the controller to the app's rule, the kit's focus where the app's is (kitfocus.js)
     kf = hookDisplay(disp, { input: input, place: () => P.kitPlace(s) });
     if (ctx.onTab) ctx.onTab((i) => { dispatch({ type: 'focus', area: 'page' }); openTab(i); });
+    // the HMI's back as "up one level" (a trial, the setting off by default: hmiback.js)
+    if (ctx.ui.onVisible && ctx.ui.open) {
+        const hb = createHmiBack({
+            enabled: () => ctx.settings.get('hmiBack') === true,
+            canPop: () => s.screen === 'LIST' || s.screen === 'NOW_PLAYING' || s.screen === 'ERROR',
+            pop: () => { log.info('HMI back: one level up'); dispatch({ type: 'back' }); },
+            reopen: () => Promise.resolve(ctx.ui.open('MAIN')).catch((e) => log.warn('HMI back: ' + e)),
+        });
+        ctx.ui.onVisible(hb.onVisible);
+        if (!ctx.ui.isVisible || ctx.ui.isVisible('MAIN')) hb.onVisible('MAIN', true);
+    }
 
     // Settings > QR log: the service's newest log lines go into the app's log first (svclog.js)
     createSvcLog({ ask: ask, log: log }).watch(ctx.display);
