@@ -100,7 +100,11 @@ test('a press plays from that row, with the ids of the list the user is in', () 
     let s = listOf([track(0), track(1), track(2)]);
     s = apply(s, N.input(s, null, { knob: 1 })).s;
     const r = apply(s, N.input(s, null, { press: true }));
-    assert.deepStrictEqual(r.acts, [{ type: 'play', tracks: [1000, 1001, 1002], index: 1 }]);
+    assert.strictEqual(r.acts.length, 1);
+    const a = r.acts[0];
+    assert.deepStrictEqual([a.type, a.tracks, a.index], ['play', [1000, 1001, 1002], 1]);
+    // U1: with the list it comes from (now playing's caption, its next track, push right back to it)
+    assert.deepStrictEqual([a.queue.key, a.queue.title, a.queue.tracks.map((t) => t.id)], ['k', 'A list', [1000, 1001, 1002]]);
 });
 
 test('a press on a long list sends at most 1000 ids, around the row pressed (the contract\'s limit)', () => {
@@ -162,7 +166,7 @@ test('touch: a tap on a row acts on that row', () => {
     const h = info.hits.filter((x) => x.row === 2)[0];
     assert.ok(h, 'row 2 has a hit area');
     const r = apply(s, N.input(s, info, { tap: { x: h.x + 5, y: h.y + 5 } }));
-    assert.deepStrictEqual(r.acts, [{ type: 'play', tracks: [1000, 1001, 1002], index: 2 }]);
+    assert.deepStrictEqual(r.acts.map((a) => [a.type, a.tracks, a.index]), [['play', [1000, 1001, 1002], 2]]);
     assert.strictEqual(M.top(r.s).sel, 2, 'the tapped row is selected');
     assert.deepStrictEqual(N.input(s, info, { tap: { x: 1, y: 1 } }), [], 'a tap on nothing does nothing');
 });

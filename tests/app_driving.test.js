@@ -129,7 +129,7 @@ test('while moving, lists, play, pause and skip stay available', () => {
     const moved = N.input(s, null, { knob: 1 });
     assert.strictEqual(moved[0].type, 'cursor');
     s = M.reduce(s, moved[0]);
-    assert.deepStrictEqual(N.input(s, null, { press: true }), [{ type: 'play', tracks: [TRACK.id, 2], index: 1 }]);
+    assert.deepStrictEqual(N.input(s, null, { press: true }).map((a) => [a.type, a.tracks, a.index]), [['play', [TRACK.id, 2], 1]]);
     const st = Object.assign(defaultState(), { login: 'logged-in' });
     st.player = { state: 'playing', track: TRACK, position: 1, duration: 320, queueIndex: 0, queueLength: 2, quality: 'HIGH', error: null };
     let np = M.reduce(M.reduce(at(loggedIn(), true), { type: 'status', state: st }), { type: 'open-now-playing' });
@@ -150,7 +150,7 @@ test('search results stay usable while moving; the letters only when parked (U1:
     const up = N.input(s, d.info, { tilt: 'N' });
     assert.deepStrictEqual(up, [{ type: 'focus', area: 'tabs', tab: 0 }], 'pushed up: not the letters, the tabs');
     assert.strictEqual(M.reduce(s, { type: 'open-keyboard' }).search.keyboard, false, 'not while moving');
-    assert.deepStrictEqual(N.input(s, d.info, { press: true }), [{ type: 'play', tracks: [TRACK.id], index: 0 }], 'a result plays');
+    assert.deepStrictEqual(N.input(s, d.info, { press: true }).map((a) => [a.type, a.tracks, a.index]), [['play', [TRACK.id], 0]], 'a result plays');
     s = at(s, false);
     assert.deepStrictEqual(N.input(s, drawn(s).info, { tilt: 'N' }), [{ type: 'open-keyboard' }], 'parked: up is the letters');
 });

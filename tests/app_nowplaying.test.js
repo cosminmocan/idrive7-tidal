@@ -205,6 +205,21 @@ test('covers: asked for once, decoded from the JPEG, registered as an image; bad
     assert.strictEqual(asked.length, n, 'a failed cover is not asked for again at once');
 });
 
+test('covers for list rows (U1): at most a few asked for at a time, the others when those came; each once', async () => {
+    const asked = [], answers = [];
+    const covers = createCovers({
+        request: (cmd, p) => { asked.push(p.coverId); return new Promise((r) => answers.push(r)); },
+        decode: (b, o) => decodeJpeg(b, o), setImage() {}, size: 104, slots: 30, maxLoading: 2,
+    });
+    ['a', 'b', 'c', 'd'].forEach((id) => assert.strictEqual(covers.get(id), null));
+    await sleep(10);
+    assert.deepStrictEqual(asked, ['a', 'b'], 'two on their way, no more');
+    answers.shift()({ ok: false, error: 'not-found' });
+    await sleep(10);
+    ['a', 'b', 'c', 'd'].forEach((id) => covers.get(id));
+    assert.deepStrictEqual(asked, ['a', 'b', 'c'], 'one more when one came; a failed one not again at once');
+});
+
 test('the steering wheel: skip right is next, left is previous, on release, only while a track is on', () => {
     const skips = [];
     let on = true;
