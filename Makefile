@@ -1,5 +1,5 @@
 # cmocan-tidal. Everything runs in Docker; see WORKPLAN.md section 3.
-.PHONY: test test-node8 test-node-current e2e
+.PHONY: test test-node8 test-node-current e2e player test-player
 
 test: test-node8 test-node-current
 
@@ -42,3 +42,13 @@ emu:
 	@docker run --rm $$(test -t 0 && echo -it) --name cmocan-tidal-emu -e PYTHONDONTWRITEBYTECODE=1 -e CMOCAN_TIDAL_SOCK=/tmp/cmocan-emu.sock -p 127.0.0.1:8077:8078 -v "$(CURDIR):/w" -w /w $(KIT_IMAGE) sh -c \
 		'node -e "require(\"./tests/fakes/fake_service\").createFakeService({ socketPath: \"/tmp/cmocan-emu.sock\", state: { login: \"$(EMU_LOGIN)\" } })" & \
 		 exec node kit/tools/emu_forward.js 8078 8077 cmocan_tidal --port 8077'
+
+# the player (stream B): built in Docker, ubuntu:18.04 amd64; see native/tidal-player/README.md
+player:
+	@$(MAKE) -s -C native/tidal-player target check-target
+
+# the player's own tests (tests/player_*.test.js) against the real binary and its ASan/UBSan build, in
+# ubuntu:18.04 amd64 with Node 8.10 (in `make test` they skip: node:8.9.4's glibc is too old for the binary)
+test-player:
+	@$(MAKE) -s -C native/tidal-player target asan
+	@sh native/tidal-player/tools/test-player.sh
