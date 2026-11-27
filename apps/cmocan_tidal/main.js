@@ -9,6 +9,7 @@
  */
 const mgu = require('./kit/mgu');
 const { setImage } = require('./kit/record');
+const { Canvas } = require('./kit/canvas');
 const parked = require('./kit/parked');
 const decodeJpeg = require('./jpeg');
 const { createApp } = require('./tidal');
@@ -20,6 +21,7 @@ mgu.run({
             parked: parked.watch(ctx, ctx.log),
             setImage: setImage,
             decodeJpeg: decodeJpeg,
+            Canvas: Canvas,                 // pixels, for the card on the instrument cluster (cluster.js)
         });
         return Promise.resolve();
     },

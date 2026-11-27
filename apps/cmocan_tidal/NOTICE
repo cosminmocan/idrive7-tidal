@@ -12,10 +12,25 @@ qrcode.js
     QR Code Generator for JavaScript, Copyright (c) 2009 Kazuhiko Arase, MIT licence (its header).
     As shipped by aurelmarius/bmw-apps @ 0976d16, apps/aurelm_tvhplayer/qrcode.js.
 
+cluster_render_client.js
+    The Node client of cluster-render, Copyright (C) 2026 Robert Nisipeanu,
+    github.com/robertnisipeanu/idrive-apps @ 5fc4daa9a636924bf86a4e0385a2d328c2f9f449,
+    native/cluster-render/js/cluster_render_client.js. MPL-2.0 (its header; the text: https://mozilla.org/MPL/2.0/):
+    cluster-render's README names it among the files apps copy. cluster-render itself (GPL-3.0-or-later) is not part
+    of this app: it comes from the Store, and the app runs without it.
+
 jpeg.js
     The JPEG decoder of jpeg-js (github.com/jpeg-js/jpeg-js), from Mozilla pdf.js, Copyright 2011 notmasteryet,
     Apache License 2.0 (its header). As shipped by hexlay/custom-apps @ db900984c13e47f7be33c7b3c0ed92b1936c5026,
     apps/spotify/jpeg.js.
+
+Ours, after another's:
+
+cluster.js
+    The card on the instrument cluster follows aurelmarius' TVH Player (cluster_card.js,
+    github.com/aurelmarius/bmw-apps @ 0976d16dda9be301d98b0253586d4c095160ac2b, apps/aurelm_tvhplayer/,
+    GPL-3.0-or-later): the card's place on the G-series cluster, its dark field (field()) and the way the layer is
+    made, drawn and shown are his.
 
 The kit (kit/runtime, copied into the package by kit/tools/build.py) is cauliflowermossgrape/idrive7-apps,
 MIT; see kit/ORIGIN.md.
