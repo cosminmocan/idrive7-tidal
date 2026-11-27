@@ -217,6 +217,7 @@ test('covers for list rows (U1): at most a few asked for at a time, the others w
     answers.shift()({ ok: false, error: 'not-found' });
     await sleep(10);
     ['a', 'b', 'c', 'd'].forEach((id) => covers.get(id));
+    await sleep(10);
     assert.deepStrictEqual(asked, ['a', 'b', 'c'], 'one more when one came; a failed one not again at once');
 });
 
