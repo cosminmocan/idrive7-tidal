@@ -44,7 +44,7 @@ const TICK_MS = 5000;
 const NET_UID = 13150;    // component.json "uids": the only uid of this tool mgu-uplink routes
 
 const COMMANDS = ['status', 'login-start', 'login-cancel', 'logout', 'favorites', 'playlists', 'playlist', 'album',
-    'mixes', 'mix', 'search', 'cover', 'play', 'pause', 'resume', 'next', 'prev', 'stop', 'prefs', 'exit'];
+    'mixes', 'mix', 'search', 'cover', 'play', 'pause', 'resume', 'next', 'prev', 'stop', 'seek', 'prefs', 'exit'];
 const ERROR_CODES = ['offline', 'not-logged-in', 'login-expired', 'not-found', 'not-available', 'rate-limited',
     'tidal-error', 'bad-request', 'busy'];
 const QUALITIES = ['LOSSLESS', 'HIGH'];
@@ -69,6 +69,7 @@ const PARAMS = {
     play: (r) => Array.isArray(r.tracks) && r.tracks.length >= 1 && r.tracks.length <= 1000 && r.tracks.every((t) => isInt(t) && t > 0) &&
         isInt(r.index) && r.index >= 0 && r.index < r.tracks.length,
     prefs: (r) => r.quality === undefined || QUALITIES.indexOf(r.quality) >= 0,
+    seek: (r) => typeof r.position === 'number' && isFinite(r.position) && r.position >= 0,
 };
 /** the request's id (or null), and whether it is a valid request */
 function check(r) {
@@ -207,10 +208,12 @@ function createService(opts) {
         quality: () => prefs.quality,
         trackInfo: trackInfo,
         onQueue: (q) => { try { st.write('queue', q); } catch (e) { log('queue.json: ' + e.message); } },
-        startPlayer: (id, onEvent) => createPlayerProcess({
+        // startMs (a seek): where the player starts playing, MGU_START_MS (docs/PROTOCOL.md section 2)
+        startPlayer: (id, onEvent, startMs) => createPlayerProcess({
             spawn: o.spawn || require('child_process').spawn,
             bin: o.playerBin || path.join(__dirname, 'tidal-player'), args: o.playerArgs || [],
-            env: typeof o.playerEnv === 'function' ? o.playerEnv(id) : o.playerEnv, audio: o.audio, log: log, onEvent: onEvent }),
+            env: Object.assign({}, typeof o.playerEnv === 'function' ? o.playerEnv(id) : o.playerEnv, startMs > 0 ? { MGU_START_MS: String(startMs) } : {}),
+            audio: o.audio, log: log, onEvent: onEvent }),
     });
     pb.restore(st.load('queue', { tracks: [], index: -1, position: 0 }));
 
@@ -300,6 +303,8 @@ function createService(opts) {
         next: () => { pb.next(); return {}; },
         prev: () => { pb.prev(); return {}; },
         stop: () => { pb.stop(); return {}; },
+        // with nothing playing (idle, stopped, an error) there is nothing to move: bad-request
+        seek: (r) => { if (!pb.seek(r.position)) throw codeError('bad-request'); return {}; },
         prefs: (r) => {
             if (r.quality && r.quality !== prefs.quality) {
                 prefs = { quality: r.quality };

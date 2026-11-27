@@ -6,10 +6,14 @@
  * player per item, a broken stream opened again for 2 minutes with growing waits. Unlike theirs, a track is a
  * file, so a break is continued from the byte it stopped at (HTTP Range), not started again.
  *
- *   const pb = createPlayback({ tidal, netx, startPlayer(trackId, onEvent) -> player.js process, quality() -> 'HIGH'|'LOSSLESS',
+ *   const pb = createPlayback({ tidal, netx, startPlayer(trackId, onEvent, startMs) -> player.js process, quality() -> 'HIGH'|'LOSSLESS',
  *                               trackInfo(id) -> track | null (asked again by status() until known), onQueue({ tracks, index, position }), log, now,
  *                               retryWaits, outageMs, streamTimeoutMs });
  *   pb.play(tracks, index)  pb.pause()  pb.resume()  pb.next()  pb.prev()  pb.stop()
+ *   pb.seek(seconds) -> false when nothing plays. A new player for the same track, started at the position
+ *                           (startMs -> MGU_START_MS): the download starts again at the file's first byte and the
+ *                           player throws away the sound before the position (docs/PROTOCOL.md, seek). Paused stays
+ *                           paused. At the track's end or past it: the next track.
  *   pb.restore(queue)       a queue from queue.json: idle, ready for resume
  *   pb.status()             the contract's status.player (plus `skipped`: the tracks passed over, and why)
  *   pb.active()             loading, playing, buffering or paused
@@ -23,6 +27,7 @@ const OUTAGE_MS = 120000;
 const STREAM_TIMEOUT_MS = 15000;
 const PREV_RESTART_S = 3;
 const SKIPPED_KEPT = 10;
+const MAX_START_MS = 24 * 3600 * 1000;   // the player's limit for MGU_START_MS; no track is that long
 const ACTIVE = ['loading', 'playing', 'buffering', 'paused'];
 
 function codeError(code, message) { const e = new Error(message || code); e.code = code; return e; }
@@ -58,22 +63,32 @@ function createPlayback(opts) {
         if (c.stream) { const s = c.stream; c.stream = null; try { s.destroy(); } catch (e) { /* gone */ } }
         if (c.player) { const p = c.player; killChain = killChain.then(() => p.kill()).then(() => {}, () => {}); }
     }
-    function startTrack(i) {
+    /**
+     * The queue's track i, in a new player (the one before is ended first). `from` (a seek, or the track after one):
+     * { position (s), paused, and of the same track: url, quality, duration }.
+     */
+    function startTrack(i, from) {
+        const f = from || {};
         const old = cur;
         endTrack(old);
         index = i;
         const id = tracks[i];
         const info = (o.trackInfo && o.trackInfo(id)) || null;
-        const c = { gen: ++gen, id: id, index: i, info: info, state: 'loading', position: 0, duration: info && info.duration ? info.duration : null,
-            quality: null, error: null, player: null, stream: null, timer: null, paused: false, over: false, ended: false, playerError: null };
+        const position = f.position > 0 ? f.position : 0;
+        const c = { gen: ++gen, id: id, index: i, info: info, state: f.paused ? 'paused' : 'loading', position: position,
+            startMs: Math.min(Math.round(position * 1000), MAX_START_MS),
+            duration: typeof f.duration === 'number' ? f.duration : (info && info.duration ? info.duration : null),
+            quality: f.quality || null, url: null, error: null, player: null, stream: null, timer: null, paused: !!f.paused, over: false, ended: false, playerError: null };
         cur = c;
         idle = { state: 'idle', error: null };
         saveQueue();
-        const quality = o.quality ? o.quality() : 'HIGH';
-        const url = Promise.resolve().then(() => tidal.streamUrl(id, quality));
+        const quality = f.quality || (o.quality ? o.quality() : 'HIGH');
+        // a seek plays the address the track has (one that expired meanwhile is asked for again by the download)
+        const url = f.url ? Promise.resolve({ url: f.url, quality: quality }) : Promise.resolve().then(() => tidal.streamUrl(id, quality));
         Promise.all([url, killChain]).then((r) => {
             if (!live(c)) return;
             c.quality = r[0].quality || quality;
+            c.url = r[0].url;
             spawn(c);
             download(c, r[0].url);
         }, (e) => {
@@ -89,7 +104,7 @@ function createPlayback(opts) {
     }
     function spawn(c) {
         let p;
-        try { p = o.startPlayer(c.id, (ev) => onEvent(c, ev)); } catch (e) { return fail(c, 'internal', e.message); }
+        try { p = o.startPlayer(c.id, (ev) => onEvent(c, ev), c.startMs); } catch (e) { return fail(c, 'internal', e.message); }
         c.player = p;
         pl.running++;
         if (c.paused) p.ctl('pause');
@@ -118,9 +133,9 @@ function createPlayback(opts) {
         c.state = 'error'; c.error = code;
         endTrack(c);
     }
-    function advance(c) {
+    function advance(c, from) {
         if (!live(c)) return;
-        if (c.index + 1 < tracks.length) return startTrack(c.index + 1);
+        if (c.index + 1 < tracks.length) return startTrack(c.index + 1, from);
         endTrack(c);
         cur = null;
         idle = { state: 'idle', error: null };
@@ -151,7 +166,7 @@ function createPlayback(opts) {
                     if (refreshed) return fail(c, 'tidal-error', 'the stream address was refused again (' + status + ')');
                     refreshed = true;
                     log('track ' + c.id + ': the stream address expired (' + status + '), asking for a new one');
-                    return Promise.resolve().then(() => tidal.streamUrl(c.id, c.quality)).then((u) => { url = u.url; open(); },
+                    return Promise.resolve().then(() => tidal.streamUrl(c.id, c.quality)).then((u) => { url = u.url; if (live(c)) c.url = u.url; open(); },
                         (e) => fail(c, (e && e.code) || 'tidal-error', e && e.message));
                 }
                 if (status === 429 || status >= 500) { try { r.stream.destroy(); } catch (e) { /* gone */ } return broke('HTTP ' + status); }
@@ -236,6 +251,15 @@ function createPlayback(opts) {
         if (active && (cur.position > PREV_RESTART_S || index === 0)) return startTrack(index);
         if (index > 0) startTrack(index - 1);
     }
+    function seek(position) {
+        const c = cur;
+        if (!c || ACTIVE.indexOf(c.state) < 0) return false;
+        // at the end or past it: the next track (after the last one playback ends), paused if this one was
+        if (c.duration !== null && position >= c.duration) { advance(c, { paused: c.paused }); return true; }
+        // a length not known yet: the player says `end` at once when the position is past it
+        startTrack(c.index, { position: position, paused: c.paused, url: c.url, quality: c.quality, duration: c.duration });
+        return true;
+    }
     function stop() {
         if (!cur) return;
         const c = cur;
@@ -269,7 +293,7 @@ function createPlayback(opts) {
         return killChain;
     }
     return {
-        play: play, pause: pause, resume: resume, next: next, prev: prev, stop: stop, restore: restore, status: status, close: close,
+        play: play, pause: pause, resume: resume, next: next, prev: prev, seek: seek, stop: stop, restore: restore, status: status, close: close,
         active: () => !!(cur && ACTIVE.indexOf(cur.state) >= 0),
         players: () => ({ running: pl.running > 0, exits: pl.exits, lastExit: pl.lastExit }),
         queue: () => ({ tracks: tracks.slice(), index: index, position: cur ? cur.position : 0 }),
