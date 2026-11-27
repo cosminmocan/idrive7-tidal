@@ -1,0 +1,46 @@
+# kingfisher baseline: findings assessed as NOT secrets (each one explained in docs/SECRETS.md).
+# Fingerprints only, never a value. @REPO@ is filled in by tools/git-hooks/* with the path being scanned.
+# Regenerate: see docs/SECRETS.md. Never add a finding here without its assessment in docs/SECRETS.md.
+version: 2
+fingerprint_algorithm: kingfisher-v1
+repositories:
+- id: local://@REPO@
+  findings:
+  - path: tests/fixtures/tidal/TEST-ONLY-rogue-server.key
+    fingerprint: '8483951415874065793'
+    rule_id: betterleaks.private-key
+    line: 1
+    first_seen_at: 2026-11-27T07:00:59.609945+00:00
+    last_updated_at: 2026-11-27T07:00:59.609945+00:00
+  - path: tests/fixtures/tidal/TEST-ONLY-server.key
+    fingerprint: '16045945004578179517'
+    rule_id: betterleaks.private-key
+    line: 1
+    first_seen_at: 2026-11-27T07:00:59.609945+00:00
+    last_updated_at: 2026-11-27T07:00:59.609945+00:00
+  - path: tests/fixtures/tidal/TEST-ONLY-rogue-server.key
+    fingerprint: '14108326730265054227'
+    rule_id: betterleaks.private-key
+    line: 1
+    first_seen_at: 2026-11-27T07:00:59.609945+00:00
+    last_updated_at: 2026-11-27T07:00:59.609945+00:00
+  - path: tests/fixtures/tidal/TEST-ONLY-server.key
+    fingerprint: '14901514855104636297'
+    rule_id: betterleaks.private-key
+    line: 1
+    first_seen_at: 2026-11-27T07:00:59.609945+00:00
+    last_updated_at: 2026-11-27T07:00:59.609945+00:00
+- id: local://@REPO@/.git
+  findings:
+  - path: tests/fixtures/tidal/TEST-ONLY-rogue-server.key
+    fingerprint: '14108326730265054227'
+    rule_id: betterleaks.private-key
+    line: 1
+    first_seen_at: 2026-11-27T07:00:59.609945+00:00
+    last_updated_at: 2026-11-27T07:00:59.609945+00:00
+  - path: tests/fixtures/tidal/TEST-ONLY-server.key
+    fingerprint: '14901514855104636297'
+    rule_id: betterleaks.private-key
+    line: 1
+    first_seen_at: 2026-11-27T07:00:59.609945+00:00
+    last_updated_at: 2026-11-27T07:00:59.609945+00:00

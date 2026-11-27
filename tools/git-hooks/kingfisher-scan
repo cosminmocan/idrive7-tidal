@@ -1,0 +1,28 @@
+#!/bin/sh
+# kingfisher-scan <dir> <kingfisher scan options...> - runs a kingfisher secret scan of <dir> with the assessed
+# baseline (tools/kingfisher-baseline.yaml, its @REPO@ filled in with <dir>) and turns the result into a hook's answer:
+# 0 = nothing found; 1 = a finding (or kingfisher missing or failing: a scan that did not run never lets anything by).
+# Always --no-validate (a finding is never sent to any service to test it) and --redact (no value is ever printed).
+# Used by pre-commit and pre-push.
+HOOK=${KF_HOOK:-kingfisher}
+DIR=$1; shift
+if ! command -v kingfisher >/dev/null 2>&1; then
+    echo "$HOOK: kingfisher is not installed; refusing without a secret scan" >&2
+    exit 1
+fi
+HERE=$(cd "$(dirname "$0")" && pwd)
+TEMPLATE="$HERE/../kingfisher-baseline.yaml"
+BASE=$(mktemp "${TMPDIR:-/tmp}/kf-baseline.XXXXXX") || exit 1
+trap 'rm -f "$BASE"' EXIT
+REAL=$(cd "$DIR" && pwd -P) || exit 1
+if [ -f "$TEMPLATE" ]; then sed "s#@REPO@#$REAL#g" "$TEMPLATE" > "$BASE"; set -- "$@" --baseline-file "$BASE"; fi
+kingfisher scan "$REAL" --no-validate --redact --no-update-check -q "$@" >&2
+rc=$?
+case $rc in
+    0) exit 0 ;;
+    200) echo "$HOOK: BLOCKED: kingfisher found possible secrets (above, values redacted). Assess each one:" >&2
+         echo "  a real secret: keep it out of git; not a secret: assess it in docs/SECRETS.md and add it to the baseline" >&2
+         exit 1 ;;
+    *) echo "$HOOK: kingfisher failed (exit $rc); refusing without a secret scan" >&2
+       exit 1 ;;
+esac

@@ -141,6 +141,11 @@ These apply to every task below.
    "passed" only when done in the car and written down with the date.
 7. **Done means:** the task's tests pass on both Node versions, `make test` is
    green, and the task's "success" line below is true.
+8. **No secret ever reaches git.** Every commit and every push is scanned with
+   kingfisher by the hooks in `tools/git-hooks/` (`make hooks` once after
+   cloning; `make test-hooks` checks them). Every finding is assessed in
+   `docs/SECRETS.md` before anything is committed or pushed. Never commit or
+   push with `--no-verify`.
 
 ### Safety rules that must each have a test
 

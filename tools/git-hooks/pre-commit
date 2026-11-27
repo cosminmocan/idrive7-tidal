@@ -1,0 +1,6 @@
+#!/bin/sh
+# pre-commit: kingfisher secret scan of what is about to be committed (the staged changes). Blocks the commit on any
+# finding that is not assessed in docs/SECRETS.md (tools/kingfisher-baseline.yaml).
+# Installed by `make hooks` (git config core.hooksPath tools/git-hooks). Tested by tools/test-git-hooks.sh.
+ROOT=$(git rev-parse --show-toplevel) || exit 1
+KF_HOOK=pre-commit exec sh "$ROOT/tools/git-hooks/kingfisher-scan" "$ROOT" --staged
