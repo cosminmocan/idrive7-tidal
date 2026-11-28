@@ -948,7 +948,7 @@ Five agents can work at once after Q0: **C1**, **S1 then D1's service part**, **
 - **Success:** step 2 works with the repository private; in the car the source shows `ok` and an update installs
   with the repository private (car check).
 
-### L1a. Lossless, step 1 (research, with the owner)
+### L1a. Lossless, step 1 (research, with the owner): cancelled 2026-11-28, FLAC dropped
 
 - **Do:** `tools/live-check.js --pkce`: prints TIDAL's browser login link; the owner logs in and pastes back the
   address the browser ends on; the tool exchanges it, then asks for a LOSSLESS stream and reports what TIDAL gives:
@@ -975,7 +975,7 @@ Five agents can work at once after Q0: **C1**, **S1 then D1's service part**, **
 
 ### L1b
 
-Planned in detail after L1a.
+Cancelled 2026-11-28 with L1a: the owner dropped FLAC (Phase 4, "FLAC: dropped").
 
 ### V1. Video (planned 2026-11-27, from the live check in docs/live-check-results.md "Video")
 
@@ -1091,30 +1091,10 @@ the release through `make release` (its x86-64 gate, then the x86-64 packages).
   it to our app, it becomes a second way in; if not, it is dropped. **Success:** e2e: type, results, play one.
 - **K6b. The cluster card's progress bar** (apps/cmocan_tidal/cluster.js).
 
-**FLAC (lossless), its own track** (the owner, 2026-11-28: "add the flac to the list"; then "leave flac for later": **deferred**, not started):
-
-Why FLAC does nothing today: the QR (device) login gets AAC 320 at most, whatever the subscription
-(docs/live-check-results.md); lossless needs TIDAL's PKCE login. The player already decodes FLAC (its FFmpeg is
-built with the flac demuxer and decoder). The car's sound path is 48 kHz stereo, so the gain is CD quality instead
-of AAC, not hi-res.
-
-- **L1a-0. The check tool** (no owner needed, can start now): `tools/live-check.js --pkce` does not exist yet.
-  Build it, test first against recorded answers: prints the login link, takes the pasted address, exchanges it,
-  asks for LOSSLESS and HI_RES_LOSSLESS, and reports the format (a plain FLAC address, or a DASH manifest of
-  FLAC-in-MP4 segments), encryption, `Range`, the token's lifetime and whether refresh works without a browser.
-- **L1a. Five minutes with the owner at the Mac:** the owner logs in in the browser and pastes back the address it
-  ends on. The session stays in `reference/` (never in git). The facts go into docs/live-check-results.md.
-- **L1b. The build, designed from L1a's facts.** Expected parts: (1) contract first: a second login kind beside
-  the QR login, `quality` LOSSLESS really asked for, the track's format in `status`; (2) the service: the PKCE
-  session and its refresh, kept beside the QR session, falling back to AAC when lossless is refused; (3) how the
-  PKCE login reaches the car: a link/QR the phone opens and a field in the app (the new keyboard, S3) or a small
-  page to paste the final address, or the session carried over once from the Mac; (4) the player: if TIDAL
-  answers DASH, the service fetches the segments and pipes them as one stream (as it does for video's HLS), and
-  FFmpeg's mov demuxer must read fragmented MP4 from a pipe; (5) seek and gapless behaviour as for AAC; (6) the
-  quality line on now playing says what really plays. **Stop if** the stream is encrypted (no way around it).
-- **Success:** e2e: a FLAC track from the fake TIDAL plays bit-exact to the source WAV, seek works, a refused
-  lossless falls back to AAC with a line saying so; in the car: "FLAC" on now playing and in the log.
-- **Depends on:** L1b's login screen on S3's keyboard if that route is chosen; otherwise independent of wave 1.
+**FLAC: dropped** (the owner, 2026-11-28: "remove the flac altogether and just play the AAC 320 (music wise), we
+will have music and the video, and that is more than enough"). Task **F0** takes it out: the Lossless choice
+leaves the app's settings, `quality` is HIGH only in the contract and the service, an old prefs.json saying
+LOSSLESS is read as HIGH. L1a and L1b (the PKCE login) are cancelled.
 
 **Wave 2** (U2 and the small fixes started 2026-11-28 beside wave 1; K6a waits for the owner's file):
 
