@@ -208,4 +208,27 @@ test('state files: version 1 only, session needs its tokens', () => {
     assert.ok(P.validateState('nope', { version: 1 }).length > 0);
 });
 
+// what native/cmocan-tidal/state.js accepts (V1b's fields): prefs.json's videoHeight, queue.json's kinds
+test('state files: prefs.json\'s videoHeight and queue.json\'s kinds as the service reads them', () => {
+    const ok = (name, s) => assert.deepStrictEqual(P.validateState(name, s), [], name + ' ' + JSON.stringify(s));
+    const no = (name, s) => assert.ok(P.validateState(name, s).length > 0, name + ' ' + JSON.stringify(s) + ' must be refused');
+    ok('prefs', { version: 1, quality: 'HIGH' });
+    [480, 720, 1080].forEach((h) => ok('prefs', { version: 1, quality: 'HIGH', videoHeight: h }));
+    [360, 0, '720', null].forEach((h) => no('prefs', { version: 1, quality: 'HIGH', videoHeight: h }));
+    const q = { version: 1, tracks: [17927864, 25958039], index: 1, position: 3 };
+    ok('queue', q);
+    ok('queue', Object.assign({}, q, { kinds: ['track', 'video'] }));
+    ok('queue', Object.assign({}, q, { kinds: ['track', 'track'] }));
+    no('queue', Object.assign({}, q, { kinds: ['track'] }));                      // not one per id
+    no('queue', Object.assign({}, q, { kinds: ['track', 'album'] }));
+    no('queue', Object.assign({}, q, { kinds: 'video' }));
+    ok('queue', { version: 1, tracks: [], index: -1, position: 0, kinds: [] });
+});
+
+test('section 3 has an example of each: a prefs.json with videoHeight, a queue.json with kinds', () => {
+    const ex = examples().filter((e) => e.tag[0] === 'state');
+    assert.ok(ex.some((e) => e.tag[1] === 'prefs' && JSON.parse(e.text).videoHeight !== undefined), 'no prefs example with videoHeight');
+    assert.ok(ex.some((e) => e.tag[1] === 'queue' && Array.isArray(JSON.parse(e.text).kinds)), 'no queue example with kinds');
+});
+
 run();
