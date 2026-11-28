@@ -189,7 +189,7 @@ the whole head unit.
 | R4 | The player never crashes on bad input: it reports `error` and exits cleanly | B2 |
 | R5 | The player refuses to run as root | B5 |
 | R6 | Nothing is written outside `/var/opt/cmocan-tidal/`, `/run/cmocan-tidal.sock` and the app's own data folder | C7, C8 |
-| R7 | The app disconnects only its own audio connection, and never takes the speakers back after the driver chose another source | D6 |
+| R7 | The app disconnects only its own audio connection, and never takes the speakers back after the driver chose another source. One exception (A1, 2026-11-28): a connection on source 287 that no app claims (the car's own, brought back after a start) is ended when the driver plays in our app; any other app's claim is respected | D6 |
 | R8 | Playback stops when the app has been silent for 90 s (the app closed or crashed) | C6 |
 | R9 | Typing a search is blocked while the car moves (above 3 km/h); with no speed signal the car counts as parked | D7 |
 | R10 | No BMW SDK file is in any package or in the repository | I2 |
