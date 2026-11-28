@@ -36,6 +36,9 @@
       "options": [["HIGH", "High (AAC 320)"], ["LOSSLESS", "Lossless (FLAC), plays as High for now"]] },
     { "key": "wheel", "label": "Steering wheel: press for next / previous track, hold to wind (while a track plays)", "type": "bool", "default": true },
     { "key": "cluster", "label": "Show the track on the instrument cluster", "type": "bool", "default": true },
-    { "key": "hmiBack", "label": "Back arrow: one level up in lists (trial)", "type": "bool", "default": false }
+    { "key": "hmiBack", "label": "Back arrow: one level up in lists (trial)", "type": "bool", "default": false },
+    { "key": "videoParkedOnly", "label": "Picture only while parked", "type": "bool", "default": false },
+    { "key": "videoHeight", "label": "Video size (from the next video)", "type": "choice", "default": "720",
+      "options": [["480", "480p"], ["720", "720p"], ["1080", "1080p"]] }
   ]
 }

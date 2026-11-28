@@ -25,7 +25,9 @@
  *   show-library              the LIBRARY tab: where the library was left (the list open, its row)
  *   show-queue                the list that plays (played's queue), on the playing track
  * A new screen or another list puts the controller on the page (now playing: on PLAY / PAUSE in the bar).
- * played {queue: {key, title, tracks}}: a track was started from a list; the screen stays (the owner's decision).
+ * played {queue: {key, title, tracks}}: a track was started from a list; the screen stays (the owner's decision);
+ * a video (contract 4) goes to now playing (open-now-playing, sent by tidal.js): videos are watched.
+ * status.player.video (the picture's frame file, contract 4) is kept as player.video, or null.
  * Node 8.9.4 syntax.
  */
 
@@ -89,10 +91,10 @@ function assign(a, b) { const o = {}; Object.keys(a).forEach((k) => { o[k] = a[k
 function top(s) { return s.stack.length ? s.stack[s.stack.length - 1] : null; }
 function withTop(s, f) { const st = s.stack.slice(); st[st.length - 1] = f; return assign(s, { stack: st }); }
 
-/** a track from the service, or null when it is not one (rule R1: what comes may be anything) */
+/** a track (or a video: kind 'video') from the service, or null when it is not one (rule R1: what comes may be anything) */
 function cleanTrack(t) {
     if (!isObj(t) || typeof t.title !== 'string') return null;
-    return {
+    const o = {
         id: t.id, title: t.title,
         artists: Array.isArray(t.artists) ? t.artists.filter((a) => typeof a === 'string') : [],
         album: isObj(t.album) && typeof t.album.title === 'string' ? { id: t.album.id, title: t.album.title } : null,
@@ -100,6 +102,16 @@ function cleanTrack(t) {
         duration: isNum(t.duration) ? t.duration : null,
         streamReady: t.streamReady !== false, explicit: t.explicit === true,
     };
+    if (t.kind === 'video') o.kind = 'video';
+    return o;
+}
+// the frame file a video's picture is in, as mgu-render takes it: /dev/shm/mgu-video-<name>, letters, digits, - _ .
+const VIDEO_FILE = /^\/dev\/shm\/mgu-video-[A-Za-z0-9_-][A-Za-z0-9_.-]{0,63}$/;
+const videoSide = (v) => isIndex(v) && v >= 16 && v <= 2048;
+/** status.player.video: { file, width, height } while a video's picture is there, else null (also for garbage: R1) */
+function cleanVideo(v) {
+    if (!isObj(v) || typeof v.file !== 'string' || !VIDEO_FILE.test(v.file) || !videoSide(v.width) || !videoSide(v.height)) return null;
+    return { file: v.file, width: v.width, height: v.height };
 }
 function cleanPlayer(p) {
     if (!isObj(p)) return null;
@@ -112,6 +124,7 @@ function cleanPlayer(p) {
         queueLength: isNum(p.queueLength) ? p.queueLength : 0,
         quality: typeof p.quality === 'string' ? p.quality : null,
         error: typeof p.error === 'string' ? p.error : null,
+        video: cleanVideo(p.video),
         skipped: Array.isArray(p.skipped) ? p.skipped.filter((k) => isObj(k) && isNum(k.id) && k.id > 0).map((k) => ({ id: k.id, error: typeof k.error === 'string' ? k.error : '' })) : [],
     };
 }
@@ -451,4 +464,4 @@ function area(s) {
 }
 
 module.exports = { SCREENS: SCREENS, ERRORS: ERRORS, initial: initial, reduce: reduce, top: top, wantsLoginCode: wantsLoginCode, trackOn: trackOn, seekable: seekable,
-    area: area, speller: speller, playable: playable, NO_SERVICE_TEXT: NO_SERVICE_TEXT, MOVING_TEXT: MOVING_TEXT };
+    area: area, speller: speller, playable: playable, cleanVideo: cleanVideo, NO_SERVICE_TEXT: NO_SERVICE_TEXT, MOVING_TEXT: MOVING_TEXT };

@@ -7,8 +7,13 @@
  * Where the kit runs the screen (mgu-render/1, full-screen layout), kitfocus.js gives the controller to the app's rule
  * (nav.js) and keeps the kit's focus where the app's is; the header's tabs (pages.js) go into each frame, the bar's
  * PLAY / PAUSE word follows the player (ctx.ui.text).
+ * A music video (contract 4) shows its picture on now playing where the GPU renderer speaks mgu-render/1 with video:
+ * status.player.video's frame file is named to the renderer and drawn with op 19 (kit.video: the kit's renderd.js
+ * setVideo, videoOp; video.js decides), also while driving unless the setting "Picture only while parked" is on; a
+ * tap or a controller step shows title and seek bar over it for 4 s. "Video size" goes to the service as
+ * prefs {videoHeight}.
  *
- *   const app = createApp(ctx, { socketPath, parked, setImage, decodeJpeg, pollMs });
+ *   const app = createApp(ctx, { socketPath, parked, setImage, decodeJpeg, pollMs, video, statIno });
  *   app.state() / app.info()     the model's state, the last frame's hit areas
  *   app.input(ev) / app.act(a)   controller steps (nav.js) / acts (screens.js, nav.js)
  *   app.stop()
@@ -34,12 +39,16 @@ const { createCcu } = require('./ccu');
 const P = require('./pages');
 const { hookDisplay } = require('./kitfocus');
 const { createHmiBack } = require('./hmiback');
+const V = require('./video');
+const fs = require('fs');
 
 const W = 1600, H = 520;
 const POLL_MS = 1500;
 const TOAST_MS = 5000;
 const SLOW_MS = 15000;          // login-start, search, lists: TIDAL is behind them
 const QUALITIES = ['LOSSLESS', 'HIGH'];
+const VIDEO_HEIGHTS = [480, 720, 1080];
+const VID = 1;                  // the video's id at the renderer (its own id space)
 
 function createApp(ctx, kit) {
     const log = ctx.log;
@@ -51,6 +60,46 @@ function createApp(ctx, kit) {
     const progress = createProgress();
     const loading = {};                 // list requests on their way, by frame key + params
     const timers = [];
+
+    /* ---------- a video's picture (video.js) ---------- */
+    let picShown = false, named = null, overlayUntil = 0, ino = null;
+    /** what draws here: 'video' (mgu-render/1 with video, on screen), 'old' (mgu-render/1 without), 'none' (software) */
+    function renderer() {
+        const g = disp && disp.gpu;
+        try {
+            if (!kit.video || !g || !g.ready || !g.native || (typeof disp.active === 'function' && !disp.active())) return 'none';
+        } catch (e) { return 'none'; }
+        return g.info && g.info.video ? 'video' : 'old';
+    }
+    /** the picture for this frame: { show, note }; the renderer is told the frame file when it changes, or that it is gone */
+    function picture() {
+        const p = s.player, v = p && p.video;
+        let d = { show: false, note: null };
+        if (s.screen === 'NOW_PLAYING' && v && p.track && !P.message(s)) {
+            d = V.decide({ video: v, renderer: renderer(), parkedOnly: ctx.settings.get('videoParkedOnly') === true, moving: !!(kit.parked && kit.parked.moving()) });
+        }
+        // named again for another video (a new player writes the file anew)
+        const key = d.show ? v.file + '|' + p.track.id + '|' + p.queueIndex : null;
+        if (key !== named) {
+            named = key;
+            ino = null;
+            try { kit.video.setVideo(VID, key ? v.file : null); } catch (e) { log.warn('video: ' + e); }
+        }
+        picShown = d.show;
+        return d;
+    }
+    const overlayOn = () => now() < overlayUntil || !!(s.player && s.player.state === 'paused');
+    function showOverlay() { overlayUntil = now() + V.OVERLAY_MS; render(); }
+    /** the player made the frame file anew (a seek: a new player): named again at the next frame */
+    const statIno = kit.statIno || ((f) => { try { return fs.statSync(f).ino; } catch (e) { return null; } });
+    function checkFile() {
+        const v = s.player && s.player.video;
+        if (!picShown || !named || !v) return;
+        const i = statIno(v.file);
+        if (i != null && ino != null && i !== ino) named = 'again';
+        if (i != null) ino = i;
+    }
+    const drawPicture = (cv, x, y, w, h) => kit.video.videoOp(cv, VID, x, y, w, h);
 
     /* ---------- drawing ---------- */
     function render() { if (loopHandle && loopHandle.kick) loopHandle.kick(); }
@@ -64,7 +113,9 @@ function createApp(ctx, kit) {
             const tb = P.tabs(s);
             if (cv.chrome) cv.chrome.tabs = { tabs: tb.tabs, sel: tb.sel, badges: [] };
             if (kf) kf.sync();
-            info = S.draw(cv, t, s, { now: now(), act: act, cover: covers.get, thumb: thumbs.get, position: tg != null ? tg : p.pos, seeking: tg != null, duration: p.dur, volume: vol, toastUntil: toastUntil });
+            const pic = picture(), v = s.player && s.player.video;
+            info = S.draw(cv, t, s, { now: now(), act: act, cover: covers.get, thumb: thumbs.get, position: tg != null ? tg : p.pos, seeking: tg != null, duration: p.dur, volume: vol, toastUntil: toastUntil,
+                video: pic.show ? { w: v.width, h: v.height, overlay: overlayOn(), draw: drawPicture } : null, videoNote: pic.note });
         } catch (e) { log.warn('draw: ' + (e && e.stack || e)); }
         return ctx.ui.image('MAIN_GFX', cv);
     }
@@ -142,7 +193,7 @@ function createApp(ctx, kit) {
     const onBar = (x, y) => { const h = s.screen === 'NOW_PLAYING' ? N.hitAt(info, { x: x, y: y }) : null; return h && h.bar ? h.bar : null; };
 
     /* ---------- polling ---------- */
-    let polling = false, qualitySent = false;
+    let polling = false, qualitySent = false, heightSent = false;
     function poll() {
         if (polling || stopped) return;
         polling = true;
@@ -154,6 +205,9 @@ function createApp(ctx, kit) {
                 // the app's setting is the one that counts: sent once when the service has another
                 const q = ctx.settings.get('quality'), has = s.service.prefs && s.service.prefs.quality;
                 if (!qualitySent && has && QUALITIES.indexOf(q) >= 0 && q !== has) { qualitySent = true; sendQuality(); }
+                const hv = videoHeight(), hasV = s.service.prefs && s.service.prefs.videoHeight;
+                if (!heightSent && hv && typeof hasV === 'number' && hv !== hasV) { heightSent = true; sendVideoHeight(); }
+                checkFile();
             } else if (a.error === 'no-service') dispatch({ type: 'no-service' });
             audio.update(s.player);
             dispatch({ type: 'tick', now: now() });
@@ -167,11 +221,20 @@ function createApp(ctx, kit) {
     function act(a) {
         if (!a || typeof a !== 'object') return;
         switch (a.type) {
-            case 'play':
+            case 'play': {
                 audio.userPlay();
-                // the screen stays (U1): the playing mark moves to the track; the list it came from is kept
-                command('play', { tracks: a.tracks, index: a.index }).then((r) => { if (r.ok) dispatch({ type: 'played', queue: a.queue }); });
+                // the screen stays (U1): the playing mark moves to the track; the list it came from is kept. A video
+                // goes to now playing (it is watched); `kinds` says which ids are videos (contract 4)
+                const req = { tracks: a.tracks, index: a.index };
+                if (Array.isArray(a.kinds)) req.kinds = a.kinds;
+                command('play', req).then((r) => {
+                    if (!r.ok) return;
+                    dispatch({ type: 'played', queue: a.queue });
+                    if (a.watch) dispatch({ type: 'open-now-playing' });
+                });
                 return;
+            }
+            case 'video-overlay': showOverlay(); return;
             case 'control':
                 if (a.cmd !== 'pause' && a.cmd !== 'stop') audio.userPlay();
                 command(a.cmd);
@@ -191,7 +254,11 @@ function createApp(ctx, kit) {
             default: dispatch(a);
         }
     }
-    function input(ev) { N.input(s, info, ev).forEach(act); }
+    function input(ev) {
+        // over a video's picture any step of the controller or a tap also brings up title and seek bar
+        if (picShown) showOverlay();
+        N.input(s, info, ev).forEach(act);
+    }
     function playPause() { const cmd = NP.playPause(s.player); if (cmd) act({ type: 'control', cmd: cmd }); }
     function barPress(id) {
         if (id === 'BTN_PLAY') playPause();
@@ -279,7 +346,14 @@ function createApp(ctx, kit) {
         const q = ctx.settings.get('quality');
         if (QUALITIES.indexOf(q) >= 0) ask('prefs', { quality: q });
     }
-    if (ctx.settings.onChange) ctx.settings.onChange((k) => { if (k === 'quality') sendQuality(); });
+    /** the "Video size" setting as a number (480, 720, 1080), null when it is none of them */
+    function videoHeight() { const n = Number(ctx.settings.get('videoHeight')); return VIDEO_HEIGHTS.indexOf(n) >= 0 ? n : null; }
+    /** sent only to a service that has video (its prefs carry videoHeight) */
+    function sendVideoHeight() {
+        const n = videoHeight();
+        if (n && s.service.prefs && typeof s.service.prefs.videoHeight === 'number') ask('prefs', { videoHeight: n });
+    }
+    if (ctx.settings.onChange) ctx.settings.onChange((k) => { if (k === 'quality') sendQuality(); else if (k === 'videoHeight') sendVideoHeight(); });
 
     // the playing track on the instrument cluster, where cluster-render is installed (it runs itself and ends with the app)
     require('./cluster').forApp(ctx, kit, { request: (cmd, p) => ask(cmd, p, SLOW_MS), player: () => s.player, speakers: () => audio.state(), stopped: () => stopped });
