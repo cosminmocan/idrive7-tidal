@@ -69,6 +69,26 @@ function kitRings(h) {
     return out.filter((q) => q.lw === 6);
 }
 
+test('the bar spans the screen: its buttons share the width right of the back arrow column equally (the owner, 2026-11-28: "about half the width")', async () => {
+    const h = await start();
+    try {
+        assert.ok(h.disp.own(), 'the kit runs the screen');
+        const b = h.disp.buttons(), HMI = require('../kit/runtime/display').HMI;
+        assert.strictEqual(b.length, 3);
+        assert.strictEqual(b[0].x, HMI.left, 'the first starts at the back arrow column');
+        const end = b[2].x + b[2].w;
+        assert.strictEqual(end, HMI.screen.w, 'the last ends at the screen\'s right edge');
+        b.forEach((q, i) => {
+            assert.ok(Math.abs(q.w - (HMI.screen.w - HMI.left) / 3) <= 1, 'button ' + i + ' a third wide: ' + q.w);
+            if (i) assert.strictEqual(q.x, b[i - 1].x + b[i - 1].w, 'button ' + i + ' follows the one before');
+        });
+        // a tap in the right third presses NEXT
+        const pl = h.disp.place, sy = pl.h - h.disp.barH() + 10;
+        const hit = h.disp.buttons().find((q) => 1800 >= q.x - pl.x && 1800 < q.x - pl.x + q.w);
+        assert.strictEqual(hit && hit.id, 'BTN_NEXT', 'x 1800 is on NEXT (y ' + sy + ')');
+    } finally { await h.done(); }
+});
+
 test('the bar: PREVIOUS, PAUSE (PLAY when nothing plays), NEXT, on every screen; nothing else in it', async () => {
     const h = await start();
     try {

@@ -796,7 +796,8 @@ function headerCompact(cv, t, x, y, w, h, title, tabs, sel, badges) {
  * variant: 'slim' (the full-screen layout's bar, any height, e.g. 48) or 'standard' (120).
  */
 function menuBar(cv, t, x, y, w, h, buttons, focus, variant, flash) {
-    const std = variant === 'standard', u = h / (std ? 120 : 48);
+    // slim: the labels grow with a taller bar only up to 60 px (display.js makes it taller to meet the page)
+    const std = variant === 'standard', u = std ? h / 120 : Math.min(h, 60) / 48;
     const sel = t.sel || t.accent;
     cv.fillRect(x, y, w, h, t.bg);
     cv.gradientRect(x, y, w, h, [[0, withAlpha('#ffffff', 0.09)], [1, withAlpha('#ffffff', 0.03)]]);

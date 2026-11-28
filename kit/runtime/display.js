@@ -407,7 +407,7 @@ class Display {
         const pl = this.place, k = pl.scale;
         if (p.tab != null) return ((this.chromeRec && this.chromeRec.tabRects) || []).find((q) => q.i === p.tab) || null;
         if (p.tgt) return { x: p.tgt.x * k + pl.ox, y: p.tgt.y * k + pl.oy, w: p.tgt.w * k, h: p.tgt.h * k };
-        if (p.bar) { const b = this.buttons().find((q) => q.id === p.bar); return b ? { x: b.x - this.barOff - pl.x, y: pl.h - this.barH(), w: b.w, h: this.barH() } : null; }
+        if (p.bar) { const b = this.buttons().find((q) => q.id === p.bar); return b ? { x: b.x - this.barOff - pl.x, y: this.barTop(), w: b.w, h: pl.h - this.barTop() } : null; }
         if (p.scroll) { const hx = HMI.left - pl.x; return { x: hx, y: this.headH(), w: pl.w - hx, h: pl.h - this.barH() - this.headH() }; }
         return null;
     }
@@ -463,7 +463,7 @@ class Display {
         }
         if (this.own()) {
             const pl = this.place, sx = x * pl.scale + pl.ox, sy = y * pl.scale + pl.oy;
-            const bar = sy >= pl.h - this.barH() ? this.buttons().find((b) => sx >= b.x - this.barOff - pl.x && sx < b.x - this.barOff - pl.x + b.w) : null;
+            const bar = sy >= this.barTop() ? this.buttons().find((b) => sx >= b.x - this.barOff - pl.x && sx < b.x - this.barOff - pl.x + b.w) : null;
             // the header's tabs (Settings among them) work over a sheet too
             const tab = !bar && (this.tabs || []).find(inside);
             const tgt = !bar && !tab && !this.sheet ? (this.pageTargets || []).find(inside) : null;
@@ -598,6 +598,13 @@ class Display {
                 ox: HMI.left + Math.round((w - src.w * s) / 2 - src.x * s),
                 oy: Math.round(this.headH() + (ah - src.h * s) / 2 - src.y * s),
             };
+            // a bar under the page: the page right under the header and the bar taller by the height left over,
+            // so no dead strip shows between the page and the bar (idrive7-tidal, 2026-11-28: a 1920 x 720 screen
+            // fits the page by its width, and the ~31 px over were split above and below it)
+            if (this.barH() && ah - src.h * s >= 1) {
+                pl.oy = Math.round(this.headH() - src.y * s);
+                pl.barTop = Math.min(h - FULL.barH, Math.round(pl.oy + (src.y + src.h) * s));
+            }
             // no bar under the page (the kit's, emptied): a page that reaches down (its panels, a sheet: it reads
             // extra, logical px below the app's 520, G.panel) starts where it does over the slim bar, and its
             // panels go on down to the screen's bottom; any other stays centred (_reach picks one for each frame)
@@ -879,11 +886,11 @@ class Display {
         c.fillRect(sx, 0, W - sx, FULL.headH, HMI.headBg);
         c.fillRect(sx, FULL.headH - 2, W - sx, 2, G.withAlpha('#ffffff', 0.22));
         // slim bar: each label over its HMI button
-        const by = H - this.barH();
+        const by = this.barTop();
         const btns = this.buttons().map((b) => ({ id: b.id, label: b.label, x: b.x - this.barOff - pl.x, w: b.w }));
         const flash = this.pressed && Date.now() - this.pressedT < 300 ? btns.findIndex((b) => b.id === this.pressed) : -1;
         const focus = btns.findIndex((b) => b.id === this.focused);
-        if (btns.length && this.barH()) G.menuBar(c, t, 0, by, W, FULL.barH, btns, focus, 'slim', flash);
+        if (btns.length && this.barH()) G.menuBar(c, t, 0, by, W, H - by, btns, focus, 'slim', flash);
         // the HMI's status icons and its back arrow column (home button, back arrow) show through;
         // the column under them is covered, so the HMI's own bar doesn't show at the bottom left, nor the
         // mark the HMI draws above it when its bar is wider than the screen (eDrive's "Reset drive totals")
@@ -927,6 +934,13 @@ class Display {
         // the kit's bar with nothing left on it (its buttons on the page, Settings a tab): no bar
         return this.ownable() && !this.buttons().length ? 0 : FULL.barH;
     }
+    /** Top of the slim bar in the surface's pixels: right under the page where the placement put it there
+     *  (place.barTop), else barH() above the bottom */
+    barTop() {
+        const pl = this.place;
+        if (!pl || !this.barH()) return pl ? pl.h : 0;
+        return pl.barTop != null ? pl.barTop : pl.h - this.barH();
+    }
     /** Leave bar button id out where the kit runs the screen (the app draws it on the page there). */
     hideButton(id) {
         this.ownHidden.add(id); this._btns = null;
@@ -953,6 +967,13 @@ class Display {
             x += w;
             return r;
         });
+        // where the kit runs the screen the bar is its own (taps and the controller come here, not to the HMI's
+        // buttons under it): its buttons share the width right of the back arrow column equally (idrive7-tidal,
+        // 2026-11-28: at the HMI's places they took about half of it)
+        if (own && this._btns.length) {
+            const n = this._btns.length, span = HMI.screen.w - HMI.left;
+            this._btns.forEach((r, i) => { r.x = HMI.left + Math.round(span * i / n); r.w = HMI.left + Math.round(span * (i + 1) / n) - r.x; });
+        }
         return this._btns;
     }
 

@@ -31,7 +31,9 @@ const SW = 1920, SH = 720, HEAD = 80, BAR = 48, LEFT = 84, STATUS_X = 1340;
 const SRC = { x: 12, y: 38, w: 1576, h: 482 };
 const K = Math.floor(Math.min((SW - LEFT) / SRC.w, (SH - HEAD - BAR) / SRC.h) * 1000) / 1000;
 const OX = LEFT + Math.round((SW - LEFT - SRC.w * K) / 2 - SRC.x * K);
-const OY = Math.round(HEAD + (SH - HEAD - BAR - SRC.h * K) / 2 - SRC.y * K);
+// display.js _place: with a bar, the page right under the header and the bar down from the page's bottom
+const OY = Math.round(HEAD - SRC.y * K);
+const BAR_TOP = Math.min(SH - BAR, Math.round(OY + (SRC.y + SRC.h) * K));
 
 const T = themes.theme(process.env.THEME || 'm_tricolour');
 const FOCUS = T.sel || T.accent;
@@ -109,9 +111,9 @@ const ICON = {
 
 /* ---------- the frame: BMW's strip and column (sketched), the kit's header and bar ---------- */
 function barButtons(labels) {
-    const m = new Canvas(1, 1);
-    let x = 132;                                       // display.js HMI7.btn: from x 132, each its label + 180 px
-    return labels.map((l) => { const w = Math.round(m.textWidth(l, 40, { font: 'label', literal: true }) * 1.465) + 180; const r = { label: l, x: x, w: w }; x += w; return r; });
+    // display.js buttons(): where the kit runs the screen, equal shares of the width right of the back column
+    const n = labels.length, span = SW - LEFT;
+    return labels.map((l, i) => { const x = LEFT + Math.round(span * i / n); return { label: l, x: x, w: LEFT + Math.round(span * (i + 1) / n) - x }; });
 }
 function hmiStrip(cv) {
     cv.fillRect(0, 0, SW, HEAD, '#000000');
@@ -140,7 +142,7 @@ function chrome(cv, opt) {
         const ft = opt.tabFocus != null && (cv.tabRects || []).filter((q) => q.i === opt.tabFocus)[0];
         if (ft) { cv.strokeRoundRect(ft.x + 1, ft.y + 7, ft.w - 2, ft.h - 14, 12, 5, a(FOCUS, 0.28)); cv.strokeRoundRect(ft.x + 4, ft.y + 10, ft.w - 8, ft.h - 20, 10, 2.5, FOCUS); }
     }
-    if (opt.bar && opt.bar.length) G.menuBar(cv, T, 0, SH - BAR, SW, BAR, barButtons(opt.bar), opt.barFocus == null ? -1 : opt.barFocus, 'slim', -1);
+    if (opt.bar && opt.bar.length) G.menuBar(cv, T, 0, BAR_TOP, SW, SH - BAR_TOP, barButtons(opt.bar), opt.barFocus == null ? -1 : opt.barFocus, 'slim', -1);
 }
 const TABS = ['Library', 'Now playing', 'Settings'];
 const TRANSPORT = (playing) => ['Previous', playing === false ? 'Play' : 'Pause', 'Next'];
