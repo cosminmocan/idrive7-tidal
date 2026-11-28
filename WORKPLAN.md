@@ -24,6 +24,9 @@ has not seen the earlier discussion can pick up any task.
 
 ### Resume here (next session)
 
+**Now: phase 3** (in section 9: "Phase 3: after the second car check"), waiting for the owner's go, the silent-state
+QR log (A1) and the car's signal list (K6a).
+
 **Phase 2 progress:** E0 done 2026-11-27 (all 276 author/committer entries are the no-reply address, content
 identical, force-pushed; an old pushed commit is still fetchable by its exact id until GitHub's cleanup: ask GitHub
 Support before the repository is ever public again). Q0 done (contract 3: `seek`, `log`, `MGU_START_MS`). The
@@ -995,6 +998,36 @@ MPEG-TS H.264 + AAC in the car: the car's Intel Media SDK decodes into mgu-rende
 
 **Tests first** in each task as in section 3. **What only the car can prove:** the Intel Media SDK decode, the
 frame file shown by the real mgu-render (a replay test as C1's covers the drawing), smoothness, the CPU budget.
+
+### Phase 3: after the second car check (planned 2026-11-28; the owner's priorities)
+
+Results: docs/car-log.md, "second install". **Nothing here starts before the owner's go.**
+
+| Task | What | Depends on | In parallel with | Needs the owner |
+|---|---|---|---|---|
+| **A1** | No sound after a car start until a BMW source was chosen | **the QR log taken while silent** (it now holds the service's lines and the speaker lines) | K6, V1, U2 | the log; answers: does the position move, is there a mute sign, what was the last source before the car was switched off |
+| **K6a** | The cluster card must not override the driver's menu choice: shown **only while the media widget is the one selected** (the owner's choice, option a) | a way to know the selected widget: **the car's signal list** (`/etc/oap/someip/someip-interfaces.json`, task S4, never done) | K6b, V1, U2 | one `scp` of that file (or the Live Data app's "Signal Hunter" while switching the widget) |
+| **K6b** | A progress bar with the times on the cluster card | nothing | K6a (same file: one agent does both), V1, U2 | car check |
+| **V1** | Video (V0, V1a to V1e above) | the owner's go | A1, K6, U2 | car check |
+| **L1a** | Lossless step 1: the PKCE login tried once at the Mac | nothing | everything | 5 minutes |
+| **U2** | Lists scroll by finger (low priority) | nothing; after K6 and V1's app part to avoid the same files | A1 | car check |
+
+**A1 (how):** first the evidence, no guessing. From the log: the speaker lines (`car audio: connect ...`), the
+volume and mute lines, the service's player lines (`audio` open or busy, dropped sound). Then a failing test with the
+fake audio manager that reproduces what the log shows, then the fix (if it is the muted or sleeping entertainment:
+wake or unmute it when we connect, and never when the driver muted it himself), then the car check: start the car,
+open TIDAL, play: sound without touching another source.
+
+**K6a (how):** (1) research with the car's signal list: is there a field that says which content the right dial
+shows (cluster-render reports only its own `panel` slot, not the widget slot 0x200); (2) if yes: tests first (the
+card shown only while that field says media; dropped within a second when the driver selects something else; back
+when media is selected again), then the code in `apps/cmocan_tidal/cluster.js`; (3) **if the car does not say it:
+tell the owner; the fallback is option b** (the card for a few seconds at each track change, then the widget is the
+car's again). Until K6a is released the owner can switch the card off: Settings, "Show the track on the instrument
+cluster".
+
+**K6b (how):** a thin bar with elapsed and total time under the artist, on a small layer of its own (a whole-card
+frame each second would be 870 KB a second); tests first with the stand-in cluster-render.
 
 ### Releases and car checks in this phase
 

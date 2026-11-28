@@ -30,3 +30,18 @@ Also in the log:
   app; noise.
 - The renderer: `mgu-render/1 {"touch":true,"controller":true,"frontGate":true}`, 1920x720, full-screen layout.
 - Speakers: `car audio: connect {"mainConnectionID":3,"amError":"E_OK"}`; released and taken again once (17:06:15).
+
+## 2026-11-27/28: second install (service 0.1.2, app 0.1.1)
+
+Reported by the owner; no QR log from this visit yet.
+
+| # | Seen in the car | Verdict |
+|---|---|---|
+| 1 | The FLAC setting still changes nothing | expected: lossless needs the PKCE login (L1a, L1b), not built |
+| 2 | The cluster shows the cover and the title (**K5 works**, cluster-render installed), but no progress bar as BMW's own media has | a request: K6 |
+| 3 | **No sound until the car's own storage music was selected once; once per car start** | **a bug** (A1). Cause not known: the log taken while silent is needed. Guess: after a start the entertainment is off or muted (the last source was ours, which the car cannot restore), and our connect is accepted without sound |
+| 4 | Video does not work | not built (V1) |
+| 5 | Lists do not scroll by finger; the seek bar takes touch | not built (U2, low priority); **seek by touch works** |
+| 6 | **The cluster's menu cannot be changed: it switches back to the song card** | **a bug** (K6). Our card is on cluster-render's `panel` target, and "while `panel` is shown the cluster takes the stock HMI's media widget (slot 0x200) off screen" (cluster-render README): the card wins over whatever the driver selects while a track plays |
+
+Album art (C1) shows: confirmed by the owner's point 2 for the cluster; on the centre screen not said.
