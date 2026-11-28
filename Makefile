@@ -64,6 +64,22 @@ test-player:
 	@$(MAKE) -s -C native/tidal-player target asan
 	@sh native/tidal-player/tools/test-player.sh
 
+# the video player (task V1a): built in Docker, ubuntu:18.04 amd64, and checked for the unit (x86-64, glibc <= 2.27,
+# only libc/libm/libdl/libpthread/librt linked; libasound, libmfxhw64, libva, libva-drm opened at run time); see
+# native/tidal-video/README.md
+.PHONY: video-player test-video-player
+video-player:
+	@$(MAKE) -s -C native/tidal-video target check-target
+
+# its tests (tests/video_player*.test.js) against the binary and its ASan/UBSan build, in ubuntu:18.04 amd64 with
+# Node 8.10 and ffmpeg 3.4 (the clips are made there); the music player decodes the reference sound. In `make test`
+# they skip
+test-video-player:
+	@$(MAKE) -s -C native/tidal-player target
+	@$(MAKE) -s -C native/tidal-video target asan
+	@docker image inspect tidal-video-test:1 >/dev/null 2>&1 || sh native/tidal-video/build.sh image
+	@sh native/tidal-video/tools/test-video.sh
+
 # the install packages (task I2, docs/INSTALL.md): dist/idrive7-tidal/ (catalog.json, the tool kit, the app, its
 # icon), checked (check-target on the player inside, kingfisher, mgu-store's usb-repo, tests/dist.test.js); mgu-store
 # is cloned into build/mgu-store at a fixed commit (MGU_STORE=<a checkout> to use another, tools/dist.sh)
