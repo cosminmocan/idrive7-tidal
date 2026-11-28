@@ -101,9 +101,15 @@ hooks:
 test-hooks:
 	@sh tools/test-git-hooks.sh && sh tools/test-scan-dist.sh && sh tools/test-repo-email.sh
 
-# build, bump the patch of what changed, test, commit, push, publish the Store's catalog release (tools/release.sh)
+# build, bump the patch of what changed, test, commit, push, publish the Store's catalog release (tools/release.sh);
+# first the release gate: make test, test-player, test-video-player and e2e as x86-64 (tools/release-gate.sh)
 release:
 	@sh tools/release.sh
+
+# the gate's refusal, with stubs in a scratch repository (on the Mac: git and sh; nothing is published)
+.PHONY: test-release-gate
+test-release-gate:
+	@sh tools/test-release-gate.sh
 
 # I3, the long run: 2 hours of the real service, client and player with random faults, detached (tools/e2e/soak.sh);
 # the verdict lands in build/soak/report.json. A shorter one: make soak SOAK_SECONDS=600

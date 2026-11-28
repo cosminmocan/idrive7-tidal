@@ -4,6 +4,8 @@
 # layout, patch versions bumped automatically, nothing secret ever leaves this computer.
 #
 #   1. refuses unless on main, with a clean tree, level with origin/main: what is published is what is committed;
+#   1b. the release gate (tools/release-gate.sh, task T1): make test, test-player, test-video-player and e2e as
+#      x86-64, the car's CPU; refuses if any fails, before anything is asked of GitHub, built or published;
 #   2. make dist, and the published catalog.json (none before the first release);
 #   3. tools/release.js plan: a component whose new package differs from the published one at the same version
 #      gets the next patch (builds are byte-identical, so "differs" means "changed"); applied, rebuilt, planned
@@ -22,6 +24,8 @@ OUT=dist/idrive7-tidal
 [ -z "$(git status --porcelain)" ] || { echo "release: commit or remove the changes first (git status)" >&2; exit 1; }
 git fetch -q origin main
 [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || { echo "release: main is not level with origin/main" >&2; exit 1; }
+
+sh tools/release-gate.sh || { echo "release: refused: the tests failed as x86-64 (the car's CPU); nothing was published" >&2; exit 1; }
 
 PUB=build/published-catalog.json
 rm -f "$PUB"; mkdir -p build
