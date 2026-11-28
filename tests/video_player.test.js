@@ -311,6 +311,50 @@ test('1080p H.264 High: the frame file is 1920x1080', () => {
     });
 }, T);
 
+/** the HLS segments of clip720 (seg/v.m3u8): [{file, start}] with each one's position from the playlist */
+function segments() {
+    let at = 0;
+    const out = [];
+    fs.readFileSync(path.join(CLIPS, 'seg', 'v.m3u8'), 'utf8').split('\n').reduce((dur, line) => {
+        const m = /^#EXTINF:([0-9.]+)/.exec(line);
+        if (m) return Number(m[1]);
+        if (/\.ts$/.test(line.trim())) { out.push({ file: path.join(CLIPS, 'seg', line.trim()), start: at }); at += dur; }
+        return dur;
+    }, 0);
+    assert(out.length >= 3, 'segments: ' + JSON.stringify(out));
+    return out;
+}
+
+test('HLS segments one after another: from the first, the same pictures and sound as the whole clip; from the third with MGU_BASE_MS, positions go on from there', () => {
+    const segs = segments();
+    const name = shmName(), file = shmFile(name), out = wavPath();
+    const h = startVideo({ MGU_AUDIO: 'wav:' + out, MGU_VIDEO: 'shm:' + name });
+    h.feed(Buffer.concat(segs.map((s) => fs.readFileSync(s.file))));
+    return ended(h, h.done).then((r) => {
+        P.assertClean(r, h);
+        assert.strictEqual(r.code, 0, r.stderr);
+        const hd = readFrameFile(file);
+        assert(hd.seq + ticks(h).pop().vdropped >= 97, 'pictures: ' + hd.seq);
+        assert.strictEqual(whichFrame(hd.picture, refFrames('clip720.ts', 98, 99, 1280, 720)).n, 99, 'the last picture');
+        return referenceSound('clip720.adts');
+    }).then((ref) => {
+        assertSameSound(P.readWav(out), ref, 0, 'the segments from the first');
+        const base = segs[2].start, n2 = shmName();
+        const h2 = startVideo({ MGU_VIDEO: 'shm:' + n2, MGU_BASE_MS: String(Math.round(base * 1000)) });
+        h2.feed(Buffer.concat(segs.slice(2).map((s) => fs.readFileSync(s.file))));
+        return ended(h2, h2.done).then((r2) => {
+            P.assertClean(r2, h2);
+            assert.strictEqual(r2.code, 0, r2.stderr);
+            const t = ticks(h2);
+            assert(t[0].pos >= base && t[0].pos < base + 0.6, 'the first tick: ' + JSON.stringify(t[0]));
+            assert(t[t.length - 1].pos > 3.3 && t[t.length - 1].pos <= 4.2, 'the last tick: ' + JSON.stringify(t[t.length - 1]));
+            const hd = readFrameFile(shmFile(n2));
+            assert(hd.seq >= 45 && hd.seq <= 50, 'the last 2 s of pictures: ' + hd.seq);
+            assert.strictEqual(whichFrame(hd.picture, refFrames('clip720.ts', 98, 99, 1280, 720)).n, 99, 'the last picture');
+        });
+    });
+}, T);
+
 test('MGU_VIDEO=null: decoded and counted, no frame file', () => {
     const h = startVideo({ MGU_VIDEO: 'null' });
     h.feed(clip('clip720.ts'));
