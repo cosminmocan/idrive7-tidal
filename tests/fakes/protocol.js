@@ -9,7 +9,10 @@ const COMMANDS = ['status', 'login-start', 'login-cancel', 'logout', 'favorites'
     'mixes', 'mix', 'search', 'cover', 'play', 'pause', 'resume', 'next', 'prev', 'stop', 'seek', 'prefs', 'log', 'exit'];
 const ERROR_CODES = ['offline', 'not-logged-in', 'login-expired', 'not-found', 'not-available', 'rate-limited',
     'tidal-error', 'bad-request', 'busy'];
-const PLAYER_EVENTS = ['open', 'audio', 'tick', 'end', 'error'];
+const PLAYER_EVENTS = ['open', 'audio', 'video', 'tick', 'end', 'error'];
+const ITEM_KINDS = ['track', 'video'];
+const VIDEO_HEIGHTS = [480, 720, 1080];
+const DEFAULT_VIDEO_HEIGHT = 720;
 const PLAYER_ERROR_CODES = ['input', 'decode', 'audio', 'internal'];
 const STATE_FILES = ['session', 'prefs', 'queue'];
 const LOGIN_ERRORS = ['login-expired', 'login-denied'];
@@ -45,6 +48,7 @@ function list(errs, o, k, itemFn) {
 
 /* ---------- the objects ---------- */
 function track(errs, t) {
+    oneOf(errs, t, 'kind', ITEM_KINDS, true);   // absent: a track
     int(errs, t, 'id', 1); nestr(errs, t, 'title');
     need(errs, Array.isArray(t.artists) && t.artists.every((a) => typeof a === 'string'), 'artists must be a list of strings');
     nullable(errs, t, 'album', () => need(errs, isObj(t.album) && isInt(t.album.id) && typeof t.album.title === 'string', 'album must be {id, title} or null'));
@@ -64,7 +68,7 @@ function mix(errs, m) { nestr(errs, m, 'id'); nestr(errs, m, 'title'); str(errs,
 
 /* ---------- control socket: requests ---------- */
 const REQUEST_PARAMS = {
-    favorites: (e, r) => { oneOf(e, r, 'kind', ['tracks', 'albums']); paging(e, r); },
+    favorites: (e, r) => { oneOf(e, r, 'kind', ['tracks', 'albums', 'videos']); paging(e, r); },
     playlists: (e, r) => paging(e, r),
     playlist: (e, r) => { nestr(e, r, 'uuid'); paging(e, r); },
     album: (e, r) => { int(e, r, 'albumId', 1); paging(e, r); },
@@ -75,9 +79,10 @@ const REQUEST_PARAMS = {
     play: (e, r) => {
         if (need(e, Array.isArray(r.tracks) && r.tracks.length > 0 && r.tracks.length <= 1000 && r.tracks.every((t) => isInt(t) && t > 0), 'tracks must be 1 to 1000 track ids')) {
             int(e, r, 'index', 0, r.tracks.length - 1);
+            if (r.kinds !== undefined) need(e, Array.isArray(r.kinds) && r.kinds.length === r.tracks.length && r.kinds.every((k) => ITEM_KINDS.indexOf(k) >= 0), 'kinds must name track or video for every id in tracks');
         }
     },
-    prefs: (e, r) => { oneOf(e, r, 'quality', QUALITIES, true); },
+    prefs: (e, r) => { oneOf(e, r, 'quality', QUALITIES, true); oneOf(e, r, 'videoHeight', VIDEO_HEIGHTS, true); },
     seek: (e, r) => { num(e, r, 'position', 0); },
     log: (e, r) => { int(e, r, 'lines', 1, MAX_LOG_LINES, true); },
 };
@@ -115,11 +120,17 @@ function status(errs, s) {
         int(errs, p, 'queueIndex', -1); int(errs, p, 'queueLength', 0);
         nullable(errs, p, 'quality', () => oneOf(errs, p, 'quality', QUALITIES));
         nullable(errs, p, 'error', () => oneOf(errs, p, 'error', ERROR_CODES.concat(PLAYER_ERROR_CODES)));
+        if (p.video !== undefined && p.video !== null) {
+            if (need(errs, isObj(p.video), 'player.video must be {file, width, height} or null')) {
+                need(errs, typeof p.video.file === 'string' && p.video.file[0] === '/', 'player.video.file must be an absolute path');
+                int(errs, p.video, 'width', 16, 2048); int(errs, p.video, 'height', 16, 2048);
+            }
+        }
         if (need(errs, Array.isArray(p.skipped), 'player.skipped must be a list ([] when none)')) {
             p.skipped.forEach((k, i) => need(errs, isObj(k) && isInt(k.id) && k.id > 0 && ERROR_CODES.indexOf(k.error) >= 0, 'player.skipped[' + i + '] must be {id, error}'));
         }
     }
-    if (need(errs, isObj(s.prefs), 'state.prefs must be an object')) oneOf(errs, s.prefs, 'quality', QUALITIES);
+    if (need(errs, isObj(s.prefs), 'state.prefs must be an object')) { oneOf(errs, s.prefs, 'quality', QUALITIES); oneOf(errs, s.prefs, 'videoHeight', VIDEO_HEIGHTS, true); }
     nestr(errs, s, 'version');
 }
 const listAnswer = (itemFn) => (e, a) => { list(e, a, 'items', itemFn); int(e, a, 'total', 0, undefined, true); bool(e, a, 'stale', true); };
@@ -134,7 +145,7 @@ const ANSWER_FIELDS = {
     mix: listAnswer(track),
     search: listAnswer(track),
     cover: (e, a) => { oneOf(e, a, 'mime', ['image/jpeg']); if (nestr(e, a, 'data')) need(e, /^[A-Za-z0-9+/]+=*$/.test(a.data), 'data must be base64'); },
-    prefs: (e, a) => { if (need(e, isObj(a.prefs), 'prefs must be an object')) oneOf(e, a.prefs, 'quality', QUALITIES); },
+    prefs: (e, a) => { if (need(e, isObj(a.prefs), 'prefs must be an object')) { oneOf(e, a.prefs, 'quality', QUALITIES); oneOf(e, a.prefs, 'videoHeight', VIDEO_HEIGHTS, true); } },
     log: (e, a) => { need(e, Array.isArray(a.lines) && a.lines.length <= MAX_LOG_LINES && a.lines.every((l) => typeof l === 'string'), 'lines must be at most ' + MAX_LOG_LINES + ' strings'); },
 };
 
@@ -155,9 +166,11 @@ function validateAnswer(cmd, a) {
 
 /* ---------- player events ---------- */
 const EVENT_FIELDS = {
-    open: (e, v) => { oneOf(e, v, 'codec', ['flac', 'aac']); int(e, v, 'rate', 8000, 384000); int(e, v, 'channels', 1, 8); nullable(e, v, 'duration', () => num(e, v, 'duration', 0)); },
+    open: (e, v) => { oneOf(e, v, 'codec', ['flac', 'aac']); int(e, v, 'rate', 8000, 384000); int(e, v, 'channels', 1, 8); nullable(e, v, 'duration', () => num(e, v, 'duration', 0));
+        if (v.video !== undefined && need(e, isObj(v.video), 'open.video must be an object')) { oneOf(e, v.video, 'codec', ['h264']); int(e, v.video, 'width', 16, 2048); int(e, v.video, 'height', 16, 2048); } },
     audio: (e, v) => { oneOf(e, v, 'state', ['open', 'busy', 'error']); nestr(e, v, 'device'); str(e, v, 'message', true); },
-    tick: (e, v) => { num(e, v, 'pos', 0); oneOf(e, v, 'state', ['playing', 'paused', 'buffering']); num(e, v, 'buffered', 0); int(e, v, 'dropped', 0); },
+    video: (e, v) => { oneOf(e, v, 'state', ['open', 'error']); oneOf(e, v, 'decoder', ['msdk', 'sw']); int(e, v, 'width', 16, 2048, true); int(e, v, 'height', 16, 2048, true); str(e, v, 'file', true); str(e, v, 'message', true); },
+    tick: (e, v) => { num(e, v, 'pos', 0); oneOf(e, v, 'state', ['playing', 'paused', 'buffering']); num(e, v, 'buffered', 0); int(e, v, 'dropped', 0); int(e, v, 'vframes', 0, undefined, true); int(e, v, 'vdropped', 0, undefined, true); },
     end: () => {},
     error: (e, v) => { oneOf(e, v, 'code', PLAYER_ERROR_CODES); str(e, v, 'message'); },
 };
@@ -211,7 +224,7 @@ function sampleParams(cmd) {
 module.exports = {
     COMMANDS: COMMANDS, ERROR_CODES: ERROR_CODES, PLAYER_EVENTS: PLAYER_EVENTS, PLAYER_ERROR_CODES: PLAYER_ERROR_CODES,
     STATE_FILES: STATE_FILES, PLAYER_STATES: PLAYER_STATES, QUALITIES: QUALITIES, MAX_LIMIT: MAX_LIMIT,
-    LOGIN_ERRORS: LOGIN_ERRORS, DEFAULT_QUALITY: DEFAULT_QUALITY, MAX_LOG_LINES: MAX_LOG_LINES,
+    ITEM_KINDS: ITEM_KINDS, VIDEO_HEIGHTS: VIDEO_HEIGHTS, DEFAULT_VIDEO_HEIGHT: DEFAULT_VIDEO_HEIGHT, LOGIN_ERRORS: LOGIN_ERRORS, DEFAULT_QUALITY: DEFAULT_QUALITY, MAX_LOG_LINES: MAX_LOG_LINES,
     validateRequest: validateRequest, validateAnswer: validateAnswer, validatePlayerEvent: validatePlayerEvent,
     validateState: validateState, parsePlayerLine: parsePlayerLine, sampleParams: sampleParams,
 };

@@ -18,7 +18,13 @@ const EXIT = { ok: 0, input: 4, decode: 5, audio: 6 };
 function emit(ev) { process.stdout.write('MGU ' + JSON.stringify(ev) + '\n'); }
 
 let state = 'playing';
-let pos = Math.max(0, Number(process.env.MGU_START_MS || 0) / 1000);   // MGU_START_MS: playing starts at this position
+// MGU_BASE_MS: the position of the first byte it gets (a video started at a later segment); MGU_START_MS: where playing starts
+const BASE = Math.max(0, Number(process.env.MGU_BASE_MS || 0) / 1000);
+const END = BASE + SECONDS;
+let pos = Math.max(BASE, Number(process.env.MGU_START_MS || 0) / 1000);
+// MGU_VIDEO=shm:<name>: it also "shows" a picture (the video player's events; no frame file is written)
+const VIDEO = /^shm:/.test(process.env.MGU_VIDEO || '') ? '/dev/shm/mgu-video-' + process.env.MGU_VIDEO.slice(4) : null;
+let vframes = 0;
 let timer = null;
 
 function finish(code) { if (timer) clearInterval(timer); process.stdout.write('', () => process.exit(code)); }
@@ -49,14 +55,20 @@ process.stdin.on('data', (d) => chunks.push(d));
 process.stdin.on('end', () => {
     const input = Buffer.concat(chunks);
     if (process.env.FAKE_RECORD) fs.writeFileSync(process.env.FAKE_RECORD, input);
-    if (process.env.FAKE_ENV) fs.writeFileSync(process.env.FAKE_ENV, JSON.stringify({ MGU_START_MS: process.env.MGU_START_MS || null }));
+    if (process.env.FAKE_ENV) fs.writeFileSync(process.env.FAKE_ENV, JSON.stringify(Object.assign({ MGU_START_MS: process.env.MGU_START_MS || null },
+        process.env.MGU_BASE_MS ? { MGU_BASE_MS: process.env.MGU_BASE_MS } : {}, process.env.MGU_VIDEO ? { MGU_VIDEO: process.env.MGU_VIDEO } : {})));
     if (!input.length) { emit({ ev: 'error', code: 'input', message: 'empty input' }); return finish(EXIT.input); }
     const flac = input.slice(0, 4).toString('latin1') === 'fLaC';
-    emit({ ev: 'open', codec: flac ? 'flac' : 'aac', rate: 44100, channels: 2, duration: SECONDS });
+    const open = { ev: 'open', codec: flac ? 'flac' : 'aac', rate: 44100, channels: 2, duration: SECONDS };
+    if (VIDEO) open.video = { codec: 'h264', width: 1280, height: 720 };
+    emit(open);
     emit({ ev: 'audio', state: 'open', device: process.env.MGU_AUDIO || 'null' });
+    if (VIDEO) emit({ ev: 'video', state: 'open', decoder: 'sw', width: 1280, height: 720, file: VIDEO });
     timer = setInterval(() => {
-        if (state === 'playing') pos = Math.min(SECONDS, pos + 0.5);
-        emit({ ev: 'tick', pos: pos, state: state, buffered: 0, dropped: 0 });
-        if (pos >= SECONDS) { emit({ ev: 'end' }); finish(EXIT.ok); }
+        if (state === 'playing') { pos = Math.min(END, pos + 0.5); vframes += 12; }
+        const tick = { ev: 'tick', pos: pos, state: state, buffered: 0, dropped: 0 };
+        if (VIDEO) { tick.vframes = vframes; tick.vdropped = 0; }
+        emit(tick);
+        if (pos >= END) { emit({ ev: 'end' }); finish(EXIT.ok); }
     }, TICK_MS);
 });

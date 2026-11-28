@@ -52,10 +52,13 @@ at all gets `{"id": null, "ok": false, "error": "bad-request"}`.
 
 | Object | Fields |
 |---|---|
-| track | `id` (integer), `title`, `artists` (list of names), `album` (`{id, title}` or null), `coverId` (string or null), `duration` (whole seconds), `streamReady` (false: cannot be played), `explicit` |
+| track or video | `kind` (`track` or `video`; absent means track), `id` (integer), `title`, `artists` (list of names), `album` (`{id, title}` or null), `coverId` (string or null), `duration` (whole seconds), `streamReady` (false: cannot be played), `explicit` |
 | album | `id`, `title`, `artists`, `coverId`, `numberOfTracks` |
 | playlist | `uuid`, `title`, `numberOfTracks`, `coverId` |
 | mix | `id` (string), `title`, `subTitle` (optional), `coverId` |
+
+A **video** (a music video) is an item of the same shape with `kind: "video"`, `album` null and `coverId` its
+picture. Videos and tracks have separate id spaces at TIDAL, so `play` says which ids are videos (`kinds`).
 
 Text is as TIDAL sends it (UTF-8). Converting it for the car's fonts is the app's job (task D4).
 
@@ -90,6 +93,8 @@ Text is as TIDAL sends it (UTF-8). Converting it for the car's fonts is the app'
 | `player.state` | `idle`, `loading`, `playing`, `paused`, `buffering` or `error`; with `error`, `player.error` names it: a control-socket code (section 1), or a player code (`input`, `decode`, `audio`, `internal`, section 2). The app has a message for each |
 | `player.track` | the track playing, or null; the service looks it up when it does not know it from a list (after a restart) |
 | `player.quality` | what TIDAL granted for this track, which can be lower than `prefs.quality` |
+| `player.video` | while a video plays and its picture is there: `{file, width, height}`, the frame file the app gives to the renderer (`/dev/shm/mgu-video-cmocan-tidal`) and the picture's size; else null or absent. The sound of a video plays whether or not the app shows the picture |
+| `prefs.videoHeight` | `480`, `720` or `1080` (absent on a service without video) |
 | `player.skipped` | the tracks of this queue passed over, newest last, each `{id, error}` (`not-available`, ...); `[]` when none. The app tells the user and greys them out |
 | `queueIndex` | -1 with an empty queue |
 | `position`, `duration` | seconds; `duration` is null while not known |
@@ -149,7 +154,8 @@ session and the cover cache.
 
 #### `favorites`
 
-`kind` is `tracks` or `albums`. Newest first.
+`kind` is `tracks`, `albums` or `videos`. Newest first. Playlists and mixes can hold videos among their tracks
+(`kind: "video"` items).
 
 ```json request
 {"id": 6, "cmd": "favorites", "kind": "tracks", "offset": 0, "limit": 50}
@@ -159,6 +165,12 @@ session and the cover cache.
 {"id": 6, "ok": true, "total": 1, "items": [
   {"id": 17927864, "title": "One More Time", "artists": ["Daft Punk"], "album": {"id": 17927863, "title": "Discovery"},
    "coverId": "24f52ab0-e7d6-414d-a650-20a4c686aa57", "duration": 320, "streamReady": true, "explicit": false}]}
+```
+
+```json answer favorites
+{"id": 27, "ok": true, "total": 1, "items": [
+  {"kind": "video", "id": 143792065, "title": "Around the World", "artists": ["Daft Punk"], "album": null,
+   "coverId": "a1b2c3d4-0000-4000-8000-000000000001", "duration": 175, "streamReady": true, "explicit": false}]}
 ```
 
 With no internet, a list the service fetched before comes back with `"stale": true`; with none fetched before, the
@@ -259,8 +271,19 @@ A cover as a JPEG, 320 x 320, base64. At most 128 KiB before base64. From the se
 
 #### `play`, `pause`, `resume`, `next`, `prev`, `stop`
 
-`play` replaces the queue with `tracks` (1 to 1000 track ids, in order) and starts at `index`. The app sends the
-ids of the list the user is in. `prev` restarts the track when more than 3 s have played, else goes to the
+`play` replaces the queue with `tracks` (1 to 1000 ids, in order) and starts at `index`. The app sends the
+ids of the list the user is in. When some of them are videos it also sends `kinds`, as long as `tracks`, each
+`track` or `video` (without `kinds` every id is a track). A queue can mix both; `next`, `prev`, `pause`, `seek`
+work the same for a video.
+
+```json request
+{"id": 28, "cmd": "play", "tracks": [17927864, 143792065], "kinds": ["track", "video"], "index": 1}
+```
+
+```json answer play
+{"id": 28, "ok": true}
+```
+ `prev` restarts the track when more than 3 s have played, else goes to the
 previous one. `next` on the last track and `prev` on the first are harmless. `stop` ends playback and keeps the
 queue. All answer at once; the effect shows in `status`.
 
@@ -331,7 +354,8 @@ paused track's next one starts paused. With nothing playing it is `bad-request`.
 
 #### `prefs`
 
-Without `quality` it only reads. `quality` is `HIGH` (the default) or `LOSSLESS`; a new quality applies from the next
+Without parameters it only reads. `videoHeight` is the picture's size asked from TIDAL: `480`, `720` (the default)
+or `1080`; it applies from the next video. For `quality`: `quality` is `HIGH` (the default) or `LOSSLESS`; a new quality applies from the next
 track. With TIDAL's QR login, `LOSSLESS` is granted as `HIGH` (`docs/live-check-results.md`).
 
 ```json request
@@ -339,7 +363,7 @@ track. With TIDAL's QR login, `LOSSLESS` is granted as `HIGH` (`docs/live-check-
 ```
 
 ```json answer prefs
-{"id": 23, "ok": true, "prefs": {"quality": "HIGH"}}
+{"id": 23, "ok": true, "prefs": {"quality": "HIGH", "videoHeight": 720}}
 ```
 
 #### `log`
@@ -438,6 +462,42 @@ or broken), `audio` (the device cannot be opened, after retrying), `internal`.
 ```json player-event
 {"ev": "error", "code": "decode", "message": "no FLAC or AAC stream found"}
 ```
+
+### The video player (`tidal-video`)
+
+A second program, for videos only: the music player `tidal-player` is not touched by video. Same protocol (stdin,
+fd 3, events, exit codes, the environment above, the same sound output), with:
+
+| | |
+|---|---|
+| stdin | **MPEG-TS** (H.264 + AAC-LC), as TIDAL's HLS segments are, one after another from the service; never seeked |
+| `MGU_VIDEO` | `shm:<name>`: pictures go to mgu-render's frame file `/dev/shm/mgu-video-<name>` (mgu-render's PROTOCOL.md, "Video": the MGVF header, I420 or NV12, 3 slots); `null`: decoded and thrown away; default `shm:cmocan-tidal`. The file is made before the player drops root and given to the user it becomes (mgu-render takes a file of the app's uid, of root or of nobody) |
+| `MGU_VIDEO_DECODER` | `auto` (default: the car's Intel Media SDK, `msdk`, when it loads, else `sw`), `msdk`, `sw` (libavcodec in software: the tests, and a car where the hardware decoder fails) |
+| `MGU_BASE_MS` | the position, in ms from the video's start, of the first byte on stdin (a video started at a later HLS segment after a seek); default 0. `tick.pos` and `MGU_START_MS` are positions in the video, so they include it |
+| groups | `MGU_GROUPS` also names `video` (the GPU's render node) |
+
+`open` carries the picture found; a `video` event says how it is decoded and where the pictures go, or that there
+is no picture (the sound then plays alone); ticks count pictures shown (`vframes`) and late ones left out
+(`vdropped`). Picture and sound are kept in step by the sound's clock.
+
+```json player-event
+{"ev": "open", "codec": "aac", "rate": 44100, "channels": 2, "duration": null, "video": {"codec": "h264", "width": 1280, "height": 720}}
+```
+
+```json player-event
+{"ev": "video", "state": "open", "decoder": "msdk", "width": 1280, "height": 720, "file": "/dev/shm/mgu-video-cmocan-tidal"}
+```
+
+```json player-event
+{"ev": "video", "state": "error", "decoder": "sw", "message": "the frame file could not be made"}
+```
+
+```json player-event
+{"ev": "tick", "pos": 42.5, "state": "playing", "buffered": 3.2, "dropped": 0, "vframes": 1062, "vdropped": 2}
+```
+
+**Where the picture shows** is the app's matter: by the owner's decision (2026-11-28) also while driving; the app's
+setting "Picture only while parked" (off by default) hides the picture while the car moves, the sound plays on.
 
 ### Exit codes
 

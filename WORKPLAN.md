@@ -24,6 +24,10 @@ has not seen the earlier discussion can pick up any task.
 
 ### Resume here (next session)
 
+**Now: video (V1), the owner's go 2026-11-28:** build, commit, push, until it works; the picture also while driving,
+with a setting "Picture only while parked" (off by default). V0 (contract 4) done. Running: V1a (the video player
+`tidal-video`), V1b (service + TIDAL module), V1c (app); then V1d (e2e) and a release.
+
 **Now: phase 3** (in section 9: "Phase 3: after the second car check"), waiting for the owner's go, the silent-state
 QR log (A1) and the car's signal list (K6a).
 

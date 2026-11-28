@@ -19,13 +19,15 @@ const TRACK = { id: 17927864, title: 'One More Time', artists: ['Daft Punk'], al
     coverId: '24f52ab0-e7d6-414d-a650-20a4c686aa57', duration: 320, streamReady: true, explicit: false };
 const ALBUM = { id: 17927863, title: 'Discovery', artists: ['Daft Punk'], coverId: TRACK.coverId, numberOfTracks: 14 };
 const PLAYLIST = { uuid: '36ea71a8-445e-41a4-82ab-6628c581535d', title: 'Road trip', numberOfTracks: 42, coverId: null };
+const VIDEO = { kind: 'video', id: 143792065, title: 'Around the World', artists: ['Daft Punk'], album: null,
+    coverId: 'a1b2c3d4-0000-4000-8000-000000000001', duration: 175, streamReady: true, explicit: false };
 const MIX = { id: '0123456789abcdef0123456789abcd', title: 'My Mix 1', subTitle: 'Daft Punk', coverId: null };
 // the smallest valid JPEG header bytes, base64: enough for a contract test, not a real picture
 const COVER = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA==';
 
 function defaultState() {
     return {
-        login: 'logged-out', online: true, version: '0.0.0-fake', prefs: { quality: 'HIGH' }, loginPending: null, loginError: null,
+        login: 'logged-out', online: true, version: '0.0.0-fake', prefs: { quality: 'HIGH', videoHeight: 720 }, loginPending: null, loginError: null,
         player: { state: 'idle', track: null, position: 0, duration: null, queueIndex: -1, queueLength: 0, quality: null, error: null, skipped: [] },
     };
 }
@@ -41,7 +43,7 @@ function cannedAnswer(svc, r) {
             return ok({ url: svc.state.loginPending.url, userCode: 'ABCDE', expiresIn: 300 });
         case 'login-cancel': if (svc.state.login === 'login-pending') { svc.state.login = 'logged-out'; svc.state.loginPending = null; } return ok();
         case 'logout': svc.state.login = 'logged-out'; svc.state.loginPending = null; return ok();
-        case 'favorites': return items(r.kind === 'albums' ? [ALBUM] : [TRACK]);
+        case 'favorites': return items(r.kind === 'albums' ? [ALBUM] : r.kind === 'videos' ? [VIDEO] : [TRACK]);
         case 'playlists': return items([PLAYLIST]);
         case 'mixes': return items([MIX]);
         case 'playlist': case 'album': case 'mix': case 'search': return items([TRACK]);
@@ -50,7 +52,7 @@ function cannedAnswer(svc, r) {
             if (svc.state.player.state === 'idle' || !svc.state.player.track) return { id: r.id, ok: false, error: 'bad-request', message: 'nothing is playing' };
             svc.state.player.position = r.position; return ok();
         case 'log': return ok({ lines: (svc.logLines || ['12:00:00 fake service']).slice(-(r.lines || 200)) });
-        case 'prefs': if (r.quality) svc.state.prefs.quality = r.quality; return ok({ prefs: svc.state.prefs });
+        case 'prefs': if (r.quality) svc.state.prefs.quality = r.quality; if (r.videoHeight) svc.state.prefs.videoHeight = r.videoHeight; return ok({ prefs: svc.state.prefs });
         default: return ok();   // play, pause, resume, next, prev, stop, exit
     }
 }
@@ -104,4 +106,4 @@ function createFakeService(opts) {
     });
 }
 
-module.exports = { createFakeService: createFakeService, defaultState: defaultState, TRACK: TRACK };
+module.exports = { createFakeService: createFakeService, defaultState: defaultState, TRACK: TRACK, VIDEO: VIDEO };
