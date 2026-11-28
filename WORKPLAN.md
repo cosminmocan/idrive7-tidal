@@ -1091,13 +1091,37 @@ the release through `make release` (its x86-64 gate, then the x86-64 packages).
   it to our app, it becomes a second way in; if not, it is dropped. **Success:** e2e: type, results, play one.
 - **K6b. The cluster card's progress bar** (apps/cmocan_tidal/cluster.js).
 
+**FLAC (lossless), its own track beside both waves** (the owner, 2026-11-28: "add the flac to the list"):
+
+Why FLAC does nothing today: the QR (device) login gets AAC 320 at most, whatever the subscription
+(docs/live-check-results.md); lossless needs TIDAL's PKCE login. The player already decodes FLAC (its FFmpeg is
+built with the flac demuxer and decoder). The car's sound path is 48 kHz stereo, so the gain is CD quality instead
+of AAC, not hi-res.
+
+- **L1a-0. The check tool** (no owner needed, can start now): `tools/live-check.js --pkce` does not exist yet.
+  Build it, test first against recorded answers: prints the login link, takes the pasted address, exchanges it,
+  asks for LOSSLESS and HI_RES_LOSSLESS, and reports the format (a plain FLAC address, or a DASH manifest of
+  FLAC-in-MP4 segments), encryption, `Range`, the token's lifetime and whether refresh works without a browser.
+- **L1a. Five minutes with the owner at the Mac:** the owner logs in in the browser and pastes back the address it
+  ends on. The session stays in `reference/` (never in git). The facts go into docs/live-check-results.md.
+- **L1b. The build, designed from L1a's facts.** Expected parts: (1) contract first: a second login kind beside
+  the QR login, `quality` LOSSLESS really asked for, the track's format in `status`; (2) the service: the PKCE
+  session and its refresh, kept beside the QR session, falling back to AAC when lossless is refused; (3) how the
+  PKCE login reaches the car: a link/QR the phone opens and a field in the app (the new keyboard, S3) or a small
+  page to paste the final address, or the session carried over once from the Mac; (4) the player: if TIDAL
+  answers DASH, the service fetches the segments and pipes them as one stream (as it does for video's HLS), and
+  FFmpeg's mov demuxer must read fragmented MP4 from a pipe; (5) seek and gapless behaviour as for AAC; (6) the
+  quality line on now playing says what really plays. **Stop if** the stream is encrypted (no way around it).
+- **Success:** e2e: a FLAC track from the fake TIDAL plays bit-exact to the source WAV, seek works, a refused
+  lossless falls back to AAC with a line saying so; in the car: "FLAC" on now playing and in the log.
+- **Depends on:** L1b's login screen on S3's keyboard if that route is chosen; otherwise independent of wave 1.
+
 **Wave 2:**
 
 - **K6a.** The cluster card only while the media widget is selected. Needs the car's signal list from the owner
   (`/etc/oap/someip/someip-interfaces.json`) or a Signal Hunter session. The log's "slot locked" (07:12:31) is the
   same matter.
 - **U2.** Finger scrolling in lists (low priority).
-- **L1.** Lossless through the PKCE login (five minutes with the owner at the Mac first).
 - **Small:** `openEntryState ... INVALID_UUID` when the app is opened right after a popup (16:36:23); the contract
   gaps V1b named (queue.json `kinds`, prefs.json `videoHeight`, INTERNAL-API additions).
 - **Known, harmless:** the first start after an update fails once ("the SDK created no RHMI application", 16:25:37)
