@@ -7,10 +7,17 @@
  *
  * LOSSLESS falls back to HIGH. A refusal (401 about the asset, 403, 404, or an answer the player cannot use)
  * moves to the next quality; a rate limit, a network or server failure ends the call at once.
+ *
+ *   videoUrl(videoId, height) -> { url, quality }   // a video (tidalapi media.py Video.get_url: videos/<id>/urlpostpaywall,
+ *                                                   // videoquality HIGH): url is the HLS master playlist, which holds
+ *                                                   // every picture size up to 1080p (docs/live-check-results.md
+ *                                                   // "Video"); `height` (480, 720, 1080) is chosen from it by the
+ *                                                   // service (lib/tidal/hls.js chooseVariant). A refusal: not-available
  */
 const E = require('./errors');
 
 const ORDER = { LOSSLESS: ['LOSSLESS', 'HIGH'], HIGH: ['HIGH'] };
+const VIDEO_HEIGHTS = [480, 720, 1080];
 
 /** TIDAL's audioQuality -> ours; LOW (96 kbit/s) is not offered */
 function grantedQuality(q) {
@@ -63,7 +70,22 @@ function createStream(ctx, api) {
         return next(0);
     }
 
-    return { streamUrl: streamUrl };
+    function videoUrl(videoId, height) {
+        if (!(typeof videoId === 'number' && Math.floor(videoId) === videoId && videoId >= 1)) return Promise.reject(E.tidalError('bad-request', 'bad video id'));
+        if (VIDEO_HEIGHTS.indexOf(height) < 0) return Promise.reject(E.tidalError('bad-request', 'height must be 480, 720 or 1080'));
+        if (!ctx.session) return Promise.reject(E.tidalError('not-logged-in', 'not logged in'));
+        return api.get('videos/' + videoId + '/urlpostpaywall', { urlusagemode: 'STREAM', videoquality: 'HIGH', assetpresentation: 'FULL' }).then((j) => {
+            const url = j && Array.isArray(j.urls) ? j.urls[0] : null;
+            if (typeof url !== 'string' || !/^https?:\/\//.test(url)) throw E.tidalError('not-available', 'video ' + videoId + ': no address');
+            if (j.securityToken || (j.securityType && String(j.securityType).toUpperCase() !== 'NONE')) throw E.tidalError('not-available', 'video ' + videoId + ': encrypted');
+            return { url: url, quality: String(j.videoQuality || 'HIGH').toUpperCase() === 'HIGH' ? 'HIGH' : null };
+        }, (e) => {
+            if (e.code === 'not-found' || (e.code === 'tidal-error' && (e.status === 401 || e.status === 403))) throw E.tidalError('not-available', 'video ' + videoId + ' cannot be streamed: ' + e.message, { status: e.status });
+            throw e;
+        });
+    }
+
+    return { streamUrl: streamUrl, videoUrl: videoUrl };
 }
 
 module.exports = { createStream: createStream };

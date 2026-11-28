@@ -20,11 +20,14 @@ const NAMES = { prefs: 'prefs.json', queue: 'queue.json', session: 'session.json
 const QUALITIES = ['LOSSLESS', 'HIGH'];
 const isInt = (v) => typeof v === 'number' && isFinite(v) && Math.floor(v) === v;
 
+const VIDEO_HEIGHTS = [480, 720, 1080];
 const VALID = {
-    prefs: (s) => QUALITIES.indexOf(s.quality) >= 0,
+    prefs: (s) => QUALITIES.indexOf(s.quality) >= 0 && (s.videoHeight === undefined || VIDEO_HEIGHTS.indexOf(s.videoHeight) >= 0),
+    // kinds (a queue with videos): 'track' or 'video' for each id
     queue: (s) => Array.isArray(s.tracks) && s.tracks.length <= 1000 && s.tracks.every((t) => isInt(t) && t > 0) &&
         isInt(s.index) && s.index >= -1 && s.index < s.tracks.length && (s.tracks.length > 0 || s.index === -1) &&
-        typeof s.position === 'number' && isFinite(s.position) && s.position >= 0,
+        typeof s.position === 'number' && isFinite(s.position) && s.position >= 0 &&
+        (s.kinds === undefined || (Array.isArray(s.kinds) && s.kinds.length === s.tracks.length && s.kinds.every((k) => k === 'track' || k === 'video'))),
     session: (s) => typeof s.accessToken === 'string' && s.accessToken.length > 0,
 };
 

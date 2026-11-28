@@ -8,7 +8,9 @@
  *   tidal.loggedIn() / loginStart() / loginPoll() / loginCancel() / logout()
  *   tidal.favorites(kind, offset, limit) / playlists / playlist / album / mixes / mix / search -> { items, total }
  *   tidal.track(trackId) -> track (GET tracks/<id>; not-found when TIDAL has none)
+ *   tidal.video(videoId) -> video (GET videos/<id>; a `kind: 'video'` item)
  *   tidal.streamUrl(trackId, quality) -> { url, codec, quality }
+ *   tidal.videoUrl(videoId, height) -> { url (the HLS master playlist), quality }
  *   tidal.cover(coverId) -> Buffer (JPEG 320x320, cached)
  *   tidal._get(path, params)   // the raw API GET (diagnostics, tests)
  *
@@ -71,8 +73,10 @@ function createTidal(o) {
         mixes: library.mixes,
         mix: library.mix,
         track: library.track,
+        video: library.video,
         search: library.search,
         streamUrl: stream.streamUrl,
+        videoUrl: stream.videoUrl,
         cover: covers.cover,
         // the raw GET the library is built on (tools/live-check.js records fixtures with it)
         _get: (p, params) => api.get(p, params),

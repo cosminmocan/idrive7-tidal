@@ -55,7 +55,7 @@ test('half a line, garbage, a 1 MiB line and unknown commands get bad-request; t
             garbage,                                    // binary garbage
             'x'.repeat(1024 * 1024),                    // a 1 MiB line
             { id: 4, cmd: 'reboot' },                   // an unknown command
-            { id: 5, cmd: 'favorites', kind: 'videos' },   // bad parameters
+            { id: 5, cmd: 'favorites', kind: 'artists' },  // bad parameters
             '[1,2,3]', 'null', '42', '{"cmd":"status"}', // JSON, but not a request
             { id: 9, cmd: 'status' },
         ];

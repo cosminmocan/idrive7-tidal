@@ -12,6 +12,7 @@
  *   h.online(bool)                     writes or removes the uplink lease
  *   h.until(fn, ms) -> Promise         waits for fn() (sync or async) to be truthy
  *   h.pids                             { client: [], player: [] }
+ *   h.spawns                           every player started: { bin, args, env, pid, at, exitAt } (ms; exitAt null while it runs)
  *   h.close() -> Promise               stops the service, checks no child is left, removes the folder
  *   startService({ files: { 'session.json': text } })   files in the state folder before the service starts
  *   startService({ record: true })     each player records its input in <dir>/rec-<track id>.bin
@@ -80,6 +81,7 @@ function startService(opts) {
     if (o.files) { fs.mkdirSync(stateDir, 0o700); Object.keys(o.files).forEach((n) => fs.writeFileSync(path.join(stateDir, n), o.files[n], { mode: 0o600 })); }
     const cfg = o.tidal || {};
     const pids = { client: [], player: [] };
+    const spawns = [];
     const exits = [];
     const logs = [];
     const so = Object.assign({
@@ -88,7 +90,14 @@ function startService(opts) {
         exit: (code) => exits.push(code),
         forkClient: (file, args, fo) => { const c = childProcess.fork(file, args, fo); pids.client.push(c.pid); return c; },
         clientEnv: { CMOCAN_NETX: FAKE_NETX },
-        spawn: (bin, args, so2) => { const c = childProcess.spawn(bin, args, so2); pids.player.push(c.pid); return c; },
+        spawn: (bin, args, so2) => {
+            const c = childProcess.spawn(bin, args, so2);
+            pids.player.push(c.pid);
+            const rec = { bin: bin, args: args, env: so2 && so2.env, pid: c.pid, at: Date.now(), exitAt: null };
+            spawns.push(rec);
+            c.on('exit', () => { rec.exitAt = Date.now(); });
+            return c;
+        },
         playerBin: process.execPath, playerArgs: [FAKE_PLAYER],
         playerEnv: { FAKE_TICK_MS: '20', FAKE_SECONDS: '1' },
         retryWaits: [20, 40, 80], outageMs: 3000,
@@ -97,7 +106,7 @@ function startService(opts) {
     if (o.record) { const base = so.playerEnv; so.playerEnv = (id) => Object.assign({}, base, { FAKE_RECORD: path.join(dir, 'rec-' + id + '.bin') }); }
     const svc = createService(so);
     const h = {
-        svc: svc, dir: dir, stateDir: stateDir, leasePath: leasePath, sock: sock, cfg: cfg, pids: pids, exits: exits, logs: logs,
+        svc: svc, dir: dir, stateDir: stateDir, leasePath: leasePath, sock: sock, cfg: cfg, pids: pids, spawns: spawns, exits: exits, logs: logs,
         until: until, sleep: sleep, alive: alive,
         ask: (lines, count) => ask(sock, lines, count),
         req: (r) => ask(sock, [Object.assign({ id: 1 }, r)]).then((a) => a[0]),

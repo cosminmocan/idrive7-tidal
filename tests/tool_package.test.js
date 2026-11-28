@@ -49,6 +49,7 @@ test('component.json: a tool for iDrive 7 with internet for uid 13150, its requi
     assert.deepStrictEqual(c.check, ['check.js']);
     assert.deepStrictEqual(c.deactivate, ['node', 'cleanup.js', '--remove']);
     assert.ok(c.crashNames.indexOf('tidal-player') >= 0, 'the player is in crashNames');
+    assert.ok(c.crashNames.indexOf('tidal-video') >= 0, 'the video player is in crashNames');
     assert.deepStrictEqual(c.units.map((u) => u.name).sort(), ['cmocan-tidal.service', 'cmocan-tidal.socket']);
     assert.ok(c.units.every((u) => !u.runsInSafeMode), 'nothing of ours runs in safe mode');
     assert.deepStrictEqual(c.enable, [{ unit: 'cmocan-tidal.socket', target: 'sockets.target' }], 'only the socket is enabled');
@@ -56,11 +57,13 @@ test('component.json: a tool for iDrive 7 with internet for uid 13150, its requi
     assert.ok(!c.activate && !c.postInstall && !c.dropins, 'no install step and no change to units it does not own');
 });
 
-// what `make player` builds (native/tidal-player/build.mk, build.sh): git ignores it, so a checkout has it only after
-// a build; every other file the tool ships is in the repository
-const PLAYER_BUILD = { 'tidal-player': '../tidal-player/build/out/tidal-player', 'FFMPEG-LICENSE': '../tidal-player/build/FFMPEG-LICENSE' };
+// what `make player` builds (native/tidal-player/build.mk, build.sh), and the video player's build
+// (native/tidal-video/build/out): git ignores them, so a checkout has them only after a build; every other file the
+// tool ships is in the repository
+const PLAYER_BUILD = { 'tidal-player': '../tidal-player/build/out/tidal-player', 'FFMPEG-LICENSE': '../tidal-player/build/FFMPEG-LICENSE',
+    'tidal-video': '../tidal-video/build/out/tidal-video' };
 
-test('the player and its FFmpeg licence are shipped from where the player\'s build puts them', () => {
+test('the players (tidal-player, tidal-video) and the FFmpeg licence are shipped from where their builds put them', () => {
     const c = comp();
     Object.keys(PLAYER_BUILD).forEach((p) => {
         const f = c.files.filter((x) => x.path === p)[0];
@@ -84,7 +87,7 @@ test('every file component.json names exists (the player\'s build output once `m
     c.units.forEach((u) => assert.ok(fs.existsSync(path.join(DIR, u.from)), u.from + ' is missing'));
     c.check.concat(c.deactivate.slice(1, 2)).forEach((s) => assert.ok(c.files.some((f) => f.path === s), s + ' is shipped'));
     const exec = c.files.filter((f) => f.mode === '0755').map((f) => f.path);
-    assert.deepStrictEqual(exec, ['tidal-player'], 'the player is the only executable');
+    assert.deepStrictEqual(exec, ['tidal-player', 'tidal-video'], 'the two players are the only executables');
     if (pending.length) console.log('       (not built yet, run `make player`: ' + pending.join(', ') + ')');
 });
 
@@ -93,7 +96,7 @@ test('every module the service loads is in the package', () => {
     const shipped = c.files.map((f) => f.path);
     const own = ['service.js', 'client.js', 'player.js', 'playback.js', 'state.js', 'log.js', 'sockgroup.js', 'cleanup.js', 'check.js'];
     own.forEach((f) => assert.ok(shipped.indexOf(f) >= 0, f + ' is shipped'));
-    ['lib/netx.js', 'lib/tidal.js', 'cacert.pem', 'tidal-player', 'README.md'].forEach((f) => assert.ok(shipped.indexOf(f) >= 0, f + ' is shipped'));
+    ['lib/netx.js', 'lib/tidal.js', 'cacert.pem', 'tidal-player', 'tidal-video', 'README.md'].forEach((f) => assert.ok(shipped.indexOf(f) >= 0, f + ' is shipped'));
     // every require('./...') in our files names a shipped file
     own.forEach((f) => {
         const src = fs.readFileSync(path.join(DIR, f), 'utf8');
@@ -178,7 +181,10 @@ test('cleanup.js --remove (the deactivate) run twice: the same state, the socket
         fs.writeFileSync(path.join(state, 'queue.json.tmp'), '{"vers');
         fs.writeFileSync(path.join(state, 'prefs.json'), '{"version":1,"quality":"HIGH"}');
         fs.writeFileSync(path.join(d, 'run', 'other.sock'), '');
-        const env = { CMOCAN_SOCK: sock, CMOCAN_STATE: state };
+        // the video player's frame file (docs/PROTOCOL.md section 2, MGU_VIDEO=shm:cmocan-tidal), and another one
+        const frame = path.join(d, 'run', 'mgu-video-cmocan-tidal');
+        fs.writeFileSync(frame, 'MGVF'); fs.writeFileSync(path.join(d, 'run', 'mgu-video-other'), 'MGVF');
+        const env = { CMOCAN_SOCK: sock, CMOCAN_STATE: state, CMOCAN_FRAME: frame };
         const r1 = cleanup(['--remove'], env);
         assert.strictEqual(r1.status, 0, r1.stdout + r1.stderr);
         const after1 = listAll(d);
@@ -187,20 +193,25 @@ test('cleanup.js --remove (the deactivate) run twice: the same state, the socket
         assert.deepStrictEqual(listAll(d), after1, 'the second run changes nothing');
         assert.ok(!fs.existsSync(sock), 'the socket is gone');
         assert.ok(!fs.existsSync(path.join(state, 'queue.json.tmp')), 'a half-written file is gone');
-        assert.ok(fs.existsSync(path.join(d, 'run', 'other.sock')), 'nothing else is touched');
+        assert.ok(!fs.existsSync(frame), 'the frame file is gone');
+        assert.ok(fs.existsSync(path.join(d, 'run', 'other.sock')) && fs.existsSync(path.join(d, 'run', 'mgu-video-other')), 'nothing else is touched');
         // the state folder itself is the deploy tool's to remove with /var/opt/cmocan-tidal
         assert.ok(fs.existsSync(path.join(state, 'prefs.json')));
     } finally { rmrf(d); }
 });
 
-test('cleanup.js without --remove (the service\'s ExecStopPost) keeps the socket, and never fails', () => {
+test('cleanup.js without --remove (the service\'s ExecStopPost) keeps the socket, removes the frame file a video left, and never fails', () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'cmocan-clean-'));
     try {
         const sock = path.join(d, 'cmocan-tidal.sock');
-        fs.writeFileSync(sock, '');
-        const r = cleanup([], { CMOCAN_SOCK: sock, CMOCAN_STATE: path.join(d, 'nothing', 'here') });
+        const frame = path.join(d, 'mgu-video-cmocan-tidal');
+        fs.writeFileSync(sock, ''); fs.writeFileSync(frame, 'MGVF');
+        const r = cleanup([], { CMOCAN_SOCK: sock, CMOCAN_STATE: path.join(d, 'nothing', 'here'), CMOCAN_FRAME: frame });
         assert.strictEqual(r.status, 0, r.stdout + r.stderr);
         assert.ok(fs.existsSync(sock));
+        assert.ok(!fs.existsSync(frame), 'the frame file is gone (the service ended: no video plays)');
+        const again = cleanup([], { CMOCAN_SOCK: sock, CMOCAN_STATE: path.join(d, 'nothing', 'here'), CMOCAN_FRAME: frame });
+        assert.strictEqual(again.status, 0, 'no frame file: still fine');
     } finally { rmrf(d); }
 });
 

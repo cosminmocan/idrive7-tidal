@@ -9,6 +9,8 @@
  *                       (playback.js); TIDAL's requests go through
  *   client.js           a child as the tool's internet uid (13150): lib/netx.js, the only process with internet
  *   tidal-player        one per track (player.js), started as root with MGU_RUN_AS=nobody, MGU_GROUPS=mgu_alsa,audio
+ *   tidal-video         one per video instead (contract 4), the same way, with MGU_VIDEO=shm:cmocan-tidal,
+ *                       MGU_VIDEO_DECODER=auto, MGU_GROUPS=mgu_alsa,audio,video; its stdin: the HLS segments in order
  *
  * The log (log.js): every line goes to the journal and into the newest 200 the `log` command returns, with no token
  * and no address's query in it.
@@ -18,7 +20,8 @@
  *
  *   const svc = createService({ stateDir, leasePath, uid, now, log, exit(code), createTidal, netx (no client child),
  *       forkClient, clientPath, clientEnv, restarts: { max, windowMs, delayMs }, spawn, playerBin, playerArgs,
- *       playerEnv (object, or (trackId) -> object), audio, retryWaits, outageMs, cacheMs, watchMs, idleMs, tickMs });
+ *       videoBin, videoArgs, videoName ('cmocan-tidal': the frame file /dev/shm/mgu-video-<name>), videoDecoder ('auto'),
+ *       playerEnv (object, or (id, kind) -> object), audio, retryWaits, outageMs, segmentTries, cacheMs, watchMs, idleMs, tickMs });
  *   svc.listen(path | fd) -> Promise   svc.start()   svc.stop(code) -> Promise (children ended, then exit(code))
  *   svc.tick()   (the watch, every tickMs)   svc.status()   svc.netx
  *
@@ -52,6 +55,12 @@ const COMMANDS = ['status', 'login-start', 'login-cancel', 'logout', 'favorites'
 const ERROR_CODES = ['offline', 'not-logged-in', 'login-expired', 'not-found', 'not-available', 'rate-limited',
     'tidal-error', 'bad-request', 'busy'];
 const QUALITIES = ['LOSSLESS', 'HIGH'];
+const KINDS = ['track', 'video'];
+const FAVORITE_KINDS = ['tracks', 'albums', 'videos'];
+const VIDEO_HEIGHTS = [480, 720, 1080];
+const VIDEO_HEIGHT = 720;           // the default: 3.1 Mbit/s on LTE (WORKPLAN.md, V1)
+const VIDEO_NAME = 'cmocan-tidal';  // the frame file /dev/shm/mgu-video-cmocan-tidal (docs/PROTOCOL.md section 2)
+const VIDEO_GROUPS = 'mgu_alsa,audio,video';
 
 /* ---------- the requests (docs/PROTOCOL.md, "Requests") ---------- */
 const isInt = (v) => typeof v === 'number' && isFinite(v) && Math.floor(v) === v;
@@ -62,7 +71,7 @@ function paging(r) {
     return (r.offset === undefined || (isInt(r.offset) && r.offset >= 0)) && (r.limit === undefined || (isInt(r.limit) && r.limit >= 1 && r.limit <= 100));
 }
 const PARAMS = {
-    favorites: (r) => (r.kind === 'tracks' || r.kind === 'albums') && paging(r),
+    favorites: (r) => FAVORITE_KINDS.indexOf(r.kind) >= 0 && paging(r),
     playlists: paging,
     playlist: (r) => typeof r.uuid === 'string' && ID_TEXT.test(r.uuid) && paging(r),
     album: (r) => isInt(r.albumId) && r.albumId >= 1 && paging(r),
@@ -71,8 +80,9 @@ const PARAMS = {
     search: (r) => typeof r.query === 'string' && r.query.length >= 1 && r.query.length <= 200 && paging(r),
     cover: (r) => typeof r.coverId === 'string' && ID_TEXT.test(r.coverId),
     play: (r) => Array.isArray(r.tracks) && r.tracks.length >= 1 && r.tracks.length <= 1000 && r.tracks.every((t) => isInt(t) && t > 0) &&
-        isInt(r.index) && r.index >= 0 && r.index < r.tracks.length,
-    prefs: (r) => r.quality === undefined || QUALITIES.indexOf(r.quality) >= 0,
+        isInt(r.index) && r.index >= 0 && r.index < r.tracks.length &&
+        (r.kinds === undefined || (Array.isArray(r.kinds) && r.kinds.length === r.tracks.length && r.kinds.every((k) => KINDS.indexOf(k) >= 0))),
+    prefs: (r) => (r.quality === undefined || QUALITIES.indexOf(r.quality) >= 0) && (r.videoHeight === undefined || VIDEO_HEIGHTS.indexOf(r.videoHeight) >= 0),
     seek: (r) => typeof r.position === 'number' && isFinite(r.position) && r.position >= 0,
     log: (r) => r.lines === undefined || (isInt(r.lines) && r.lines >= 1 && r.lines <= 200),
 };
@@ -117,6 +127,9 @@ function createService(opts) {
     const st = createState(o.stateDir);
     // HIGH by default: TIDAL's device (QR) login gets AAC 320 at most (docs/PROTOCOL.md, prefs)
     let prefs = st.load('prefs', { quality: 'HIGH' });
+    // the picture size asked for a video: 720 unless prefs.json says otherwise (docs/PROTOCOL.md, prefs)
+    const videoHeight = () => (VIDEO_HEIGHTS.indexOf(prefs.videoHeight) >= 0 ? prefs.videoHeight : VIDEO_HEIGHT);
+    const prefsOut = () => ({ quality: prefs.quality, videoHeight: videoHeight() });
 
     /* ---------- the client (internet uid): every request goes through it; tests may give a netx instead ---------- */
     const link = o.netx ? null : createClientLink({ fork: o.forkClient, file: o.clientPath || path.join(__dirname, 'client.js'),
@@ -174,54 +187,72 @@ function createService(opts) {
     /* ---------- the lists' cache, and the tracks seen in them (status shows the track playing) ---------- */
     const cacheMs = o.cacheMs || CACHE_MS;
     const cache = new Map();
-    const tracks = new Map();   // id -> track object
+    // videos and tracks have separate id spaces at TIDAL: kept by kind and id
+    const tracks = new Map();   // 'track:<id>' | 'video:<id>' -> track or video object
+    const keyOf = (kind, id) => (kind === 'video' ? 'video:' : 'track:') + id;
     function remember(t) {
         if (!t || !isInt(t.id) || typeof t.title !== 'string' || t.numberOfTracks !== undefined) return;
-        tracks.delete(t.id);
-        tracks.set(t.id, t);
+        const k = keyOf(t.kind, t.id);
+        tracks.delete(k);
+        tracks.set(k, t);
         while (tracks.size > CACHE_TRACKS) tracks.delete(tracks.keys().next().value);
     }
 
     /**
-     * The track for status: from the lists seen; else looked up with tidal.track(id) in the background (a queue
-     * from before a restart, ids the app had from elsewhere). Never waits: null until TIDAL answers.
+     * The track (or video) for status: from the lists seen; else looked up with tidal.track(id) (tidal.video(id)) in
+     * the background (a queue from before a restart, ids the app had from elsewhere). Never waits: null until TIDAL
+     * answers.
      */
-    const lookups = new Map();   // id -> { pending, at }
-    function trackInfo(id) {
-        const t = tracks.get(id);
+    const lookups = new Map();   // key -> { pending, at }
+    function trackInfo(id, kind) {
+        const t = tracks.get(keyOf(kind, id));
         if (t) return t;
-        lookUp(id);
+        lookUp(id, kind === 'video' ? 'video' : 'track');
         return null;
     }
-    function lookUp(id) {
-        if (typeof tidal.track !== 'function' || !tidal.loggedIn()) return;
-        const was = lookups.get(id);
+    function lookUp(id, kind) {
+        if (typeof tidal[kind] !== 'function' || !tidal.loggedIn()) return;
+        const key = keyOf(kind, id);
+        const was = lookups.get(key);
         if (was && (was.pending || now() - was.at < LOOKUP_RETRY_MS)) return;
         const e = { pending: true, at: now() };
-        lookups.delete(id);
-        lookups.set(id, e);
+        lookups.delete(key);
+        lookups.set(key, e);
         while (lookups.size > CACHE_LISTS) lookups.delete(lookups.keys().next().value);
-        Promise.resolve().then(() => tidal.track(id)).then((t) => {
+        Promise.resolve().then(() => tidal[kind](id)).then((t) => {
             e.pending = false; e.at = now();
-            if (t && t.id === id) remember(t);
+            if (t && t.id === id) remember(kind === 'video' ? Object.assign({}, t, { kind: 'video' }) : t);
         }, (err) => {
             e.pending = false; e.at = now();
-            log('track ' + id + ': not looked up (' + ((err && (err.code || err.message)) || 'error') + ')');
+            log(kind + ' ' + id + ': not looked up (' + ((err && (err.code || err.message)) || 'error') + ')');
         });
     }
 
     /* ---------- playback: one player per track (as root; it drops to nobody itself) ---------- */
+    /**
+     * A track: tidal-player. A video: tidal-video, its pictures to the frame file (MGU_VIDEO), the car's hardware
+     * decoder when it loads (MGU_VIDEO_DECODER=auto), the GPU's group too, and MGU_BASE_MS: where in the video its
+     * input starts (a seek starts at a later segment). startMs (a seek): where it starts playing, MGU_START_MS.
+     */
+    function startPlayer(id, onEvent, startMs, extra) {
+        const video = extra && extra.kind === 'video';
+        const base = typeof o.playerEnv === 'function' ? o.playerEnv(id, video ? 'video' : 'track') : o.playerEnv;
+        const env = Object.assign({}, video ? { MGU_VIDEO: 'shm:' + (o.videoName || VIDEO_NAME), MGU_VIDEO_DECODER: o.videoDecoder || 'auto' } : {},
+            base, startMs > 0 ? { MGU_START_MS: String(startMs) } : {}, video && extra.baseMs > 0 ? { MGU_BASE_MS: String(extra.baseMs) } : {});
+        return createPlayerProcess({
+            spawn: o.spawn || require('child_process').spawn,
+            bin: video ? (o.videoBin || path.join(__dirname, 'tidal-video')) : (o.playerBin || path.join(__dirname, 'tidal-player')),
+            args: (video ? o.videoArgs : o.playerArgs) || [],
+            env: env, groups: video ? VIDEO_GROUPS : undefined,
+            audio: o.audio, log: log, onEvent: onEvent });
+    }
     const pb = createPlayback({
-        tidal: tidal, netx: netx, log: log, now: now, retryWaits: o.retryWaits, outageMs: o.outageMs,
+        tidal: tidal, netx: netx, log: log, now: now, retryWaits: o.retryWaits, outageMs: o.outageMs, segmentTries: o.segmentTries,
         quality: () => prefs.quality,
+        videoHeight: videoHeight,
         trackInfo: trackInfo,
         onQueue: (q) => { try { st.write('queue', q); } catch (e) { log('queue.json: ' + e.message); } },
-        // startMs (a seek): where the player starts playing, MGU_START_MS (docs/PROTOCOL.md section 2)
-        startPlayer: (id, onEvent, startMs) => createPlayerProcess({
-            spawn: o.spawn || require('child_process').spawn,
-            bin: o.playerBin || path.join(__dirname, 'tidal-player'), args: o.playerArgs || [],
-            env: Object.assign({}, typeof o.playerEnv === 'function' ? o.playerEnv(id) : o.playerEnv, startMs > 0 ? { MGU_START_MS: String(startMs) } : {}),
-            audio: o.audio, log: log, onEvent: onEvent }),
+        startPlayer: startPlayer,
     });
     pb.restore(st.load('queue', { tracks: [], index: -1, position: 0 }));
 
@@ -236,7 +267,7 @@ function createService(opts) {
     }
     function status() {
         return { login: loginState(), loginPending: login ? { url: login.url, userCode: login.userCode, expiresAt: login.until } : null,
-            loginError: loginError, online: online(), version: VERSION, prefs: { quality: prefs.quality }, player: player(),
+            loginError: loginError, online: online(), version: VERSION, prefs: prefsOut(), player: player(),
             // optional in the contract (the log, the Status page): how the service's children are
             children: { client: link ? link.state() : { running: false, inProcess: true }, player: pb.players() } };
     }
@@ -313,7 +344,8 @@ function createService(opts) {
             });
         },
         cover: (r) => { needLogin(); return tidal.cover(r.coverId).then((b) => ({ mime: 'image/jpeg', data: b.toString('base64') })); },
-        play: (r) => { needLogin(); pb.play(r.tracks, r.index); return {}; },
+        // kinds (contract 4): which ids are videos; without it every id is a track
+        play: (r) => { needLogin(); pb.play(r.tracks, r.index, r.kinds); return {}; },
         pause: () => { pb.pause(); return {}; },
         resume: () => { if (!pb.active()) needLogin(); pb.resume(); return {}; },
         next: () => { pb.next(); return {}; },
@@ -321,12 +353,16 @@ function createService(opts) {
         stop: () => { pb.stop(); return {}; },
         // with nothing playing (idle, stopped, an error) there is nothing to move: bad-request
         seek: (r) => { if (!pb.seek(r.position)) throw codeError('bad-request'); return {}; },
+        // a new quality applies from the next track, a new videoHeight from the next video
         prefs: (r) => {
-            if (r.quality && r.quality !== prefs.quality) {
-                prefs = { quality: r.quality };
+            const quality = r.quality || prefs.quality;
+            const height = r.videoHeight || videoHeight();
+            if (quality !== prefs.quality || height !== videoHeight() || (r.videoHeight && prefs.videoHeight === undefined)) {
+                prefs = { quality: quality, videoHeight: height };
                 try { st.write('prefs', prefs); } catch (e) { log('prefs: ' + e.message); }
+                if (r.videoHeight) log('prefs: videos at ' + height + 'p');
             }
-            return { prefs: { quality: prefs.quality } };
+            return { prefs: prefsOut() };
         },
         log: (r) => ({ lines: lg.lines(r.lines) }),
         exit: () => { log('exit: asked by the app'); setTimeout(() => stop(0), 50); return {}; },
