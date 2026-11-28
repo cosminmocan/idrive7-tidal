@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Images for tidal-player, both ubuntu:18.04 linux/amd64 (glibc 2.27, as the head unit).
+# Images for tidal-player, both ubuntu:18.04 linux/amd64 (glibc 2.27, as the head unit); built for linux/arm64 too, for
+# the tests on an Apple-silicon Mac (build.sh, ARCH=arm64: tidal-player-build:1-arm64, tidal-player-test:1-arm64).
 #   build: the compilers (FFmpeg and the player are built in it; build.sh)
 #   test:  build + Node (8.10, bionic's), the ffmpeg CLI (makes the tone fixtures) and libasound with its
 #          plugins (player_alsa.test.js); `make test-player` runs tests/player_*.test.js in it
@@ -12,5 +13,5 @@ FROM build AS test
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends nodejs ffmpeg libasound2 libasound2-data \
         alsa-utils procps \
     && rm -rf /var/lib/apt/lists/* \
-    && ln -s /lib/x86_64-linux-gnu/ld-2.27.so /lib/ld-linux-x86-64.so.2
-# (the player asks for the unit's loader path, /lib/ld-linux-x86-64.so.2; ubuntu has it in /lib64)
+    && if [ -e /lib/x86_64-linux-gnu/ld-2.27.so ]; then ln -s /lib/x86_64-linux-gnu/ld-2.27.so /lib/ld-linux-x86-64.so.2; fi
+# (the x86-64 player asks for the unit's loader path, /lib/ld-linux-x86-64.so.2; ubuntu has it in /lib64)

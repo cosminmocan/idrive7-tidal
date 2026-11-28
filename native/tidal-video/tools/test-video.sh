@@ -6,22 +6,26 @@
 # music player (native/tidal-player/build/out/tidal-player) decodes the reference sound. As tidal-player's
 # test-player.sh: as root in the container (the privilege tests need it), the player started as nobody unless a
 # test is about root; the repository mounted read-only; one line per file; non-zero on any failure.
+# On this computer's own CPU (tools/arch.sh; the Mac: both players' arm64 builds in build/arm64/out, image
+# tidal-video-test:1-arm64); ARCH=amd64: the x86-64 builds in build/out, in tidal-video-test:1, as before task T1.
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
 root=$(cd "$here/../.." && pwd)
-IMAGE=${TIDAL_VIDEO_TEST_IMAGE:-tidal-video-test:1}
+. "$root/tools/arch.sh"
+IMAGE=${TIDAL_VIDEO_TEST_IMAGE:-tidal-video-test:1$ARCH_SUFFIX}
 files=${*:-}
-docker run --rm --platform linux/amd64 --shm-size 256m -v "$root:/w:ro" -w /w -e FILES="$files" \
+docker run --rm --platform "$PLATFORM" --shm-size 256m -v "$root:/w:ro" -w /w -e FILES="$files" \
+    -e OUT="/w/native/tidal-video/$ARCH_BUILD/out" -e TIDAL_PLAYER="/w/native/tidal-player/$ARCH_BUILD/out/tidal-player" \
     -e TIDAL_PLAYER_VERBOSE="${TIDAL_PLAYER_VERBOSE:-}" -e VARIANTS="${TIDAL_VIDEO_VARIANTS:-release asan}" "$IMAGE" sh -c '
     set -u
     sh tests/fixtures/video/make-clips.sh /tmp/clips >/dev/null
-    export TIDAL_VIDEO_FIXTURES=/tmp/clips TIDAL_PLAYER=/w/native/tidal-player/build/out/tidal-player
-    echo "== $(node --version), $(/w/native/tidal-video/build/out/tidal-video --version 2>&1 | head -1)"
+    export TIDAL_VIDEO_FIXTURES=/tmp/clips TIDAL_PLAYER
+    echo "== $(node --version), $(uname -m), $($OUT/tidal-video --version 2>&1 | head -1)"
     failed=0
     for variant in $VARIANTS; do
         case $variant in
-            release) export TIDAL_VIDEO=/w/native/tidal-video/build/out/tidal-video TIDAL_PLAYER_SANITIZER=0 ;;
-            asan)    export TIDAL_VIDEO=/w/native/tidal-video/build/out/tidal-video-asan TIDAL_PLAYER_SANITIZER=1 ;;
+            release) export TIDAL_VIDEO=$OUT/tidal-video TIDAL_PLAYER_SANITIZER=0 ;;
+            asan)    export TIDAL_VIDEO=$OUT/tidal-video-asan TIDAL_PLAYER_SANITIZER=1 ;;
         esac
         for f in ${FILES:-tests/video_player*.test.js}; do
             if out=$(timeout 900 node "$f" 2>&1); then

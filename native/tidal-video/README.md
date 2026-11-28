@@ -42,7 +42,12 @@ are there.
 ## Build and test
 
 Everything runs in Docker (`ubuntu:18.04`, `linux/amd64`, glibc 2.27 as the unit). Nothing is needed on the host
-but Docker and curl.
+but Docker and curl. The unit's binary is always x86-64; the tests run on the computer's own CPU (task T1,
+`docs/arm64.md`): on an Apple-silicon Mac the same code is built natively for arm64 into `build/arm64/` (FFmpeg with
+its NEON routines for the picture; the sound opened with the plain C ones, as on x86-64), images
+`tidal-video-build:1-arm64` and `tidal-video-test:1-arm64`. There is no Intel Media SDK on arm64: the player looks
+for it, finds none, and `auto` decodes in software, as everywhere but in the car. `ARCH=amd64 make
+test-video-player` tests the unit's binary in `build/out` as before.
 
 ```sh
 make video-player                                # (repository root) build/out/tidal-video, and check it for the unit

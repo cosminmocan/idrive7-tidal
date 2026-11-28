@@ -1,6 +1,14 @@
 # cmocan-tidal. Everything runs in Docker; see WORKPLAN.md section 3.
 .PHONY: test test-node8 test-node-current test-render e2e player test-player hooks test-hooks release soak dist usb
 
+# The tests (test, test-player, test-video-player, e2e, soak, test-render) run on this computer's own CPU: arm64 on the
+# Mac, natively. ARCH=amd64 make <target> runs them as x86-64, the car's CPU (tools/arch.sh; docs/arm64.md). The car's
+# binaries (make player, make video-player, check-target, dist) are x86-64 whatever ARCH says; `make release` runs
+# the tests as x86-64 before it publishes (tools/release-gate.sh).
+ARCH ?= $(shell uname -m | sed -e 's/^x86_64$$/amd64/' -e 's/^aarch64$$/arm64/')
+export ARCH
+ARCH_SUFFIX = $(if $(filter amd64,$(ARCH)),,-$(ARCH))
+
 test: test-node8 test-node-current
 
 test-node8:
@@ -17,12 +25,12 @@ test-render:
 
 # the end-to-end test (task I1, tests/e2e.test.js): the fake TIDAL, the real service with its client.js child, the
 # real player writing WAVs, the real video player (task V1d: software decode, its frame file in /dev/shm), the
-# app's client and model; in the player's test image (ubuntu:18.04 amd64, Node 8.10),
+# app's client and model; in the player's test image (ubuntu:18.04 for ARCH, Node 8.10),
 # unprivileged. Not part of `make test` (there it skips)
 e2e:
-	@$(MAKE) -s -C native/tidal-player target
-	@$(MAKE) -s -C native/tidal-video target
-	@docker image inspect tidal-player-test:1 >/dev/null 2>&1 || sh native/tidal-player/build.sh image
+	@$(MAKE) -s -C native/tidal-player test-target
+	@$(MAKE) -s -C native/tidal-video test-target
+	@docker image inspect tidal-player-test:1$(ARCH_SUFFIX) >/dev/null 2>&1 || sh native/tidal-player/build.sh image
 	@sh tools/e2e/run.sh
 
 # ---- the car app (stream D): the kit's build.py, preview.js and emu.js in Docker (Python 3 + Node 22) ----
@@ -61,9 +69,9 @@ player:
 	@$(MAKE) -s -C native/tidal-player target check-target
 
 # the player's own tests (tests/player_*.test.js) against the real binary and its ASan/UBSan build, in
-# ubuntu:18.04 amd64 with Node 8.10 (in `make test` they skip: node:8.9.4's glibc is too old for the binary)
+# ubuntu:18.04 for ARCH with Node 8.10 (in `make test` they skip: node:8.9.4's glibc is too old for the binary)
 test-player:
-	@$(MAKE) -s -C native/tidal-player target asan
+	@$(MAKE) -s -C native/tidal-player test-bins
 	@sh native/tidal-player/tools/test-player.sh
 
 # the video player (task V1a): built in Docker, ubuntu:18.04 amd64, and checked for the unit (x86-64, glibc <= 2.27,
@@ -73,13 +81,13 @@ test-player:
 video-player:
 	@$(MAKE) -s -C native/tidal-video target check-target
 
-# its tests (tests/video_player*.test.js) against the binary and its ASan/UBSan build, in ubuntu:18.04 amd64 with
+# its tests (tests/video_player*.test.js) against the binary and its ASan/UBSan build, in ubuntu:18.04 for ARCH with
 # Node 8.10 and ffmpeg 3.4 (the clips are made there); the music player decodes the reference sound. In `make test`
-# they skip
+# they skip. On arm64 there is no Intel Media SDK: software decoding (as everywhere but in the car)
 test-video-player:
-	@$(MAKE) -s -C native/tidal-player target
-	@$(MAKE) -s -C native/tidal-video target asan
-	@docker image inspect tidal-video-test:1 >/dev/null 2>&1 || sh native/tidal-video/build.sh image
+	@$(MAKE) -s -C native/tidal-player test-target
+	@$(MAKE) -s -C native/tidal-video test-bins
+	@docker image inspect tidal-video-test:1$(ARCH_SUFFIX) >/dev/null 2>&1 || sh native/tidal-video/build.sh image
 	@sh native/tidal-video/tools/test-video.sh
 
 # the install packages (task I2, docs/INSTALL.md): dist/idrive7-tidal/ (catalog.json, the tool kit, the app, its
@@ -114,5 +122,7 @@ test-release-gate:
 # I3, the long run: 2 hours of the real service, client and player with random faults, detached (tools/e2e/soak.sh);
 # the verdict lands in build/soak/report.json. A shorter one: make soak SOAK_SECONDS=600
 SOAK_SECONDS ?= 7200
-soak: player
+soak:
+	@$(MAKE) -s -C native/tidal-player test-target
+	@docker image inspect tidal-player-test:1$(ARCH_SUFFIX) >/dev/null 2>&1 || sh native/tidal-player/build.sh image
 	@sh tools/e2e/soak.sh $(SOAK_SECONDS)

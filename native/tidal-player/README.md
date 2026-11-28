@@ -32,8 +32,14 @@ The contract is `docs/PROTOCOL.md`, section 2; this README says how it is met.
 
 ## Build and test
 
-Everything runs in Docker (`ubuntu:18.04`, `linux/amd64`, glibc 2.27 as the unit; on an Apple-silicon Mac it is
-emulated). Nothing is needed on the host but Docker and curl.
+Everything runs in Docker (`ubuntu:18.04`, `linux/amd64`, glibc 2.27 as the unit). Nothing is needed on the host
+but Docker and curl. The unit's binary is always x86-64; the tests run on the computer's own CPU (task T1,
+`docs/arm64.md`): on an Apple-silicon Mac the same code and FFmpeg configuration are built natively for arm64 into
+`build/arm64/` (`ARCH=arm64 sh build.sh target|asan`, images `tidal-player-build:1-arm64` and
+`tidal-player-test:1-arm64`), and `ARCH=amd64 make test-player` tests the unit's binary in `build/out` as before.
+The player opens its decoders and resampler with FFmpeg's plain C routines (`av_force_cpu_flags(0)`): this FFmpeg
+has no x86 SIMD anyway, and on arm64 the NEON ones would change the sound's last bits, so it is the same sample for
+sample on both, and tidal-video's.
 
 ```sh
 make -C native/tidal-player target check-target   # build/out/tidal-player for the unit, and check it (task B1)
