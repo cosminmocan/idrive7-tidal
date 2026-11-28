@@ -928,27 +928,34 @@ async function runInner(impl) {
             .then(() => { mapped[uuid] = true; log.info('mapped entry ' + uuid + ' -> ' + mainName + ' (' + upMs() + ' ms)'); })
             .catch((e) => { mapped[uuid] = false; log.error('map entry state', e); });
     });
+    // the open under way, its tries and the waits between them included: MainApp can send the same tap twice
+    // (UNSPECIFIED, then ENTRY_POINT), and a tap while one is under way starts no second chain
     let opening = null;
-    // tries: right after a tap started the app the HMI can still refuse the state (INVALID_UUID /
-    // INVALID_COMPONENTID) - then it is asked again, 0.8 s apart, instead of needing a second tap
+    // tries: right after a tap started the app, or right after a popup, the HMI can still refuse the state
+    // (INVALID_UUID / INVALID_COMPONENTID) - then it is asked again, 0.8 s apart, instead of needing a second tap;
+    // a tap gets 3 tries, the open at start 6. Any other error is logged at once; a refusal after the last try too.
+    const ENTRY_TRIES = 3, ENTRY_RETRY_MS = 800;
+    const refusedNow = (e) => /INVALID/.test(String(e && e.message ? e.message : e) + ' ' + JSON.stringify(e || {}));
     const openEntry = (uuid, tries) => {
-        if (opening) return opening;   // MainApp can send the same tap twice
-        let again = false;
-        const m = mapped[uuid];
-        const map = m === true ? Promise.resolve() : m && m.then ? m.then(() => (mapped[uuid] === true ? null : ui.rhmi.mapEntryState(uuid, mainState).then(() => { mapped[uuid] = true; })))
-            : ui.rhmi.mapEntryState(uuid, mainState).then(() => { mapped[uuid] = true; });
-        opening = map
-            .then(() => (mainState && mainState.updateResources ? mainState.updateResources().catch(() => {}) : null))
-            .then(() => ui.rhmi.openEntryState(uuid))
-            .then(() => ui._setVisible(mainName, true))
-            .catch((e) => {
-                if ((tries || 1) > 1 && /INVALID/.test(String(e && e.message ? e.message : e) + ' ' + JSON.stringify(e || {}))) again = true;
-                else log.error('open entry state', e);
-            })
-            .then(() => {
-                opening = null;
-                if (again) setTimeout(() => openEntry(uuid, tries - 1), 800);
-            });
+        if (opening) return opening;
+        const attempt = (left) => {
+            const m = mapped[uuid];
+            const map = m === true ? Promise.resolve() : m && m.then ? m.then(() => (mapped[uuid] === true ? null : ui.rhmi.mapEntryState(uuid, mainState).then(() => { mapped[uuid] = true; })))
+                : ui.rhmi.mapEntryState(uuid, mainState).then(() => { mapped[uuid] = true; });
+            return map
+                .then(() => (mainState && mainState.updateResources ? mainState.updateResources().catch(() => {}) : null))
+                .then(() => ui.rhmi.openEntryState(uuid))
+                .then(() => ui._setVisible(mainName, true))
+                .catch((e) => {
+                    if (left > 1 && refusedNow(e)) {
+                        log.info('open entry state refused (' + (left - 1) + ' more tries in ' + ENTRY_RETRY_MS + ' ms): ' + (e && e.message ? e.message : e));
+                        return new Promise((res) => setTimeout(res, ENTRY_RETRY_MS)).then(() => attempt(left - 1));
+                    }
+                    log.error('open entry state', e);
+                    return null;
+                });
+        };
+        opening = attempt(tries || ENTRY_TRIES).then(() => { opening = null; });
         return opening;
     };
     // a tap on the home-screen widget opens the app
