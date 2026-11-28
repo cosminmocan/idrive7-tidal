@@ -2,11 +2,9 @@ cmocan_tidal - the car app of idrive7-tidal. GPL-3.0-or-later (the repository's 
 
 Files from others, each copied unchanged:
 
-car_audio.js, car_volume.js
+car_volume.js
     aurelmarius, github.com/aurelmarius/bmw-apps @ 0976d16dda9be301d98b0253586d4c095160ac2b,
-    apps/aurelm_tvhplayer/. GPL-3.0-or-later (the tool's component.json; car_audio.js descends from Moonride,
-    JustAnotherPU, GPL-3.0-or-later). Shares the claims folder /tmp/aurelm-287 with aurelmarius' apps, so the
-    app started last gets the speakers.
+    apps/aurelm_tvhplayer/. GPL-3.0-or-later (the tool's component.json).
 
 qrcode.js
     QR Code Generator for JavaScript, Copyright (c) 2009 Kazuhiko Arase, MIT licence (its header).
@@ -23,6 +21,17 @@ jpeg.js
     The JPEG decoder of jpeg-js (github.com/jpeg-js/jpeg-js), from Mozilla pdf.js, Copyright 2011 notmasteryet,
     Apache License 2.0 (its header). As shipped by hexlay/custom-apps @ db900984c13e47f7be33c7b3c0ed92b1936c5026,
     apps/spotify/jpeg.js.
+
+Another's, changed by us:
+
+car_audio.js
+    aurelmarius, github.com/aurelmarius/bmw-apps @ 0976d16dda9be301d98b0253586d4c095160ac2b,
+    apps/aurelm_tvhplayer/car_audio.js. GPL-3.0-or-later (the tool's component.json; it descends from Moonride,
+    JustAnotherPU, GPL-3.0-or-later). Shares the claims folder /tmp/aurelm-287 with aurelmarius' apps, so the
+    app started last gets the speakers.
+    Changed 2026-11-28 (task A1; the places are marked "A1" in the file, and its header says what): a connection
+    on source 287 that is not ours and that no other app claims is ended and ours connected (the car brings its
+    last connection back after a start, and the app stayed silent). Unchanged until then (sha256 1a6be46a...).
 
 Ours, after another's:
 

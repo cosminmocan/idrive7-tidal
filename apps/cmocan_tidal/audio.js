@@ -1,6 +1,6 @@
 'use strict';
 /**
- * audio.js - our player's sound on the car's speakers: aurelmarius' car_audio.js (unchanged, source 287 to the
+ * audio.js - our player's sound on the car's speakers: aurelmarius' car_audio.js (with our change A1, see its header; source 287 to the
  * main speakers, the claims shared with his apps in /tmp/aurelm-287) driven by our player's state.
  *
  *   const audio = createAudio({ signals, log, file, send(cmd) });

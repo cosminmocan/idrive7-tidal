@@ -1,7 +1,17 @@
 'use strict';
 /**
- * car_audio.js - the channel's sound on the car's speakers, through the audio manager. Emby's copy
- * (apps/aurelm_emby/car_audio.js, 0.3.9), unchanged: it touches only its own connection, so a third app on source 287
+ * car_audio.js - the channel's sound on the car's speakers, through the audio manager. aurelmarius' file
+ * (github.com/aurelmarius/bmw-apps @ 0976d16, apps/aurelm_tvhplayer/car_audio.js, GPL-3.0-or-later) with ONE CHANGE
+ * of ours (idrive7-tidal task A1, 2026-11-28; every changed place is marked "A1"):
+ *
+ *   A 287 connection that is not ours and that no other app claims (no file of another app in the claims folder)
+ *   is ended, and ours is connected. In the car (docs/car-logs/2026-11-28-video-first-run.log, 06:57:07 and
+ *   08:24:11) such a connection was there after the car was started, most likely the car's own (it brings its
+ *   last source back; who made it is not in the log), it carried no sound of ours, and this module waited for it until the driver picked another
+ *   source. Any claim of another app, older or newer than ours, readable or not, is respected as before: that
+ *   app's connection is never disconnected. A connection the audio manager does not let go is asked for once.
+ *
+ * The rest is his, unchanged: it touches only its own connection, so a third app on source 287
  * (myAirPlay, Emby, TVH Player) never takes the speakers from another and never ends another's sound. Emby's words:
  *
  * (Emby's copy of AirPlay Test's module, apps/aurelm_airplay_probe/car_audio.js, 0.8.3, with two more checks for a
@@ -43,7 +53,7 @@ const SRC = 287, SINK = 1024;
 function createCarAudio(signals, log, opts) {
     const o = opts || {};
     const fs = o.fs || require('fs');
-    const am = { p: null, r: null, id: null, on: false, q: Promise.resolve(), connected: false, error: null, taken: false, checked: 0, claimAt: 0, yieldedTo: null, yieldedAt: 0 };
+    const am = { p: null, r: null, id: null, on: false, q: Promise.resolve(), connected: false, error: null, taken: false, checked: 0, claimAt: 0, yieldedTo: null, yieldedAt: 0, asked: {} };
     /* ---------- the claims: who wants the speakers, and since when ---------- */
     const claimDir = o.claimDir || '/tmp/aurelm-287';
     const me = String(o.app || 'app').replace(/[^A-Za-z0-9_-]/g, '_');
@@ -67,6 +77,24 @@ function createCarAudio(signals, log, opts) {
             });
         } catch (e) { /* no folder */ }
         return best;
+    }
+    /** A1: does any other app claim the speakers? A claim of any age counts, and so does a file that cannot be read
+     *  (half written) or a folder that cannot be listed: only "no folder" and "no file of another app" say no */
+    function otherClaim() {
+        try { return fs.readdirSync(claimDir).some((f) => /\.json$/.test(f) && f !== me + '.json'); } catch (e) { return !(e && e.code === 'ENOENT'); }
+    }
+    /** A1: the 287 connections no app claims (the car's own, brought back after a start) are ended, each asked for
+     *  once; returns the 287 connections that are still not ours afterwards */
+    async function endUnclaimed(other) {
+        const fresh = other.filter((c) => !am.asked[c.mainConnectionID]);
+        if (!fresh.length || otherClaim()) return other;
+        log.info('car audio: 287 is in use (' + other.map((c) => c.mainConnectionID).join(', ') + ') and claimed by no app (the car brought it back): ending it ' + JSON.stringify(fresh));
+        for (let i = 0; i < fresh.length; i++) {
+            const id = fresh[i].mainConnectionID;
+            am.asked[id] = true;
+            try { log.info('car audio: disconnect ' + id + ' (not ours, unclaimed) ' + JSON.stringify(await signals.call(am.p, 'disconnect', { mainConnectionID: id }))); } catch (e) { log.warn('car audio: disconnect ' + id + ': ' + e); }
+        }
+        return (await on287()).filter((c) => c.mainConnectionID !== am.id);
     }
     // our connection's id, kept across a crash; null: none of ours
     const bootId = () => { try { return (o.bootId ? o.bootId() : fs.readFileSync(o.bootIdPath || '/proc/sys/kernel/random/boot_id', 'utf8')).trim(); } catch (e) { return null; } };
@@ -175,14 +203,16 @@ function createCarAudio(signals, log, opts) {
                     return;
                 }
                 // another app's sound on 287: not ours to end; it lets go if our claim is the newer
-                const other = (await on287()).filter((c) => c.mainConnectionID !== am.id);
+                // (A1: unless no app claims it: then it is the car's own, and it is ended first)
+                let other = (await on287()).filter((c) => c.mainConnectionID !== am.id);
+                if (other.length) other = await endUnclaimed(other);
                 if (other.length) {
                     if (!am.taken) log.info('car audio: 287 is in use (' + other.map((c) => c.mainConnectionID).join(', ') + '): not connecting' + (newerClaim() ? '' : ' (waiting for it to let go)'));
                     am.taken = true; am.connected = false; am.error = null;
                     return;
                 }
                 if (am.yieldedTo && newerClaim()) return;   // we let go, and that app still wants the speakers
-                am.taken = false; am.yieldedTo = null;
+                am.taken = false; am.yieldedTo = null; am.asked = {};
                 await avail(true);
                 const r = await signals.call(am.p, 'connect', { sourceID: SRC, sinkID: SINK });
                 const ok = r && (r.amError === 'E_OK' || r.amError === 0) && r.mainConnectionID != null;

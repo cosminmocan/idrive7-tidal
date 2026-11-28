@@ -1,7 +1,8 @@
 'use strict';
 /**
  * D6: the speakers and the volume. car_audio.js and car_volume.js are aurelmarius' (bmw-apps @0976d16,
- * apps/aurelm_tvhplayer, GPL-3.0-or-later) copied unchanged, sharing the claims folder /tmp/aurelm-287 with his apps;
+ * apps/aurelm_tvhplayer, GPL-3.0-or-later), sharing the claims folder /tmp/aurelm-287 with his apps: car_volume.js
+ * copied unchanged, car_audio.js with one change of ours (A1, below: a 287 connection no app claims is taken over);
  * apps/cmocan_tidal/audio.js ties them to our player. Against a fake audio manager (after aurelmarius'
  * tests/car_audio_claims.test.js): the route only while a track plays; pause or stop releases it; only our own
  * connection is ever disconnected; a leftover from a crash in this boot is cleared, one from an earlier boot is
@@ -60,11 +61,17 @@ function ours(am, extra) {
 /** each status calls update(); the module looks again every second or two, as in the car */
 async function statuses(a, p, n, ms) { for (let i = 0; i < (n || 1); i++) { a.update(p); await settle(ms || 60); } }
 
-test('car_audio.js and car_volume.js are aurelmarius\' files, unchanged', () => {
+test('car_volume.js is aurelmarius\' file, unchanged; car_audio.js is his with our change A1, and the file and NOTICE say so', () => {
     const sha = (f) => crypto.createHash('sha256').update(fs.readFileSync(path.join(APP, f))).digest('hex');
-    assert.strictEqual(sha('car_audio.js'), '1a6be46a7623d35450c31a18ac63ec511d02048beab9754fc1d78f11697fff2f');
     assert.strictEqual(sha('car_volume.js'), '0b8bd7179c773c623566ebb3d0c9abe9b7b5d08a7ace886775454830f5c18fcf');
-    assert.ok(/car_audio\.js[\s\S]*aurelmarius[\s\S]*GPL-3\.0/.test(fs.readFileSync(path.join(APP, 'NOTICE'), 'utf8')), 'origin noted in NOTICE');
+    // car_audio.js was his unchanged copy (sha256 1a6be46a...) until A1; a changed file must not pass as a copy
+    assert.notStrictEqual(sha('car_audio.js'), '1a6be46a7623d35450c31a18ac63ec511d02048beab9754fc1d78f11697fff2f');
+    const notice = fs.readFileSync(path.join(APP, 'NOTICE'), 'utf8');
+    assert.ok(/car_audio\.js[\s\S]*aurelmarius[\s\S]*GPL-3\.0/.test(notice), 'origin noted in NOTICE');
+    const copied = notice.slice(notice.indexOf('copied unchanged'), notice.indexOf('changed by us'));
+    assert.ok(notice.indexOf('changed by us') > 0 && !/car_audio\.js/.test(copied), 'NOTICE no longer lists car_audio.js among the unchanged copies');
+    assert.ok(/changed by us:[\s\S]*car_audio\.js[\s\S]*A1/.test(notice), 'NOTICE names the change');
+    assert.ok(/ONE CHANGE[\s\S]*A1/.test(fs.readFileSync(path.join(APP, 'car_audio.js'), 'utf8').slice(0, 1500)), 'the file\'s header names the change');
 });
 
 test('app.json declares what the audio manager calls need (and the claims folder is aurelmarius\' one)', () => {
