@@ -62,6 +62,14 @@ const PLAYLISTS = [
     { uuid: 'p2', title: 'Morning drive', numberOfTracks: 18, coverId: null },
     { uuid: 'p3', title: 'Liniște', numberOfTracks: 7, coverId: null },
 ];
+// videos (contract 4): rows like tracks, with a film mark; one that cannot be streamed
+const VIDEOS = [
+    { kind: 'video', id: 143792065, title: 'Around the World', artists: ['Daft Punk'], album: null, coverId: COVER_ID, duration: 175, streamReady: true, explicit: false },
+    { kind: 'video', id: 143792066, title: 'Get Lucky (Official Video)', artists: ['Daft Punk', 'Pharrell Williams', 'Nile Rodgers'], album: null, coverId: null, duration: 369, streamReady: true, explicit: false },
+    { kind: 'video', id: 143792067, title: 'Not streamable here', artists: ['Somebody'], album: null, coverId: null, duration: 241, streamReady: false, explicit: false },
+    { kind: 'video', id: 143792068, title: 'Instant Crush', artists: ['Daft Punk', 'Julian Casablancas'], album: null, coverId: null, duration: 337, streamReady: true, explicit: false },
+];
+const PICTURE = { file: '/dev/shm/mgu-video-cmocan-tidal', width: 1280, height: 720 };
 const MIXES = [
     { id: 'm1', title: 'My Mix 1', subTitle: 'Daft Punk, Justice, Air', coverId: null },
     { id: 'm2', title: 'My Mix 2', subTitle: 'Massive Attack, Portishead', coverId: null },
@@ -103,7 +111,7 @@ function cases() {
         ['login-pending-restart', [status({ login: 'login-pending', loginPending: { url: 'https://link.tidal.com/KLMNO', userCode: 'KLMNO', expiresAt: NOW + 150000 } })], {}],
         ['login-failed', [status({ login: 'logged-out' }), { type: 'login-requested' }, { type: 'login-failed', code: 'tidal-error' }], {}],
         ['library', [status()], {}],
-        ['library-playing', [status({ player: player('playing') }), { type: 'cursor', sel: 5, top: 0 }], {}],
+        ['library-playing', [status({ player: player('playing') }), { type: 'cursor', sel: 6, top: 1 }], {}],
         ['library-offline', [status({ online: false }), { type: 'open-library' }], {}],
         ['list-loading', [status(), { type: 'open-list', key: 'k', title: 'Playlists', kind: 'playlists', source: { cmd: 'playlists', params: {} } }], {}],
         ['list-empty', list('tracks', [], { title: 'Favourite tracks' }), {}],
@@ -117,6 +125,8 @@ function cases() {
         ['list-albums', list('albums', ALBUMS, { title: 'Favourite albums' }).concat(knob(1)), { thumb: true }],
         ['list-playlists', list('playlists', PLAYLISTS, { title: 'Playlists', cmd: 'playlists' }).concat(knob(1)), {}],
         ['list-mixes', list('mixes', MIXES, { title: 'Mixes', cmd: 'mixes' }), {}],
+        // V1c: My music > Videos, the first one playing
+        ['list-videos', list('tracks', VIDEOS, { title: 'Videos' }).concat([status({ player: player('playing', { track: VIDEOS[0], duration: 175, queueIndex: 0, queueLength: 4 }) }), played(VIDEOS, 'Videos')], knob(1)), { thumb: true }],
         ['list-500-scrolled', list('tracks', big).concat([{ type: 'cursor', sel: 300, top: 297 }]), {}],
         ['search-keyboard', [status(), { type: 'open-search' }, { type: 'key', key: 'D' }, { type: 'key', key: 'A' }, { type: 'key', key: 'F' }, { type: 'key', key: 'T' }, { type: 'focus', key: 19 }], {}],
         ['search-keyboard-results', [status(), { type: 'open-search' }, { type: 'key', key: 'D' }, { type: 'key', key: 'A' }, { type: 'key', key: 'F' }, { type: 'key', key: 'T' }, { type: 'key', key: 'SEARCH' },
@@ -139,6 +149,11 @@ function cases() {
         ['now-playing-bar-focus', [status({ player: player('playing') }), { type: 'open-now-playing' }, { type: 'focus', area: 'progress' }], { cover: true, position: 98.4 }],
         ['now-playing-bar-focus-seeking', [status({ player: player('playing') }), { type: 'open-now-playing' }, { type: 'focus', area: 'progress' }], { cover: true, position: 128.4, seeking: true }],
         ['now-playing-idle', [status(), { type: 'open-now-playing' }], {}],
+        // V1c: a video with its picture (here a placeholder: the GPU renderer draws the frames) and the controls over
+        // it after a tap; without the GPU renderer the cover view and a line
+        ['now-playing-video', [status({ player: player('playing', { track: VIDEOS[0], duration: 175, position: 62, queueIndex: 0, queueLength: 1, video: PICTURE }) }), { type: 'open-now-playing' }], { video: true, overlay: true, position: 62.4 }],
+        ['now-playing-video-no-gpu', [status({ player: player('playing', { track: VIDEOS[0], duration: 175, position: 62, queueIndex: 0, queueLength: 1, video: PICTURE }) }), { type: 'open-now-playing' }],
+            { cover: true, position: 62.4, videoNote: 'Video picture needs the GPU renderer' }],
         ['now-playing-volume', [status({ player: player('playing') }), { type: 'open-now-playing' }], { cover: true, volume: { volume: 23, muted: false, max: 62 } }],
         ['now-playing-muted', [status({ player: player('playing') }), { type: 'open-now-playing' }], { cover: true, volume: { volume: 23, muted: true, max: 62 } }],
         ['error-not-found', [status(), { type: 'error', code: 'not-found', cmd: 'mix' }], {}],
@@ -146,6 +161,14 @@ function cases() {
         ['error-tidal', [status(), { type: 'error', code: 'tidal-error', cmd: 'favorites' }], {}],
     ];
     return c.map((x) => ({ name: x[0], state: from(x[1]), ui: x[2] }));
+}
+
+/** where the GPU renderer draws the video's frames (op 19), a stand-in: the software path has no picture */
+function videoPlaceholder(cv, x, y, w, h) {
+    cv.fillRect(x, y, w, h, '#1d2733');
+    const cx = x + w / 2, cy = y + h / 2 - 40;
+    cv.quad([[cx - 34, cy - 44], [cx + 50, cy], [cx + 50, cy], [cx - 34, cy + 44]], '#ffffff55');
+    cv.text('the video (drawn by the GPU renderer)', cx, cy + 96, 24, '#ffffff77', { align: 'center', literal: true });
 }
 
 let coverReady = false;
@@ -156,8 +179,10 @@ function page(c) {
     const r = new Recorder(W, H, { textScale: 1 });
     r.clear(t.bg);
     const u = c.ui || {};
+    const pic = u.video && c.state.player && c.state.player.video;
     S.draw(r, t, c.state, {
-        now: u.now || NOW, position: u.position, volume: u.volume, seeking: u.seeking,
+        now: u.now || NOW, position: u.position, volume: u.volume, seeking: u.seeking, videoNote: u.videoNote || null,
+        video: pic ? { w: pic.width, h: pic.height, overlay: !!u.overlay, draw: videoPlaceholder } : null,
         cover: (id) => (u.cover && id === COVER_ID ? { id: COVER_IMAGE, w: COVER_SIZE, h: COVER_SIZE } : null),
         thumb: (id) => (u.thumb && id === COVER_ID ? { id: COVER_IMAGE, w: COVER_SIZE, h: COVER_SIZE } : null),
     });

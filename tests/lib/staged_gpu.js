@@ -4,9 +4,15 @@
  * SDK) on the kit's stubbed head unit (kit/tools/hu-stub.js), drawing through the kit's GPU path: display.js and
  * renderd.js, to a renderer's socket (MGU_RENDERD_SOCKET) or into a file (MGU_RENDERD_FILE, the stream
  * `mgu-render --replay` reads). The app talks to a fake service where a track plays, and is taken to now playing with
- * the controller, so its frames carry the track's cover. Also here: reading such a stream.
+ * the controller, so its frames carry the track's cover. Also here: reading such a stream, and a renderer to read it.
  *
  *   const out = await runStaged({ tmp, serviceSock, rendererSock | file, ms });   // { logs, errors, covers, frames }
+ *     (video, V1c) until: 'frames': that many frames (o.frames) after now playing instead of "until the cover";
+ *     sets: settings of the fresh install; kmh: the car's speed (Vehicle2, as the car sends it); quietMs: then the
+ *     app draws nothing that long (what reaches the renderer meanwhile is the kit's keepalive)
+ *   standIn(sockPath, { native, caps })   a renderer on a unix socket (mgu-render/1 when native: X_READY with caps);
+ *                                 a TICK for every FRAME; r.msgs: [{ type, p, at (ms) }]
+ *   videoOps(words)               the VIDEO ops (19) of draw words, mgu-render/1's form: [{ x, y, w, h, r, id }]
  *   coverService(sock, jpeg)      the fake service, logged in, a track playing, its cover that JPEG
  *   messages(buf)                 [{ type, p }] of a client stream (u32 type, u32 length, payload)
  *   imageOps(words, form)         the IMAGE ops (18) in draw words, read as 'native' (x y w h r id) or 'upstream'
@@ -52,7 +58,8 @@ function stage(into) {
 // cover is a picture (kit/record.js imageById), then a few more frames are drawn; what was logged is printed as JSON
 const CHILD = `
 const path = require('path');
-const [stageDir, dataDir, hustub, ms] = process.argv.slice(1);
+const [stageDir, dataDir, hustub, ms, optsJson] = process.argv.slice(1);
+const opts = JSON.parse(optsJson || '{}');
 const logs = [], errors = [];
 const keep = (l) => (...a) => { const s = a.map((x) => (x && x.stack) || String(x)).join(' '); logs.push(l + ' ' + s); if (l === 'error') errors.push(s); };
 const log = { info: keep('info'), warn: keep('warn'), error: keep('error'), debug: () => {} };
@@ -64,8 +71,18 @@ let frames = 0, printed = false;
 const covers = [];
 process.on('exit', () => { if (!printed) { printed = true; require('fs').writeSync(1, JSON.stringify({ logs, errors, covers, frames }) + '\\n'); } });
 const { headUnit } = require(hustub);
-const hu = headUnit(stageDir, { dataDir, fresh: true, log, image: () => Promise.resolve() });
+const hu = headUnit(stageDir, { dataDir, fresh: true, log, image: () => Promise.resolve(), sets: opts.sets || {} });
 hu.ui.isVisible = (n) => n === 'MAIN';
+// the car's speed as the car sends it (kit/parked.js reads Vehicle2.statusCarSpeed2)
+if (opts.kmh != null) {
+    const s0 = hu.ctx.signals;
+    hu.ctx.signals = Object.assign({}, s0, {
+        watch: (iface, inst, h) => {
+            if (iface === 'de.bmw.infotainment.vehicle.Vehicle2' && h && h.statusCarSpeed2) setImmediate(() => h.statusCarSpeed2({ speedVehicleCentreOfGravity: Math.round(opts.kmh / 0.015625) }));
+            return s0.watch(iface, inst, h);
+        },
+    });
+}
 hu.start();
 const rec = require(path.join(hu.kitDir, 'record'));
 const sleep = (t) => new Promise((r) => setTimeout(r, t));
@@ -74,11 +91,13 @@ const ccu = (df) => hu.display.onCcu && hu.display.onCcu({ frontSequenceNumberOp
     const end = Date.now() + Number(ms);
     let after = 0;
     await sleep(300);
-    while (Date.now() < end && after < 4) {
-        if (!rec.imageById.size) { ccu(0); ccu(4); } else after++;
+    const byFrames = opts.until === 'frames', enough = byFrames ? (opts.frames || 8) : 4;
+    while (Date.now() < end && after < enough) {
+        if (byFrames ? frames < 3 : !rec.imageById.size) { ccu(0); ccu(4); } else after++;
         try { await hu.loopFn(); frames++; } catch (e) { errors.push('loop: ' + (e && e.stack || e)); }
         await sleep(120);
     }
+    if (opts.quietMs) await sleep(opts.quietMs);
     rec.imageById.forEach((im, id) => covers.push({ id, w: im.w, h: im.h, ver: im.ver }));
     await sleep(200);
     if (hu.display.gpu) hu.display.gpu.close();
@@ -96,7 +115,8 @@ function runStaged(o) {
     if (o.file) env.MGU_RENDERD_FILE = o.file;
     else env.MGU_RENDERD_SOCKET = o.rendererSock;
     return new Promise((resolve, reject) => {
-        const ch = childProcess.spawn(process.execPath, ['-e', CHILD, stageDir, dataDir, path.join(KIT, 'tools', 'hu-stub.js'), String(o.ms || 8000)], { env: env, stdio: ['ignore', 'pipe', 'pipe'] });
+        const opts = JSON.stringify({ until: o.until, frames: o.frames, sets: o.sets, kmh: o.kmh, quietMs: o.quietMs });
+        const ch = childProcess.spawn(process.execPath, ['-e', CHILD, stageDir, dataDir, path.join(KIT, 'tools', 'hu-stub.js'), String(o.ms || 8000), opts], { env: env, stdio: ['ignore', 'pipe', 'pipe'] });
         let out = '', err = '';
         ch.stdout.on('data', (d) => { out += d; });
         ch.stderr.on('data', (d) => { err += d; });
@@ -156,4 +176,61 @@ function imageOps(b, form) {
     return out;
 }
 
-module.exports = { stage: stage, runStaged: runStaged, coverService: coverService, messages: messages, imageOps: imageOps, ROOT: ROOT };
+/** The VIDEO ops (19) of a FRAME's draw words (a Buffer), in mgu-render/1's form `x y w h r id`. Throws on an unknown op. */
+function videoOps(b) {
+    const n = b.length >> 2, u = (i) => b.readUInt32LE(i * 4), f = (i) => b.readFloatLE(i * 4), out = [];
+    let i = 0;
+    while (i < n) {
+        const op = u(i);
+        let len = OP_WORDS[op];
+        if (len === undefined) throw new Error('unknown draw op ' + op + ' at word ' + i);
+        if (op === 3) len += 2 * u(i + 5);
+        else if (op === 6) len += 2 * u(i + 6);
+        else if (op === 10) len += 9 * u(i + 1);
+        else if (op === 11) len += 8 * u(i + 3);
+        else if (op === 19) out.push({ x: f(i + 1), y: f(i + 2), w: f(i + 3), h: f(i + 4), r: f(i + 5), id: u(i + 6) });
+        i += 1 + len;
+    }
+    return out;
+}
+
+const R = { HELLO: 1, SHOW: 3, FRAME: 7, READY: 101, TICK: 102, X_READY: 0x4d520101, X_STATE: 0x4d520102 };
+function u32msg(type, arr) {
+    const b = Buffer.alloc(8 + arr.length * 4);
+    b.writeUInt32LE(type, 0); b.writeUInt32LE(arr.length * 4, 4);
+    arr.forEach((v, i) => b.writeInt32LE(v | 0, 8 + i * 4));
+    return b;
+}
+/**
+ * A renderer on a unix socket. o.native: as mgu-render (X_READY with o.caps, by default touch, controller, front
+ * gate and pixmaps; then READY) to a HELLO that asks for mgu-render/1, X_STATE "on screen, in front" once shown;
+ * else READY alone. A TICK for every FRAME. r.msgs: every message that came, in order, with when (ms).
+ */
+function standIn(sockPath, o) {
+    const native = !!(o && o.native), caps = o && o.caps != null ? o.caps : 1 | 2 | 4 | 8;
+    const r = { msgs: [], hello: null };
+    const conns = [];
+    const server = require('net').createServer((c) => {
+        conns.push(c);
+        let buf = Buffer.alloc(0), frames = 0, isNative = false;
+        c.on('error', () => {});
+        c.on('data', (d) => {
+            buf = Buffer.concat([buf, d]);
+            messages(buf).forEach((m) => {
+                buf = buf.slice(8 + m.p.length);
+                r.msgs.push({ type: m.type, p: Buffer.from(m.p), at: Date.now() });
+                if (m.type === R.HELLO) {
+                    r.hello = m.p.toString('latin1');
+                    isNative = native && r.hello.indexOf('\0proto=mgu-render/1') > 0;
+                    if (isNative) c.write(u32msg(R.X_READY, [1, 1, caps, 0, 0, 0, 0, 0, 0, 0, 0, 2048, 60000]));
+                    c.write(u32msg(R.READY, [4, 1920, 720, 1]));
+                } else if (m.type === R.SHOW && isNative && m.p.readUInt32LE(0)) c.write(u32msg(R.X_STATE, [1, 1, 1]));
+                else if (m.type === R.FRAME) c.write(u32msg(R.TICK, [++frames, frames * 16]));
+            });
+        });
+    });
+    r.close = () => new Promise((resolve) => { conns.forEach((c) => c.destroy()); server.close(() => { try { fs.unlinkSync(sockPath); } catch (e) { /* gone */ } resolve(); }); });
+    return new Promise((resolve, reject) => { server.once('error', reject); server.listen(sockPath, () => resolve(r)); });
+}
+
+module.exports = { stage: stage, runStaged: runStaged, coverService: coverService, messages: messages, imageOps: imageOps, videoOps: videoOps, standIn: standIn, ROOT: ROOT };

@@ -139,11 +139,12 @@ test('messages: in the caption line, in the warning colour, for a few seconds; n
     assert.ok(on.rects.every((r) => r.c !== theme.warn || r.y < 92), 'nothing in the warning colour over the rows');
 });
 
-test('My music: icons, five rows; "Now playing" the last row, with the track, only while a track is loaded', () => {
+test('My music: icons, six rows; "Now playing" the last row, with the track, only while a track is loaded', () => {
     const none = drawn(loggedIn()).cv;
-    ['My music', 'Favourite tracks', 'Favourite albums', 'Playlists', 'Mixes', 'Search'].forEach((x) => assert.ok(textAt(none, x), x));
+    ['My music', 'Favourite tracks', 'Favourite albums', 'Playlists', 'Mixes', 'Videos', 'Search'].forEach((x) => assert.ok(textAt(none, x), x));
     assert.ok(!none.has('Now playing'));
-    const on = drawn(loggedIn({})).cv;
+    // (the seventh row: the list moves up by one when the knob reaches it)
+    const on = drawn(M.reduce(loggedIn({}), { type: 'cursor', sel: 6, top: 1 })).cv;
     const np = textAt(on, 'Now playing');
     assert.ok(np && rowOf(np.y) === 5, on.all());
     assert.ok(on.has('One More Time  ·  Daft Punk'), on.all());
