@@ -63,6 +63,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/channel_layout.h>
+#include <libavutil/cpu.h>
 #include <libswresample/swresample.h>
 }
 
@@ -703,6 +704,11 @@ std::string averr(int rc) { char e[128]; av_strerror(rc, e, sizeof e); return e;
 /* demuxes and decodes stdin into the queue; any failure is set with fail() */
 void decode() {
     av_log_set_level(AV_LOG_ERROR);
+    /* FFmpeg's plain C routines only, for every decoder and resampler opened from here on: on x86-64 this FFmpeg has
+     * no SIMD routines anyway (built without x86 assembly), on arm64 (the tests on the Mac, task T1) it has NEON ones,
+     * whose sums differ. So the sound is the same on both, and sample for sample tidal-video's (which opens its sound
+     * the same way). */
+    av_force_cpu_flags(0);
     AVFormatContext *fc = avformat_alloc_context();
     const int iosz = 64 * 1024;
     AVIOContext *io = avio_alloc_context((unsigned char *) av_malloc(iosz), iosz, 0, nullptr, read_cb, nullptr, seek_cb);
