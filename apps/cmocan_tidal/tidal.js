@@ -356,7 +356,7 @@ function createApp(ctx, kit) {
     if (ctx.settings.onChange) ctx.settings.onChange((k) => { if (k === 'quality') sendQuality(); else if (k === 'videoHeight') sendVideoHeight(); });
 
     // the playing track on the instrument cluster, where cluster-render is installed (it runs itself and ends with the app)
-    require('./cluster').forApp(ctx, kit, { request: (cmd, p) => ask(cmd, p, SLOW_MS), player: () => s.player, speakers: () => audio.state(), stopped: () => stopped });
+    require('./cluster').forApp(ctx, kit, { request: (cmd, p) => ask(cmd, p, SLOW_MS), player: () => s.player, speakers: () => audio.state(), stopped: () => stopped, where: () => progress.at(now()) });
 
     /* ---------- start ---------- */
     loopHandle = ctx.loop('MAIN', 2, draw);

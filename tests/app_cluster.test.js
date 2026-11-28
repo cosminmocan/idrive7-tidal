@@ -5,6 +5,8 @@
  * A stand-in cluster-render socket speaks its protocol here (PROTOCOL.md: u32 length | u8 type | body; 'J' a JSON
  * object, 'F' a frame). First the module by itself, then through tidal.js (the hook) with the fake service and a
  * fake audio manager. The renderer misbehaving (garbage, closing, never reading) must never reach the app (R1).
+ * K6b: the card's progress bar with the two times: its geometry, what is sent when it moves (only the changed rects),
+ * how often, and what happens on pause, an unknown duration, a seek and another track.
  */
 const assert = require('assert');
 const crypto = require('crypto');
@@ -50,10 +52,11 @@ const HELLO = { ev: 'hello', proto: 1, backend: 'id7', targets: 'map:1088x480,pa
  * mode 'ok': answers the hello, says `waiting` for a new layer and `shown` once it has pixels and is visible;
  * 'garbage': answers every connection with what a broken renderer could send; 'close': hangs up at once;
  * 'stall': accepts and never reads or answers.
- * r.ops: every JSON message; r.frames: every frame { ref, rects, px }; r.all: both in order ({ op } | { frame })
+ * r.ops: every JSON message; r.frames: every frame { ref, rects (their number), list (the rects), px, t (when) };
+ * r.all: both in order ({ op } | { frame }); r.image[ref]: the layer's picture as the renderer has it after all frames
  */
 function createRenderer(sockPath, mode) {
-    const r = { ops: [], frames: [], all: [], conns: [], open: 0, accepted: 0, mode: mode || 'ok' };
+    const r = { ops: [], frames: [], all: [], conns: [], open: 0, accepted: 0, mode: mode || 'ok', image: {} };
     try { fs.unlinkSync(sockPath); } catch (e) { /* none there */ }
     // what the client reads over (every connection gets all of it), and what makes it hang up (one per connection)
     const SOFT = [
@@ -105,13 +108,21 @@ function createRenderer(sockPath, mode) {
                     const o = JSON.parse(body.toString('utf8'));
                     r.ops.push(o); r.all.push({ op: o });
                     if (o.op === 'hello') conn.write(json(HELLO));
-                    else if (o.op === 'layer') { layers[o.ref] = { visible: o.visible !== 0, frames: 0, state: null }; tell(o.ref); }
+                    else if (o.op === 'layer') { layers[o.ref] = { visible: o.visible !== 0, frames: 0, state: null, iw: o.iw, ih: o.ih }; r.image[o.ref] = Buffer.alloc(o.iw * o.ih * 4); tell(o.ref); }
                     else if (o.op === 'set' && layers[o.ref]) { if (o.visible !== undefined) layers[o.ref].visible = o.visible !== 0; tell(o.ref); }
                     else if (o.op === 'drop') delete layers[o.ref];
                 } else if (type === 0x46) {
                     const n = body.readUInt16LE(12);
-                    const f = { ref: body.readUInt32LE(0), rects: n, px: Buffer.from(body.slice(14 + n * 8)) };
+                    const f = { ref: body.readUInt32LE(0), rects: n, list: [], px: Buffer.from(body.slice(14 + n * 8)), t: Date.now() };
+                    for (let i = 0; i < n; i++) f.list.push({ x: body.readUInt16LE(14 + i * 8), y: body.readUInt16LE(16 + i * 8), w: body.readUInt16LE(18 + i * 8), h: body.readUInt16LE(20 + i * 8) });
                     r.frames.push(f); r.all.push({ frame: f });
+                    const L = layers[f.ref], img = r.image[f.ref];
+                    if (L && img && !n && f.px.length === img.length) f.px.copy(img);
+                    else if (L && img) {
+                        let at = 0;
+                        f.list.forEach((q) => { for (let y = 0; y < q.h; y++) { f.px.copy(img, ((q.y + y) * L.iw + q.x) * 4, at, at + q.w * 4); at += q.w * 4; } });
+                        f.used = at;
+                    }
                     if (layers[f.ref]) { layers[f.ref].frames++; tell(f.ref); }
                 }
             }
@@ -129,13 +140,14 @@ const SPEAKERS = { on: true, connected: true, error: null, taken: false, yielded
 const RED = [200, 30, 40];
 
 /** the card with its surroundings as values a test changes: w.player, w.speakers, w.on, w.stopped; w.hold: the
- *  cover's answer waits until it is false again */
+ *  cover's answer waits until it is false again; w.at: where the track is ({ pos, dur }, as progress.js at()), or null:
+ *  the player's own position and duration (playing(): 1 s of 320 s) */
 function card(sockPath, extra) {
-    const w = { player: playing(), speakers: Object.assign({}, SPEAKERS), on: true, stopped: false, logs: [], asked: [], cover: 'ok', hold: false };
+    const w = { player: playing(), speakers: Object.assign({}, SPEAKERS), on: true, stopped: false, logs: [], asked: [], cover: 'ok', hold: false, at: null };
     const log = { info: (m) => w.logs.push('info ' + m), warn: (m) => w.logs.push('warn ' + m), debug() {}, error: (m) => w.logs.push('error ' + m) };
     w.cluster = need('cluster').createCluster(Object.assign({
         log: log, Canvas: Canvas, socketPath: sockPath, tickMs: 20,
-        enabled: () => w.on, player: () => w.player, speakers: () => w.speakers, stopped: () => w.stopped,
+        enabled: () => w.on, player: () => w.player, speakers: () => w.speakers, stopped: () => w.stopped, where: () => w.at,
         request: (cmd, p) => { w.asked.push(p.coverId); return waitFor(() => !w.hold, 15000, 'the cover let go').then(() => w.cover === 'ok' ? { ok: true, mime: 'image/jpeg', data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString('base64') } : { ok: false, error: 'not-found' }); },
         decode: () => { const d = new Uint8Array(8 * 8 * 4); for (let i = 0; i < 64; i++) { d[i * 4] = RED[0]; d[i * 4 + 1] = RED[1]; d[i * 4 + 2] = RED[2]; d[i * 4 + 3] = 255; } return { width: 8, height: 8, data: d }; },
     }, extra || {}));
@@ -186,7 +198,7 @@ test('the card for a track: one image layer on the panel over the gauges, its pi
         r.frames.forEach((f) => { assert.strictEqual(f.ref, L.ref); assert.strictEqual(f.rects, 0, 'the whole card'); assert.strictEqual(f.px.length, 520 * 420 * 4); });
         // what is on it: the first frame without the cover, the last with it
         const C = need('cluster');
-        const info = { title: TRACK.title, artist: 'Daft Punk', cover: null };
+        const info = { title: TRACK.title, artist: 'Daft Punk', cover: null, position: 1, duration: 320 };
         assert.ok(Buffer.from(C.render(info, Canvas).d).equals(r.frames[0].px), 'the first frame is the card for this track');
         const last = r.frames[r.frames.length - 1].px, cv = C.PLACE.cover;
         assert.deepStrictEqual(pxAt(last, 520, 260, cv.y + Math.round(cv.size / 2)), RED.concat(255), 'the cover in its place');
@@ -253,7 +265,7 @@ test('another track: the same layer, drawn again', async () => {
         assert.strictEqual(r.of('layer').length, 1, 'no second layer');
         assert.strictEqual(r.of('drop').length, 0, 'not removed in between');
         const C = need('cluster');
-        assert.ok(Buffer.from(C.render({ title: 'Aerodynamic', artist: 'Daft Punk', cover: null }, Canvas).d).equals(r.frames[n].px), 'the new title, the old cover gone');
+        assert.ok(Buffer.from(C.render({ title: 'Aerodynamic', artist: 'Daft Punk', cover: null, position: 1, duration: 320 }, Canvas).d).equals(r.frames[n].px), 'the new title, the old cover gone');
         assert.deepStrictEqual(w.asked, [TRACK.coverId, 'other-cover']);
         // a track without a cover: drawn once, nothing asked
         const m = r.frames.length;
@@ -427,6 +439,275 @@ test('R1: a renderer that hangs up, and one that never reads or answers', async 
     }
 }, { timeout: 30000 });
 
+/* ---------- K6b: the progress bar and the two times ---------- */
+const NOCOVER = { id: 7, title: 'Voyager', artists: ['Daft Punk'], coverId: null, duration: 320 };
+const VIDEO = { kind: 'video', id: 8, title: 'Around the World', artists: ['Daft Punk'], coverId: null, duration: 0 };
+const drawn = (info) => Buffer.from(need('cluster').render(Object.assign({ title: 'Voyager', artist: 'Daft Punk', cover: null }, info), Canvas).d);
+const partial = (r) => r.frames.filter((f) => f.rects > 0);
+const whole = (r) => r.frames.filter((f) => f.rects === 0);
+const inside = (q, o) => q.x >= o.x && q.y >= o.y && q.x + q.w <= o.x + o.w && q.y + q.h <= o.y + o.h;
+/** a card for a track without a cover (one whole frame, no second one for the cover), shown, at w.at */
+async function shownCard(at, player) {
+    const sock = tmpSock();
+    const r = await createRenderer(sock);
+    const w = card(sock, { tickMs: 10 });
+    w.player = player || playing(NOCOVER);
+    w.at = at;
+    await waitFor(() => r.frames.length === 1 && r.of('set').some((o) => o.visible === 1), 4000, 'the card shown');
+    return { r: r, w: w, ref: r.of('layer')[0].ref, end: async () => { await w.end(); await r.close(); } };
+}
+
+test('the bar\'s place: 240 x 4 px centred under the artist, the two times under its ends, all inside the card\'s dark field', () => {
+    const C = need('cluster'), P = C.PLACE;
+    assert.deepStrictEqual(P.bar, { y: 312, w: 240, h: 4 });
+    assert.deepStrictEqual(P.time, { y: 344, size: 22 });
+    assert.ok(P.artist.y < P.bar.y && P.bar.y + P.bar.h < P.time.y - P.time.size && P.time.y < P.card.h, 'artist, bar, times from the top down, not touching');
+    assert.ok(P.bar.w <= P.title.w, 'no wider than the lines above it');
+    const S = C.STRIP;
+    assert.deepStrictEqual(S, { x: 138, y: 310, w: 244, h: 42 }, 'the part of the card that changes with the position');
+    assert.ok(S.w * S.h * 4 <= 42000, 'the whole strip is under 42 kB (the whole card: 874 kB)');
+    assert.ok(inside({ x: (P.card.w - P.bar.w) / 2, y: P.bar.y, w: P.bar.w, h: P.time.y - P.bar.y }, S), 'bar and times are inside it');
+    // the dark field is still mostly there at the strip's corners (the times stay readable over the dial)
+    const px = C.render({ title: 'T', artist: 'A', cover: null }, Canvas).d;
+    [[S.x, S.y + S.h - 1], [S.x + S.w - 1, S.y + S.h - 1]].forEach((q) => assert.ok(pxAt(px, 520, q[0], q[1])[3] >= 128, 'alpha at ' + q + ': ' + pxAt(px, 520, q[0], q[1])[3]));
+});
+
+test('the bar\'s geometry: progressOf(position, duration) gives the filled px of 240, m:ss elapsed and m:ss total', () => {
+    const C = need('cluster'), W = C.PLACE.bar.w;
+    assert.deepStrictEqual(C.progressOf(0, 320), { known: true, fill: 0, elapsed: '0:00', total: '5:20' });
+    assert.deepStrictEqual(C.progressOf(160, 320), { known: true, fill: W / 2, elapsed: '2:40', total: '5:20' }, 'half way: half the bar');
+    assert.deepStrictEqual(C.progressOf(80, 320), { known: true, fill: W / 4, elapsed: '1:20', total: '5:20' });
+    assert.deepStrictEqual(C.progressOf(320, 320), { known: true, fill: W, elapsed: '5:20', total: '5:20' }, 'the end: full');
+    assert.deepStrictEqual(C.progressOf(42.9, 320), { known: true, fill: Math.round(W * 42.9 / 320), elapsed: '0:42', total: '5:20' }, 'whole px, the second begun');
+    assert.deepStrictEqual(C.progressOf(400, 320), { known: true, fill: W, elapsed: '5:20', total: '5:20' }, 'past the end: the end');
+    assert.deepStrictEqual(C.progressOf(-5, 320), { known: true, fill: 0, elapsed: '0:00', total: '5:20' }, 'before the start: the start');
+    assert.deepStrictEqual(C.progressOf(3725, 7200.4), { known: true, fill: Math.round(W * 3725 / 7200.4), elapsed: '62:05', total: '120:00' }, 'a long video: minutes go on, as on the app\'s screen');
+    [null, undefined, NaN, 'x', {}, Infinity].forEach((p) => assert.deepStrictEqual(C.progressOf(p, 320), { known: true, fill: 0, elapsed: '0:00', total: '5:20' }, 'a position of ' + p));
+});
+
+test('unknown duration (null, 0, negative, not a number): progressOf says no bar and no total, the elapsed time only', () => {
+    const C = need('cluster');
+    [null, undefined, 0, -1, NaN, Infinity, '320', {}].forEach((d) =>
+        assert.deepStrictEqual(C.progressOf(12.5, d), { known: false, fill: 0, elapsed: '0:12', total: '' }, 'a duration of ' + d));
+});
+
+test('the card\'s picture at 80 s of 320 s: the bar\'s first quarter white, the rest a dim groove, "1:20" left and "5:20" right under it', () => {
+    const C = need('cluster'), P = C.PLACE, x0 = (P.card.w - P.bar.w) / 2, ym = P.bar.y + 1;
+    const t = textCanvas();
+    const px = C.render({ title: 'Voyager', artist: 'Daft Punk', cover: null, position: 80, duration: 320 }, t.Canvas).d;
+    assert.ok(t.texts.indexOf('1:20') >= 0 && t.texts.indexOf('5:20') >= 0, t.texts.join(' | '));
+    for (let x = x0 + 2; x < x0 + 58; x += 7) assert.deepStrictEqual(pxAt(px, 520, x, ym), [255, 255, 255, 255], 'filled at ' + x);
+    const plain = C.render({ title: 'Voyager', artist: 'Daft Punk', cover: null }, Canvas).d;
+    for (let x = x0 + 62; x < x0 + P.bar.w - 2; x += 7) {
+        const g = pxAt(px, 520, x, ym), f = pxAt(plain, 520, x, ym);
+        assert.ok(g[0] < 140 && g[0] > f[0] + 30, 'the groove at ' + x + ' is lighter than the field and far from white: ' + g + ' over ' + f);
+    }
+    // nothing left or right of the bar, and the times sit under its two ends
+    assert.deepStrictEqual(pxAt(px, 520, x0 - 3, ym), pxAt(plain, 520, x0 - 3, ym));
+    assert.deepStrictEqual(pxAt(px, 520, x0 + P.bar.w + 3, ym), pxAt(plain, 520, x0 + P.bar.w + 3, ym));
+    const lit = (xa, xb) => { let n = 0; for (let y = P.time.y - P.time.size; y <= P.time.y; y++) for (let x = xa; x < xb; x++) if (pxAt(px, 520, x, y)[0] > 150) n++; return n; };
+    assert.ok(lit(x0, x0 + 60) > 40, 'the elapsed time under the bar\'s left end');
+    assert.ok(lit(x0 + P.bar.w - 60, x0 + P.bar.w) > 40, 'the total under its right end');
+    assert.strictEqual(lit(x0 + 80, x0 + P.bar.w - 80), 0, 'nothing between them');
+    // everything of it is inside the strip: outside, the card is the card without a position
+    const S = C.STRIP;
+    for (let y = 0; y < 420; y++) for (let x = 0; x < 520; x++) {
+        if (x >= S.x && x < S.x + S.w && y >= S.y && y < S.y + S.h) continue;
+        const i = (y * 520 + x) * 4;
+        if (px[i] !== plain[i] || px[i + 3] !== plain[i + 3]) assert.fail('differs outside the strip at ' + x + ',' + y);
+    }
+    // the full bar is full to its last px, the empty one has no white
+    const full = C.render({ title: 'V', artist: 'D', cover: null, position: 320, duration: 320 }, Canvas).d;
+    assert.deepStrictEqual(pxAt(full, 520, x0 + P.bar.w - 3, ym), [255, 255, 255, 255]);
+    const empty = C.render({ title: 'V', artist: 'D', cover: null, position: 0, duration: 320 }, Canvas).d;
+    assert.ok(pxAt(empty, 520, x0 + 3, ym)[0] < 140, 'empty at 0 s');
+});
+
+test('the card\'s picture with an unknown duration: no bar, no total, the elapsed time alone in the middle', () => {
+    const C = need('cluster'), P = C.PLACE, x0 = (P.card.w - P.bar.w) / 2;
+    const t = textCanvas();
+    const px = C.render({ title: 'Around the World', artist: 'Daft Punk', cover: null, position: 75, duration: null }, t.Canvas).d;
+    const plain = C.render({ title: 'Around the World', artist: 'Daft Punk', cover: null }, Canvas).d;
+    assert.ok(t.texts.indexOf('1:15') >= 0, t.texts.join(' | '));
+    assert.deepStrictEqual(t.texts.filter((s) => /^\d+:\d\d$/.test(s)), ['1:15'], 'one time only');
+    for (let y = P.bar.y - 2; y < P.bar.y + P.bar.h + 2; y++) for (let x = x0 - 2; x < x0 + P.bar.w + 2; x++) assert.deepStrictEqual(pxAt(px, 520, x, y), pxAt(plain, 520, x, y), 'no bar at ' + x + ',' + y);
+    const lit = (xa, xb) => { let n = 0; for (let y = P.time.y - P.time.size; y <= P.time.y; y++) for (let x = xa; x < xb; x++) if (pxAt(px, 520, x, y)[0] > 150) n++; return n; };
+    assert.ok(lit(230, 290) > 40, 'in the middle');
+    assert.strictEqual(lit(x0, 200) + lit(320, x0 + P.bar.w), 0, 'nothing at the ends');
+    // a card without a position at all (as before K6b) has neither
+    const t2 = textCanvas();
+    C.render({ title: 'T', artist: 'A', cover: null }, t2.Canvas);
+    assert.deepStrictEqual(t2.texts.filter((s) => /^\d+:\d\d$/.test(s)), []);
+});
+
+test('the bar moves: only the changed rects of the strip are sent (under 12 kB, never the whole card), and the renderer\'s picture is the card at the new position', async () => {
+    const c = await shownCard({ pos: 80, dur: 320 });
+    try {
+        const C = need('cluster');
+        assert.ok(drawn({ position: 80, duration: 320 }).equals(c.r.frames[0].px), 'the first frame: the whole card with the bar at 80 s');
+        await sleep(1000);
+        assert.strictEqual(c.r.frames.length, 1, 'nothing more while the position stands');
+        c.w.at = { pos: 82.8, dur: 320 };
+        await waitFor(() => c.r.frames.length === 2, 2000, 'the bar moved');
+        const f = c.r.frames[1];
+        assert.strictEqual(f.ref, c.ref, 'the card\'s own layer');
+        assert.ok(f.rects >= 1 && f.rects <= 2, 'the bar\'s rect and the elapsed time\'s: ' + JSON.stringify(f.list));
+        f.list.forEach((q) => assert.ok(inside(q, C.STRIP), JSON.stringify(q) + ' inside the strip'));
+        assert.strictEqual(f.used, f.px.length, 'as many pixels as the rects hold');
+        assert.ok(f.px.length < 12000, 'under 12 kB: ' + f.px.length);
+        assert.ok(c.r.image[c.ref].equals(drawn({ position: 82.8, duration: 320 })), 'what the renderer now has is the card at 82.8 s');
+        assert.strictEqual(c.r.of('layer').length, 1, 'no second layer');
+        // the total is not sent again: nothing right of the middle below the bar
+        const P = C.PLACE;
+        f.list.forEach((q) => { if (q.y > P.bar.y + P.bar.h) assert.ok(q.x + q.w < 260, 'only the elapsed time: ' + JSON.stringify(q)); });
+        // a move that changes neither a px of the bar nor the second shown: nothing
+        await sleep(1000);
+        c.w.at = { pos: 82.95, dur: 320 };
+        await sleep(400);
+        assert.strictEqual(c.r.frames.length, 2, 'no visible step: nothing sent');
+        // the second changes, the bar's px does not: the time's rect only
+        c.w.at = { pos: 83.1, dur: 320 };
+        await waitFor(() => c.r.frames.length === 3, 2000, 'the next second');
+        assert.strictEqual(c.r.frames[2].rects, 1, JSON.stringify(c.r.frames[2].list));
+        assert.ok(c.r.frames[2].list[0].y > P.bar.y + P.bar.h, 'the time\'s rect, not the bar\'s');
+        assert.ok(c.r.image[c.ref].equals(drawn({ position: 83.1, duration: 320 })));
+        assert.deepStrictEqual(c.w.logs.filter((l) => /^(warn|error)/.test(l)), []);
+    } finally { await c.end(); }
+});
+
+test('the redraw rate: a position that moves all the time is sent at most once in 900 ms (never more than 4 times in 3.2 s), a few kB each', async () => {
+    const c = await shownCard({ pos: 10, dur: 100 });
+    try {
+        const t0 = Date.now();
+        while (Date.now() - t0 < 3200) { c.w.at = { pos: 10 + (Date.now() - t0) / 1000, dur: 100 }; await sleep(10); }
+        const p = partial(c.r);
+        assert.strictEqual(whole(c.r).length, 1, 'the whole card once, at the start');
+        assert.ok(p.length >= 2 && p.length <= 4, p.length + ' updates in 3.2 s (3 on a computer that keeps up)');
+        const times = [c.r.frames[0].t].concat(p.map((f) => f.t));
+        for (let i = 1; i < times.length; i++) assert.ok(times[i] - times[i - 1] >= 750, '900 ms apart (measured at the renderer, so a little less counts): ' + (times[i] - times[i - 1]));
+        const bytes = p.reduce((n, f) => n + f.px.length, 0);
+        assert.ok(bytes / 3.2 < 12000, 'under 12 kB a second: ' + Math.round(bytes / 3.2));
+        assert.strictEqual(need('cluster').STEP_MS, 900);
+    } finally { await c.end(); }
+});
+
+test('paused: the card is off and nothing at all is sent, whatever the position does; buffering with the position standing: nothing sent', async () => {
+    const c = await shownCard({ pos: 30, dur: 320 });
+    try {
+        c.w.player = playing(NOCOVER, 'buffering');
+        await sleep(1300);
+        assert.strictEqual(c.r.frames.length, 1, 'buffering: the card stays, nothing is sent');
+        assert.strictEqual(c.r.of('drop').length, 0);
+        c.w.player = playing(NOCOVER, 'paused');
+        await waitFor(() => c.r.of('drop').length === 1, 2000, 'off on pause');
+        const n = c.r.all.length;
+        const t0 = Date.now();
+        while (Date.now() - t0 < 1500) { c.w.at = { pos: 30 + (Date.now() - t0) / 100, dur: 320 }; await sleep(10); }
+        assert.strictEqual(c.r.all.length, n, 'nothing sent while paused');
+        // play again: the whole card once, with the bar where the track now is
+        c.w.at = { pos: 45, dur: 320 };
+        c.w.player = playing(NOCOVER);
+        await waitFor(() => c.r.frames.length === 2, 2000, 'back');
+        assert.strictEqual(c.r.frames[1].rects, 0);
+        assert.ok(c.r.frames[1].px.equals(drawn({ position: 45, duration: 320 })));
+    } finally { await c.end(); }
+});
+
+test('unknown duration (a video before its length is known): the elapsed time alone, moving each second; the bar comes with the duration', async () => {
+    const c = await shownCard({ pos: 5, dur: null }, Object.assign(playing(VIDEO), { duration: null }));
+    try {
+        const v = { title: 'Around the World' };
+        assert.ok(c.r.frames[0].px.equals(drawn(Object.assign({ position: 5, duration: null }, v))), 'the card with the elapsed time only');
+        await sleep(950);
+        c.w.at = { pos: 6.2, dur: null };
+        await waitFor(() => c.r.frames.length === 2, 2000, 'the next second');
+        assert.strictEqual(c.r.frames[1].rects, 1, 'the time\'s rect');
+        assert.ok(c.r.frames[1].px.length < 12000);
+        assert.ok(c.r.image[c.ref].equals(drawn(Object.assign({ position: 6.2, duration: null }, v))));
+        // the playlist is read: the duration is there
+        c.w.at = { pos: 6.4, dur: 200 };
+        await waitFor(() => c.r.frames.length === 3, 500, 'the bar at once');
+        assert.ok(c.r.image[c.ref].equals(drawn(Object.assign({ position: 6.4, duration: 200 }, v))), 'bar, elapsed and total');
+        assert.deepStrictEqual(c.w.logs.filter((l) => /^(warn|error)/.test(l)), []);
+    } finally { await c.end(); }
+});
+
+test('without where(): the player\'s position, and its duration or else the track\'s or else none (a video: duration null and 0)', async () => {
+    for (const x of [
+        [Object.assign(playing(NOCOVER), { position: 42, duration: 300 }), { position: 42, duration: 300 }],
+        [Object.assign(playing(NOCOVER), { position: 42, duration: null }), { position: 42, duration: 320 }],
+        [Object.assign(playing(VIDEO), { position: 42, duration: null }), { position: 42, duration: null, title: 'Around the World' }],
+        [Object.assign(playing(VIDEO), { position: 'x', duration: 212.4 }), { position: 0, duration: 212.4, title: 'Around the World' }],
+    ]) {
+        const c = await shownCard(null, x[0]);
+        try { assert.ok(c.r.frames[0].px.equals(drawn(x[1])), JSON.stringify(x[1])); } finally { await c.end(); }
+    }
+});
+
+test('seek: the bar is at the new place within 600 ms, forth and back, without waiting for the 900 ms', async () => {
+    const c = await shownCard({ pos: 100, dur: 320 });
+    try {
+        c.w.at = { pos: 200, dur: 320 };
+        await waitFor(() => c.r.frames.length === 2, 600, 'forth, at once');
+        assert.ok(c.r.frames[1].rects >= 1 && c.r.frames[1].px.length < 12000, 'rects, not the card');
+        assert.ok(c.r.image[c.ref].equals(drawn({ position: 200, duration: 320 })));
+        c.w.at = { pos: 20, dur: 320 };
+        await waitFor(() => c.r.frames.length === 3, 600, 'back, at once');
+        assert.ok(c.r.frames[2].rects >= 1 && c.r.frames[2].px.length < 12000, 'rects, not the card');
+        assert.ok(c.r.image[c.ref].equals(drawn({ position: 20, duration: 320 })), 'the bar is shorter again: its old white is gone');
+        // a small step back (the clock ran ahead of the player by half a second) is no seek: it waits its turn
+        c.w.at = { pos: 19.4, dur: 320 };
+        await sleep(300);
+        assert.strictEqual(c.r.frames.length, 3, 'not at once');
+        await waitFor(() => c.r.frames.length === 4, 1500, 'but in its turn');
+        assert.ok(c.r.image[c.ref].equals(drawn({ position: 19.4, duration: 320 })));
+    } finally { await c.end(); }
+});
+
+test('another track: the whole card once and at once, its bar at the new track\'s start and its total the new one', async () => {
+    const c = await shownCard({ pos: 300, dur: 320 });
+    try {
+        c.w.player = playing({ id: 2, title: 'Aerodynamic', artists: ['Daft Punk'], coverId: null, duration: 212 });
+        c.w.at = { pos: 0, dur: 212 };
+        await waitFor(() => c.r.frames.length === 2, 600, 'the next card at once');
+        assert.strictEqual(c.r.frames[1].rects, 0, 'the whole card');
+        assert.ok(c.r.frames[1].px.equals(drawn({ title: 'Aerodynamic', position: 0, duration: 212 })), 'the new title, 0:00 and 3:32, an empty bar');
+        await sleep(300);
+        assert.strictEqual(c.r.frames.length, 2, 'once');
+        // the same track again from its start (repeat): the bar goes back at once
+        c.w.at = { pos: 211, dur: 212 };
+        await waitFor(() => c.r.frames.length === 3, 600, 'at its end');
+        c.w.at = { pos: 0.2, dur: 212 };
+        await waitFor(() => c.r.frames.length === 4, 600, 'from the start again');
+        assert.ok(c.r.image[c.ref].equals(drawn({ title: 'Aerodynamic', position: 0.2, duration: 212 })));
+        assert.strictEqual(c.r.of('layer').length, 1);
+        assert.strictEqual(c.r.of('drop').length, 0);
+    } finally { await c.end(); }
+});
+
+test('the bar and a stalled renderer, and a where() that throws or answers nonsense: nothing breaks (R1)', async () => {
+    const sock = tmpSock();
+    const r = await createRenderer(sock);
+    const ws = [() => { throw new Error('boom'); }, () => 5, () => ({ pos: 'x', dur: {} }), () => ({ pos: -1e12, dur: 1e-9 }), () => ({ pos: Infinity, dur: Infinity }), () => []]
+        .map((fn) => { const w = card(sock, { where: fn, tickMs: 10 }); w.player = playing(NOCOVER); return w; });
+    try {
+        await waitFor(() => r.of('set').filter((o) => o.visible === 1).length === ws.length, 4000, 'all of them show their cards');
+        await sleep(300);
+        assert.deepStrictEqual(escaped, []);
+        ws.forEach((w) => assert.deepStrictEqual(w.logs.filter((l) => /^(warn|error)/.test(l)), []));
+    } finally { for (const w of ws) await w.end(); await r.close(); }
+    const stall = tmpSock();
+    const rs = await createRenderer(stall, 'stall');
+    const w = card(stall, { tickMs: 10 });
+    w.player = playing(NOCOVER);
+    try {
+        const t0 = Date.now();
+        while (Date.now() - t0 < 2500) { w.at = { pos: (Date.now() - t0) / 10, dur: 320 }; await sleep(10); }
+        assert.deepStrictEqual(escaped, []);
+        assert.ok(w.logs.length <= 6, w.logs.join('\n'));
+    } finally { await w.end(); await rs.close(); }
+}, { timeout: 30000 });
+
 /* ---------- through tidal.js: the hook ---------- */
 const SPEC = JSON.parse(fs.readFileSync(path.join(APP, 'app.json'), 'utf8'));
 
@@ -510,7 +791,9 @@ test('the app: the card while its track plays on the speakers; gone on pause, wh
         await waitFor(() => r.of('set').some((o) => o.visible === 1), 6000, 'the card shown');
         assert.strictEqual(ctx.am.list.length, 1, 'our sound is on the speakers');
         const C = need('cluster');
-        assert.ok(Buffer.from(C.render({ title: 'One More Time', artist: 'Daft Punk', cover: null }, Canvas).d).equals(r.frames[0].px), 'the playing track');
+        // (the bar's part of the card moves with the app's clock: compared in the test after this one)
+        const noBar = (px) => { const b = Buffer.from(px), q = C.STRIP; for (let y = q.y; y < q.y + q.h; y++) b.fill(0, (y * 520 + q.x) * 4, (y * 520 + q.x + q.w) * 4); return b; };
+        assert.ok(noBar(C.render({ title: 'One More Time', artist: 'Daft Punk', cover: null }, Canvas).d).equals(noBar(r.frames[0].px)), 'the playing track');
         assert.ok(svc.requests.filter((q) => q.cmd === 'cover').length >= 1, 'its cover asked of the service');
         // pause
         svc.state.player.state = 'paused';
@@ -536,6 +819,31 @@ test('the app: the card while its track plays on the speakers; gone on pause, wh
         // the app ends
         app.stop();
         await waitFor(() => r.open === 0, 3000, 'the connection to cluster-render closed with the app');
+        assert.deepStrictEqual(ctx.logs.filter((l) => /^error/.test(l)), []);
+        assert.deepStrictEqual(escaped, []);
+    } finally { app.stop(); await svc.close(); await r.close(); }
+}, { timeout: 60000 });
+
+test('the app: the card\'s bar follows the app\'s clock between two status answers (rects within 3 s; the renderer\'s picture is the card some seconds on)', async () => {
+    const svcSock = tmpSock('svc'), crSock = tmpSock();
+    const svc = await createFakeService({ socketPath: svcSock, state: { login: 'logged-in', player: Object.assign(playing(), { position: 100 }) } });
+    const r = await createRenderer(crSock);
+    // the status every 1.5 s, as in the car (asked more often, a service that stands at 100 s holds the app's clock there)
+    const { ctx, app } = start(svcSock, crSock, { pollMs: 1500 });
+    try {
+        const C = need('cluster');
+        await waitFor(() => r.of('set').some((o) => o.visible === 1), 8000, 'the card shown');
+        const ref = r.of('layer')[0].ref;
+        assert.strictEqual(svc.state.player.position, 100, 'the service says 100 s all along');
+        await waitFor(() => r.frames.some((f) => f.rects > 0), 3000, 'the bar moved by the app\'s clock');
+        const at = (sec) => Buffer.from(C.render({ title: 'One More Time', artist: 'Daft Punk', cover: null, position: sec, duration: 320 }, Canvas).d);
+        const img = Buffer.from(r.image[ref]);
+        // somewhere in the seconds after 100 s (each different bar and time once)
+        const seen = {}, tries = [];
+        for (let sec = 100; sec < 106; sec += 0.05) { const k = JSON.stringify(C.progressOf(sec, 320)); if (!seen[k]) { seen[k] = true; tries.push(sec); } }
+        assert.ok(tries.some((sec) => at(sec).equals(img)), 'the card a few seconds after 100 s');
+        assert.ok(!at(100).equals(img), 'and no longer the card at 100 s');
+        r.frames.filter((f) => f.rects > 0).forEach((f) => assert.ok(f.px.length < 12000, 'a few kB: ' + f.px.length));
         assert.deepStrictEqual(ctx.logs.filter((l) => /^error/.test(l)), []);
         assert.deepStrictEqual(escaped, []);
     } finally { app.stop(); await svc.close(); await r.close(); }
