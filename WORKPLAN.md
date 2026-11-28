@@ -1060,7 +1060,7 @@ After each merged group: `make test`, `make e2e`, `make release` (the patch vers
 owner updates in the Store and checks the lines above; the results go into docs/car-log.md. A failed line becomes
 an automated test first, then a fix.
 
-### Phase 4 (planned 2026-11-28, after the third car visit; waits for the owner's OK)
+### Phase 4 (planned 2026-11-28, after the third car visit; the owner's OK given 2026-11-28, wave 1 started)
 
 The car's results: docs/car-log.md, "Third visit"; the log: docs/car-logs/2026-11-28-video-first-run.log.
 **V1e passed:** video plays, hardware decoded (`msdk` on /dev/dri/renderD128), 0 decode errors, seek works.
@@ -1086,7 +1086,7 @@ the release through `make release` (its x86-64 gate, then the x86-64 packages).
   for 16:9, 4:3 and 692x480; the render replay shows the cut picture; e2e scenario for the hidden controls.
 - **S3. Search.** The app has a search with a letter row, hidden while the car moves. **Do:** a QWERTY keyboard on
   screen (touch, and the controller steps through keys), with space, delete and digits; results as typed (tracks,
-  videos, albums, artists, playlists); usable while driving too unless the owner says otherwise. **Spike, half a
+  videos, albums, artists, playlists); usable while driving too (the owner, 2026-11-28). **Spike, half a
   day at most:** BMW's own speller (the RHMI input with the touchpad's handwriting): if the SDK on the car offers
   it to our app, it becomes a second way in; if not, it is dropped. **Success:** e2e: type, results, play one.
 - **K6b. The cluster card's progress bar** (apps/cmocan_tidal/cluster.js).
