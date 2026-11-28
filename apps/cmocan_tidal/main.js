@@ -11,6 +11,7 @@ const mgu = require('./kit/mgu');
 const { setImage } = require('./kit/record');
 const { Canvas } = require('./kit/canvas');
 const parked = require('./kit/parked');
+const renderd = require('./kit/renderd');
 const decodeJpeg = require('./jpeg');
 const { createApp } = require('./tidal');
 
@@ -22,6 +23,7 @@ mgu.run({
             setImage: setImage,
             decodeJpeg: decodeJpeg,
             Canvas: Canvas,                 // pixels, for the card on the instrument cluster (cluster.js)
+            video: { setVideo: renderd.setVideo, videoOp: renderd.videoOp },    // a video's picture (mgu-render/1)
         });
         return Promise.resolve();
     },

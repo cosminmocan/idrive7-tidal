@@ -5,12 +5,15 @@
  * so the same code draws on the car (the kit's recorder), in the preview and in the tests.
  *
  *   const info = draw(cv, theme, state, ui)
- *     ui:   { now, act(a), cover(id), thumb(id), position, duration, seeking, volume, toastUntil }
+ *     ui:   { now, act(a), cover(id), thumb(id), position, duration, seeking, volume, toastUntil, video, videoNote }
  *           act: called by the canvas's touch targets (cv.target); cover / thumb: a decoded cover for now playing
  *           (400 px) / a list row (small), or null; position, duration: the progress line's (seconds); seeking: the
  *           position is a target the user is choosing (seek.js); volume: the car's volume popup; toastUntil: a
- *           message shows until then
- *     info: { hits: [{ x, y, w, h, key, act, row, bar }], qr, cover, barFocus, focus }
+ *           message shows until then; video: a music video's picture on now playing, { w, h, overlay, draw(cv, x, y, w,
+ *           h) } (tidal.js: the GPU renderer draws its frames there, op 19), drawn over the page's full width with
+ *           the aspect kept and black bars, the title and the seek bar over it while overlay; videoNote: without the
+ *           picture, a line on now playing's cover view saying why
+ *     info: { hits: [{ x, y, w, h, key, act, row, bar }], qr, cover, barFocus, focus, video }  (video: the picture's rect)
  *           focus: where the one highlight was drawn on the page, { key, x, y, w, h } (key: the target's, 'row:3',
  *           'choice:0', 'key:19', 'progress'), or null when the controller is on the bar or the tabs (the kit draws it
  *           there); barFocus: the controller is on now playing's progress line
@@ -22,6 +25,7 @@
  * the controller is. Every text from the service goes through text.js (the kit's fonts). Node 8.9.4 syntax.
  */
 const QR = require('./qr');
+const V = require('./video');
 const T = require('./text');
 const L = require('./listview');
 const NP = require('./nowplaying');
@@ -92,6 +96,11 @@ const ICON = {
     chevron(cv, x, y, s, c) { cv.stroke([[x - s * 0.18, y - s * 0.34], [x + s * 0.16, y], [x - s * 0.18, y + s * 0.34]], 2.4, c); },
     warn(cv, x, y, s, c) { cv.stroke([[x, y - s * 0.46], [x + s * 0.5, y + s * 0.4], [x - s * 0.5, y + s * 0.4], [x, y - s * 0.46]], 3, c); cv.line(x, y - s * 0.14, x, y + s * 0.12, 3.2, c); cv.circle(x, y + s * 0.26, 2.2, c); },
     back(cv, x, y, s, c) { cv.stroke([[x + s * 0.1, y - s * 0.3], [x - s * 0.2, y], [x + s * 0.1, y + s * 0.3]], 2.6, c); cv.line(x - s * 0.2, y, x + s * 0.44, y, 2.6, c); },
+    /** a music video's mark: a frame with a play triangle in it */
+    film(cv, x, y, s, c) {
+        cv.strokeRoundRect(x - s * 0.5, y - s * 0.36, s, s * 0.72, s * 0.12, 2.2, c);
+        cv.quad([[x - s * 0.12, y - s * 0.18], [x + s * 0.2, y], [x + s * 0.2, y], [x - s * 0.12, y + s * 0.18]], c);
+    },
     space(cv, x, y, s, c) { cv.stroke([[x - s * 0.4, y - s * 0.02], [x - s * 0.4, y + s * 0.22], [x + s * 0.4, y + s * 0.22], [x + s * 0.4, y - s * 0.02]], 2.4, c); },
     none() {},
 };
@@ -149,11 +158,13 @@ function mediaRow(c, y, row) {
     }
     cover(c, row.coverId, x + 68, y + 9, 52, true);
     if (off) c.cv.fillRect(x + 68, y + 9, 52, 52, alpha(c.p.bg, 0.6));
-    const tx = x + 140, rightW = row.right ? c.cv.textWidth(T.ascii(row.right), 22, { literal: true }) + 40 : 20;
+    const timeW = row.right ? c.cv.textWidth(T.ascii(row.right), 22, { literal: true }) : 0;
+    const tx = x + 140, rightW = (row.right ? timeW + 40 : 20) + (row.video ? 40 : 0);
     const w = x + LAY.w - 24 - rightW - tx;
     txt(c, row.label, tx, y + 31, 27, c1, { w: w });
     if (row.sub) txt(c, row.sub, tx, y + 57, 20, c2, { w: w });
     if (row.right) txt(c, row.right, x + LAY.w - 24, mid + 8, 22, c2, { align: 'right' });
+    if (row.video) ICON.film(c.cv, x + LAY.w - 24 - timeW - (row.right ? 34 : 14), mid, 26, c2);
 }
 /** the rows on screen (only those: a list of 500 draws six), the highlight on the selected one, a scroll bar */
 function drawRows(c, rows, cur, y0, vis, focusOn) {
@@ -295,10 +306,56 @@ function sourceOf(s) {
     return q && p && p.track && q.tracks.some((t) => t && t.id === p.track.id) ? q.title : '';
 }
 
+/** the progress line from x, w wide at by: position, length, the controller's highlight on it, the finger's hit area */
+function progressLine(c, x, by, w) {
+    const s = c.s, cv = c.cv, p = s.player, tr = p.track, r = x + w;
+    const pos = typeof c.ui.position === 'number' ? c.ui.position : p.position;
+    const dur = typeof c.ui.duration === 'number' ? c.ui.duration : (p.duration || tr.duration || null);
+    const seekable = !!dur && p.state !== 'error';
+    const seeking = seekable && c.ui.seeking === true, onLine = seekable && P.area(s) === 'progress';
+    c.info.barFocus = onLine;
+    if (onLine) focusPlate(c, 'progress', x - 18, by - 17, w + 36, 40, 12);
+    cv.roundRect(x, by, w, 6, 3, c.p.track);
+    const f = dur ? Math.max(0, Math.min(1, pos / dur)) : 0;
+    if (dur) cv.roundRect(x, by, Math.max(6, w * f), 6, 3, p.state === 'playing' || seeking ? c.p.text : c.p.dim);
+    if (dur) cv.circle(x + w * f, by + 3, seeking || onLine ? 12 : 9, c.p.text);
+    txt(c, L.mmss(pos) || '0:00', x, by + 42, 23, seeking ? c.p.text : c.p.dim, seeking ? { font: 'bold' } : undefined);
+    if (dur) txt(c, L.mmss(dur), r, by + 42, 23, c.p.dim, { align: 'right' });
+    if (seekable) c.info.hits.push({ x: x - 24, y: by - 26, w: w + 48, h: 60, key: 'np-bar', bar: { x: x, w: w, dur: dur } });
+}
+
+/**
+ * now playing a music video with its picture: black over the page, the picture fitted in (aspect kept), a tap on it
+ * asks for the controls (tidal.js: 4 s); with them (or the controller on the progress line, or a seek under way) the
+ * title, the artists and the progress line on a band over its bottom. The bar's PREVIOUS / PAUSE / NEXT stay the kit's.
+ */
+function drawVideo(c) {
+    const s = c.s, cv = c.cv, p = s.player, tr = p.track, v = c.ui.video;
+    cv.fillRect(0, 0, W, H, '#000000');
+    const r = V.fit(v.w, v.h, { x: 0, y: 0, w: W, h: H });
+    v.draw(cv, r.x, r.y, r.w, r.h);
+    c.info.video = r;
+    target(c, { x: 0, y: 0, w: W, h: H, key: 'np-video', act: { type: 'video-overlay' } }, 0);
+    if (messageOn(c)) {
+        cv.fillRect(0, 0, W, 60, alpha(c.p.bg, 0.8));
+        ICON.warn(cv, 70, 27, 24, c.p.warn);
+        txt(c, s.message, 94, 38, 23, c.p.warn, { w: W - 160 });
+    }
+    if (!(v.overlay || P.area(s) === 'progress' || c.ui.seeking === true)) return;
+    const x = 96, w = W - 2 * x, top = H - 176;
+    cv.fillRect(0, top, W, H - top, alpha(c.p.bg, 0.8));
+    const state = NP_STATE[p.state] || '';
+    txt(c, tr.title, x, top + 50, 38, c.p.text, { font: 'light', w: w - 200 });
+    if (state) txt(c, state, x + w, top + 48, 23, c.p.dim, { align: 'right' });
+    txt(c, L.joinArtists(tr.artists), x, top + 84, 24, c.p.dim, { w: w });
+    progressLine(c, x, top + 108, w);
+}
+
 function drawNowPlaying(c) {
     const s = c.s, cv = c.cv, p = s.player;
     const m = P.message(s);
     if (m) return drawMessage(c, m);
+    if (c.ui.video) return drawVideo(c);
     const tr = p.track, size = 400, cx = 56, cy = 76;
     c.info.cover = cover(c, tr.coverId, cx, cy, size, false);
     const x = cx + size + 64, r = LAY.x + LAY.w, w = r - x;
@@ -317,20 +374,10 @@ function drawNowPlaying(c) {
     txt(c, tr.title, x, 192, 54, c.p.text, { font: 'light', w: w });
     txt(c, L.joinArtists(tr.artists), x, 246, 32, c.p.text, { w: w });
     if (tr.album && tr.album.title) txt(c, tr.album.title, x, 286, 25, c.p.dim, { w: w });
+    // a video without its picture: why (the software path, the setting while driving)
+    if (c.ui.videoNote) { ICON.film(cv, x + 14, 320, 26, c.p.dim); txt(c, c.ui.videoNote, x + 40, 328, 22, c.p.dim, { w: w - 40 }); }
     // the progress line (the finger, the controller pushed up onto it, the wheel held: seek.js)
-    const pos = typeof c.ui.position === 'number' ? c.ui.position : p.position;
-    const dur = typeof c.ui.duration === 'number' ? c.ui.duration : (p.duration || tr.duration || null);
-    const by = 372, seekable = !!dur && p.state !== 'error';
-    const seeking = seekable && c.ui.seeking === true, onLine = seekable && P.area(s) === 'progress';
-    c.info.barFocus = onLine;
-    if (onLine) focusPlate(c, 'progress', x - 18, by - 17, w + 36, 40, 12);
-    cv.roundRect(x, by, w, 6, 3, c.p.track);
-    const f = dur ? Math.max(0, Math.min(1, pos / dur)) : 0;
-    if (dur) cv.roundRect(x, by, Math.max(6, w * f), 6, 3, p.state === 'playing' || seeking ? c.p.text : c.p.dim);
-    if (dur) cv.circle(x + w * f, by + 3, seeking || onLine ? 12 : 9, c.p.text);
-    txt(c, L.mmss(pos) || '0:00', x, by + 42, 23, seeking ? c.p.text : c.p.dim, seeking ? { font: 'bold' } : undefined);
-    if (dur) txt(c, L.mmss(dur), r, by + 42, 23, c.p.dim, { align: 'right' });
-    if (seekable) c.info.hits.push({ x: x - 24, y: by - 26, w: w + 48, h: 60, key: 'np-bar', bar: { x: x, w: w, dur: dur } });
+    progressLine(c, x, 372, w);
     const n = nextOf(s);
     if (n) {
         txt(c, 'Next', x, 468, 22, c.p.dim);
@@ -359,7 +406,7 @@ const DRAW = {
 };
 
 function draw(cv, t, s, ui) {
-    const c = { cv: cv, t: t, p: palette(t), s: s, ui: ui || {}, info: { hits: [], qr: null, cover: null, barFocus: false, focus: null } };
+    const c = { cv: cv, t: t, p: palette(t), s: s, ui: ui || {}, info: { hits: [], qr: null, cover: null, barFocus: false, focus: null, video: null } };
     const fn = DRAW[s.screen];
     if (fn) fn(c);
     if (c.ui.volume) drawVolume(c, c.ui.volume);

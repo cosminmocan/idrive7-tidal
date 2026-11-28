@@ -145,11 +145,11 @@ test('albums, playlists and mixes open their track lists; tilt left goes back', 
     assert.strictEqual(M.top(b.s).kind, 'mixes', 'back to the mixes');
 });
 
-test('the library home: favourites (tracks, albums), playlists, mixes, search; a press opens one', () => {
+test('the library home: favourites (tracks, albums), playlists, mixes, videos, search; a press opens one', () => {
     let s = loggedIn();
     assert.strictEqual(s.screen, 'LIBRARY');
     const { cv } = drawn(s);
-    ['Favourite tracks', 'Favourite albums', 'Playlists', 'Mixes', 'Search'].forEach((l) => assert.ok(cv.has(l), l + '\n' + cv.all()));
+    ['Favourite tracks', 'Favourite albums', 'Playlists', 'Mixes', 'Videos', 'Search'].forEach((l) => assert.ok(cv.has(l), l + '\n' + cv.all()));
     const r = apply(s, N.input(s, null, { press: true }));
     assert.strictEqual(r.s.screen, 'LIST');
     assert.deepStrictEqual(M.top(r.s).source, { cmd: 'favorites', params: { kind: 'tracks' } });

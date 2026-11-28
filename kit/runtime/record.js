@@ -434,6 +434,7 @@ function play(words, real) {
         case OP.NOCLIP: clip = null; break;
         case OP.ALPHA: alpha = f[i]; i += 1; break;
         case OP.XF: cv = f[i] > 0 ? NOP : real; i += 3; break;
+        case 19: i += 6; break;     // mgu-render/1's VIDEO (renderd.js videoOp): no picture in software
         default: return real;
         }
     }

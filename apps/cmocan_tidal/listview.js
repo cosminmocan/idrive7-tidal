@@ -4,8 +4,8 @@
  * Pure (no drawing, no I/O): screens.js draws from it, nav.js moves with it.
  *
  *   rows(state)            the rows of the screen shown: [{ label, sub, right, kind, item, index, icon, off, playing,
- *                          coverId }] (off: a track that cannot be played, greyed and skipped by the knob; playing:
- *                          the track that is on)
+ *                          coverId, video }] (off: a track that cannot be played, greyed and skipped by the knob;
+ *                          playing: the track that is on; video: a music video, contract 4, drawn with a film mark)
  *   cursor(state)          { sel, top } of the screen shown
  *   visible(state)         how many rows the screen shows (6; search's results under its letters: 4)
  *   move(cur, d, count, visible, skip)   one row per knob step, over the rows skip(i) says no to, stopping at both
@@ -35,11 +35,14 @@ const LIBRARY = [
     { label: 'Favourite albums', icon: 'disc', act: { type: 'open-list', key: 'fav-albums', title: 'Favourite albums', kind: 'albums', source: { cmd: 'favorites', params: { kind: 'albums' } } } },
     { label: 'Playlists', icon: 'list', act: { type: 'open-list', key: 'playlists', title: 'Playlists', kind: 'playlists', source: { cmd: 'playlists', params: {} } } },
     { label: 'Mixes', icon: 'mix', act: { type: 'open-list', key: 'mixes', title: 'Mixes', kind: 'mixes', source: { cmd: 'mixes', params: {} } } },
+    // the favourite videos (contract 4): a list that plays as a track list does
+    { label: 'Videos', icon: 'film', act: { type: 'open-list', key: 'fav-videos', title: 'Videos', kind: 'tracks', source: { cmd: 'favorites', params: { kind: 'videos' } } } },
     { label: 'Search', icon: 'search', act: { type: 'open-search' } },
 ];
 
 function frameOf(s) { return s.stack.length ? s.stack[s.stack.length - 1] : null; }
 const isTracks = (f) => f.kind === 'tracks' || f.kind === 'search';
+const isVideo = (it) => isObj(it) && it.kind === 'video';
 /** a track of frame f the service cannot play */
 function offItem(s, f, it) { return isTracks(f) && isObj(it) && (it.streamReady === false || !!(s.unavailable && s.unavailable[it.id])); }
 /** the track that is on (its id), or null */
@@ -57,8 +60,12 @@ function itemActs(s, f, i) {
         const win = f.items.slice(start, start + MAX_PLAY);
         const keep = win.filter((t) => t && typeof t.id === 'number');
         const index = win.slice(0, i - start).filter((t) => t && typeof t.id === 'number').length;
-        // queue: the list it comes from (now playing's caption and next track, push right back to it); not sent
-        return [{ type: 'play', tracks: keep.map((t) => t.id), index: index, queue: { key: f.key, title: f.title, tracks: keep } }];
+        // queue: the list it comes from (now playing's caption and next track, push right back to it); not sent.
+        // kinds (contract 4): which ids are videos, whenever the list holds any; watch: a video goes to now playing
+        const a = { type: 'play', tracks: keep.map((t) => t.id), index: index, queue: { key: f.key, title: f.title, tracks: keep } };
+        if (keep.some(isVideo)) a.kinds = keep.map((t) => (isVideo(t) ? 'video' : 'track'));
+        if (isVideo(it)) a.watch = true;
+        return [a];
     }
     if (f.kind === 'albums') return [{ type: 'open-list', key: 'album:' + it.id, title: String(it.title || ''), kind: 'tracks', source: { cmd: 'album', params: { albumId: it.id } } }];
     if (f.kind === 'playlists') return [{ type: 'open-list', key: 'playlist:' + it.uuid, title: String(it.title || ''), kind: 'tracks', source: { cmd: 'playlist', params: { uuid: it.uuid } } }];
@@ -66,7 +73,7 @@ function itemActs(s, f, i) {
     return [];
 }
 
-/** My music: five rows, and "Now playing" as the last while a track is loaded (the others never move) */
+/** My music: six rows, and "Now playing" as the last while a track is loaded (the others never move) */
 function libraryRows(s) {
     const r = LIBRARY.slice();
     const p = s.player;
@@ -92,7 +99,9 @@ function rows(s) {
             base.sub = [joinArtists(o.artists), album].filter(Boolean).join('  ·  ');
             base.off = offItem(s, f, o);
             base.right = base.off ? 'Not available' : mmss(o.duration);
-            base.playing = on != null && o.id === on;
+            base.video = isVideo(o);
+            // (videos and tracks have separate ids at TIDAL: the kind must match too)
+            base.playing = on != null && o.id === on && base.video === (s.player.track.kind === 'video');
         } else if (f.kind === 'albums') {
             base.sub = joinArtists(o.artists);
             base.right = count(o.numberOfTracks, 'track', 'tracks');

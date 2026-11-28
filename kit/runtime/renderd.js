@@ -17,6 +17,10 @@
  * stays in the upstream dialect. Pixel images (op 18) go as that dialect's pictures there: message 10
  * (a side of 1024 at most, a bigger one is not drawn: Doom connects without opts.native) and the
  * op as `x y w h r id`; the recording keeps upstream's `id ver x y w h` (record.js play()).
+ * Videos there (mgu-render's "Video"; a player writes the frames to /dev/shm/mgu-video-<name>): setVideo(id, file)
+ * names the file, videoOp(r, id, x, y, w, h) records op 19 (`x y w h r id`, the newest frame fitted in); a frame that
+ * draws it sends VIDEO (13) first, once per naming; setVideo(id, null) sends DROP_VIDEO (14). While a video is named
+ * the last frame goes again when nothing was sent for 750 ms (a shown app talks at least once a second).
  */
 const net = require('net');
 const fs = require('fs');
@@ -40,23 +44,46 @@ const X = { MODE: 0x4d520001, GRAB: 0x4d520002, READY: 0x4d520101, STATE: 0x4d52
 const X_MODE_LAYER = 1;
 // pictures in mgu-render/1 (as IterioDev's): IMAGE is message 10, u32 id, w, h (1..1024), premultiplied RGBA
 const X_IMAGE = 10, X_IMAGE_SIDE = 1024;
-// words after each draw op (record.js OP, 1..18); GRAD (3), CARD (6), TRIS (10) and GLYPHS (11) carry a count
-const OP_WORDS = [0, 1, 5, 5, 6, 7, 6, 8, 11, 6, 1, 3, 3, 4, 0, 9, 1, 3, 6];
-/** A copy of recorded draw words with each IMAGE op (18) as mgu-render/1 reads it: `x y w h r id`, r 0. */
-function nativeImages(src) {
-    const u = new Uint32Array(src);
+// words after each draw op (record.js OP, 1..18, and VIDEO 19); GRAD (3), CARD (6), TRIS (10) and GLYPHS (11) carry a count
+const OP_WORDS = [0, 1, 5, 5, 6, 7, 6, 8, 11, 6, 1, 3, 3, 4, 0, 9, 1, 3, 6, 6];
+/** fn(op, i) for each draw op of recorded words u (i: the op's word); stops at words that are not record.js's */
+function eachOp(u, fn) {
     for (let i = 0; i < u.length;) {
         const op = u[i];
         let len = OP_WORDS[op];
-        if (!op || len === undefined) break;        // not record.js's words: the rest goes as it is
+        if (!op || len === undefined) break;
         if (op === 3) len += 2 * u[i + 5];
         else if (op === 6) len += 2 * u[i + 6];
         else if (op === 10) len += 9 * u[i + 1];
         else if (op === 11) len += 8 * u[i + 3];
-        else if (op === 18 && i + 6 < u.length) { const id = u[i + 1]; u.copyWithin(i + 1, i + 3, i + 7); u[i + 5] = 0; u[i + 6] = id; }
+        fn(op, i);
         i += 1 + len;
     }
+}
+/** A copy of recorded draw words with each IMAGE op (18) as mgu-render/1 reads it: `x y w h r id`, r 0. */
+function nativeImages(src) {
+    const u = new Uint32Array(src);
+    eachOp(u, (op, i) => { if (op === 18 && i + 6 < u.length) { const id = u[i + 1]; u.copyWithin(i + 1, i + 3, i + 7); u[i + 5] = 0; u[i + 6] = id; } });
     return u;
+}
+// videos in mgu-render/1 (IterioDev's protocol 4): VIDEO is message 13 (u32 id, the frame file's path, NUL padded),
+// DROP_VIDEO 14, op 19 `x y w h r id`; X_READY caps 16 offers them
+const X_VIDEO = 13, X_DROP_VIDEO = 14, OP_VIDEO = 19, X_CAP_VIDEO = 16, VIDEO_KEEP_MS = 750;
+const videoById = new Map();        // id -> { file, ver }: named by the app (shared by the connections, as images are)
+let videoVer = 0;
+/** Video `id`'s frames are in `file` (/dev/shm/mgu-video-<name>); named again (a new video in it): sent again. null: forgotten. */
+function setVideo(id, file) {
+    if (file == null) videoById.delete(id >>> 0);
+    else videoById.set(id >>> 0, { file: String(file), ver: ++videoVer });
+}
+/** Record op 19 on Recorder r: video `id`'s newest frame fitted into x, y, w, h (aspect kept, centred), corner radius. */
+function videoOp(r, id, x, y, w, h, radius) {
+    if (!(w > 0 && h > 0)) return r;
+    r._grow(7);
+    const i = r.n;
+    r.u[i] = OP_VIDEO; r.f[i + 1] = x; r.f[i + 2] = y; r.f[i + 3] = w; r.f[i + 4] = h; r.f[i + 5] = radius || 0; r.u[i + 6] = id >>> 0;
+    r.n += 7;
+    return r;
 }
 
 function msg(type, payload) {
@@ -82,7 +109,7 @@ class RenderClient extends EventEmitter {
         this.placement = null;
         this.visible = false;
         this.inbuf = Buffer.alloc(0);
-        this.sent = { atlas: new Set(), ramp: new Set(), layer: new Set(), image: new Map() };
+        this.sent = { atlas: new Set(), ramp: new Set(), layer: new Set(), image: new Map(), video: new Map() };
         this.stats = null;
         this.waiting = false;        // a frame was sent, no tick back yet
         this.retry = null;
@@ -196,12 +223,13 @@ class RenderClient extends EventEmitter {
     }
     close() {
         this.grab(false);
+        if (this.videoTimer) { clearInterval(this.videoTimer); this.videoTimer = null; }
         this.closed = true;
         if (this.retry) clearTimeout(this.retry);
         if (this.sock) this.sock.destroy();
         if (this.fd !== null) { fs.closeSync(this.fd); this.fd = null; }
     }
-    _reset() { this.sent.atlas.clear(); this.sent.ramp.clear(); this.sent.layer.clear(); this.sent.image.clear(); this.waiting = false; }
+    _reset() { this.sent.atlas.clear(); this.sent.ramp.clear(); this.sent.layer.clear(); this.sent.image.clear(); this.sent.video.clear(); this.lastFrame = null; this.waiting = false; }
     _write(b) {
         if (this.fd !== null) { fs.writeSync(this.fd, b); return true; }
         return this.sock && this.connected ? this.sock.write(b) : false;
@@ -234,7 +262,7 @@ class RenderClient extends EventEmitter {
             if (type === X.READY && p.length >= 12) {
                 const caps = p.readUInt32LE(8);
                 this.native = true;
-                this.info = { touch: !!(caps & 1), controller: !!(caps & 2), frontGate: !!(caps & 4) };
+                this.info = { touch: !!(caps & 1), controller: !!(caps & 2), frontGate: !!(caps & 4), video: !!(caps & X_CAP_VIDEO) };
                 // the app area (where the HMI leaves room for apps, in screen px): after the embed box
                 this.area = p.length >= 44 ? { x: p.readInt32LE(28), y: p.readInt32LE(32), w: p.readInt32LE(36), h: p.readInt32LE(40) } : null;
             } else if (type === E.READY) {
@@ -375,8 +403,31 @@ class RenderClient extends EventEmitter {
         this._ensureRes(r);
         this.waiting = true;
         const u = r.words();
-        return this._write(msg(M.FRAME, words(this.native && r.images && r.images.size ? nativeImages(u) : u)));
+        if (this.native && (videoById.size || this.sent.video.size)) this._ensureVideos(u);
+        const m = msg(M.FRAME, words(this.native && r.images && r.images.size ? nativeImages(u) : u));
+        this.lastFrame = this.sent.video.size ? m : null;
+        this.frameT = Date.now();
+        return this._write(m);
+    }
+    /** mgu-render/1: VIDEO for each video the frame draws that this connection hasn't got named as it is now; DROP_VIDEO
+     *  for one named here that the app forgot. While one is named, the last frame again when nothing went for a while. */
+    _ensureVideos(u) {
+        this.sent.video.forEach((ver, id) => { if (!videoById.has(id)) { this.sent.video.delete(id); this._write(this._u32msg(X_DROP_VIDEO, [id])); } });
+        eachOp(u, (op, i) => {
+            if (op !== OP_VIDEO || i + 6 >= u.length) return;
+            const id = u[i + 6], v = videoById.get(id);
+            if (!v || this.sent.video.get(id) === v.ver) return;
+            this._write(msg(X_VIDEO, Buffer.concat([words(new Uint32Array([id])), Buffer.from(v.file + '\0', 'utf8')])));
+            this.sent.video.set(id, v.ver);
+        });
+        if (this.sent.video.size && !this.videoTimer) {
+            this.videoTimer = setInterval(() => {
+                if (!this.sent.video.size || !this.connected) { clearInterval(this.videoTimer); this.videoTimer = null; return; }
+                if (this.lastFrame && this.visible && Date.now() - this.frameT >= VIDEO_KEEP_MS) { this.frameT = Date.now(); this._write(this.lastFrame); }
+            }, 250);
+            if (this.videoTimer.unref) this.videoTimer.unref();
+        }
     }
 }
 
-module.exports = { RenderClient, SOCKET, SOCKETS };
+module.exports = { RenderClient, SOCKET, SOCKETS, setVideo, videoOp, videoById };

@@ -71,7 +71,7 @@ test('turn: moves inside the list and stops at both ends; it never leaves into t
     let l = walk(loggedIn(), [{ knob: -3 }]);
     assert.deepStrictEqual([at(l), sel(l)], ['page', 0]);
     l = walk(l, [{ knob: 50 }]);
-    assert.deepStrictEqual([at(l), sel(l)], ['page', 4], 'Search is the last row while nothing plays');
+    assert.deepStrictEqual([at(l), sel(l)], ['page', 5], 'Search is the last row while nothing plays (after Videos)');
 });
 
 test('turn: a track that cannot be played is skipped', () => {
