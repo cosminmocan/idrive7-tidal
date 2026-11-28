@@ -14,6 +14,9 @@
  *   fake.counts.refresh          // refresh_token grants answered
  *   fake.fault({ path, method, times, status, headers, body, drop, stall, delayMs })   // the next matching requests
  *   fake.streams[trackId] = { LOSSLESS: <answer or {status, body}>, HIGH: ... }   // urlpostpaywall answers
+ *   fake.videoStreams[videoId] = { HIGH: <answer or {status, body}> }   // videos/<id>/urlpostpaywall answers
+ *   fake.data.playlistItems[uuid] = [{ type: 'track' | 'video', id }]  // playlists/<uuid>/items (else its tracks)
+ *   fake.data.mixItems[mixId] = [{ type: 'track' | 'video', id }]      // a mix page's items (else its tracks)
  *   fake.files[name] = Buffer; fake.fileUrl(name); fake.fileFault = { name, cutAfter, stallAfter }
  *   fake.covers[coverId] = Buffer (a JPEG; one is made up for any coverId of the catalogue otherwise)
  *   fake.data                    // the catalogue (tests/fixtures/tidal/library.json), changeable
@@ -49,7 +52,7 @@ function jpeg(id, size) {
 function createFakeTidal(o) {
     const opts = o || {};
     const fake = {
-        log: [], faults: [], streams: {}, files: {}, covers: {}, fileFault: null,
+        log: [], faults: [], streams: {}, videoStreams: {}, files: {}, covers: {}, fileFault: null,
         data: JSON.parse(fs.readFileSync(LIBRARY, 'utf8')),
         pageMax: opts.pageMax || 100, tokenLifetime: opts.tokenLifetime || 604800,
         rotateRefreshTokens: !!opts.rotateRefreshTokens,
@@ -80,6 +83,9 @@ function createFakeTidal(o) {
 
     const trackById = (id) => fake.data.tracks.filter((t) => t && t.id === Number(id))[0];
     const albumById = (id) => fake.data.albums.filter((a) => a && a.id === Number(id))[0];
+    const videoById = (id) => (fake.data.videos || []).filter((v) => v && v.id === Number(id))[0];
+    /** [{ type, id }] -> the objects, each with its type as TIDAL's mixed lists give it */
+    const media = (list) => (list || []).map((x) => ({ type: x.type, item: x.type === 'video' ? videoById(x.id) : trackById(x.id) })).filter((x) => x.item);
 
     function send(res, status, body, headers) {
         const isBuf = Buffer.isBuffer(body);
@@ -160,6 +166,7 @@ function createFakeTidal(o) {
         if ((mm = /^users\/(\d+)\/(.*)$/.exec(p))) {
             if (Number(mm[1]) !== d.userId) return apiError(res, 403, 4005, 'You can only access your own user');
             if (mm[2] === 'favorites/tracks') return paged(res, q, (d.favoriteTracksItems || tracks(d.favoriteTracks)).map((t, i) => ({ created: '2024-01-0' + ((i % 9) + 1) + 'T00:00:00.000+0000', item: t })));
+            if (mm[2] === 'favorites/videos') return paged(res, q, (d.favoriteVideos || []).map(videoById).filter(Boolean).map((v) => ({ created: '2024-01-01T00:00:00.000+0000', item: v })));
             if (mm[2] === 'favorites/albums') return paged(res, q, d.favoriteAlbums.map(albumById).filter(Boolean).map((a) => ({ created: '2024-01-01T00:00:00.000+0000', item: a })));
             if (mm[2] === 'playlistsAndFavoritePlaylists') {
                 return paged(res, Object.assign({}, q, { limit: Math.min(50, Number(q.limit) || 0) }),
@@ -171,6 +178,12 @@ function createFakeTidal(o) {
             if (!d.playlistTracks[mm[1]]) return apiError(res, 404, 2001, 'Playlist could not be found');
             return paged(res, q, tracks(d.playlistTracks[mm[1]]));
         }
+        if ((mm = /^playlists\/([^/]+)\/items$/.exec(p))) {
+            // tidalapi playlist.py items(): tracks and videos, each { item, type, cut }
+            const items = (d.playlistItems || {})[mm[1]] || (d.playlistTracks[mm[1]] ? d.playlistTracks[mm[1]].map((id) => ({ type: 'track', id: id })) : null);
+            if (!items) return apiError(res, 404, 2001, 'Playlist could not be found');
+            return paged(res, q, media(items).map((x) => ({ item: x.item, type: x.type, cut: null })));
+        }
         if ((mm = /^albums\/(\d+)\/tracks$/.exec(p))) {
             if (!d.albumTracks[mm[1]]) return apiError(res, 404, 2001, 'Album not found');
             return paged(res, q, tracks(d.albumTracks[mm[1]]));
@@ -181,7 +194,8 @@ function createFakeTidal(o) {
         if (p === 'pages/mix') {
             const mix = d.mixes.filter((x) => x.id === q.mixId)[0];
             if (!mix) return send(res, 200, page([]));
-            const list = tracks(d.mixTracks[q.mixId]);
+            const mixed = (d.mixItems || {})[q.mixId];
+            const list = mixed ? media(mixed).map((x) => x.item) : tracks(d.mixTracks[q.mixId]);
             return send(res, 200, page([{ type: 'MIX_HEADER', title: '', mix: mix },
                 { type: 'TRACK_LIST', title: '', pagedList: { limit: list.length, offset: 0, totalNumberOfItems: list.length, items: list } }]));
         }
@@ -198,6 +212,21 @@ function createFakeTidal(o) {
             // one track (tidalapi media.py Track._get): the same object as in the lists; 404 when TIDAL has none
             const t = trackById(mm[1]);
             return t ? send(res, 200, t) : apiError(res, 404, 2001, 'Track not found');
+        }
+        if ((mm = /^videos\/(\d+)$/.exec(p))) {
+            const v = videoById(mm[1]);
+            return v ? send(res, 200, v) : apiError(res, 404, 2001, 'Video not found');
+        }
+        if ((mm = /^videos\/(\d+)\/urlpostpaywall$/.exec(p))) {
+            // docs/live-check-results.md "Video": an HLS master playlist's address in urls[0]
+            const id = Number(mm[1]);
+            const s = fake.videoStreams[id];
+            const a = s ? s[q.videoquality] : undefined;
+            if (a && a.status) return send(res, a.status, a.body || '', a.headers);
+            if (a) return send(res, 200, a);
+            if (s || !videoById(id)) return apiError(res, 401, 4005, 'Asset is not ready for playback');
+            return send(res, 200, { videoId: id, streamType: 'ON_DEMAND', assetPresentation: 'FULL', videoQuality: q.videoquality,
+                urls: [fake.fileUrl(id + '/master.m3u8')], streamingSessionId: 'fake' });
         }
         if ((mm = /^tracks\/(\d+)\/urlpostpaywall$/.exec(p))) {
             const id = Number(mm[1]);

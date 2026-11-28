@@ -85,5 +85,20 @@
     "0123456789abcdef0123456789abcd": [17927864, 58990486, 77777702],
     "00fedcba9876543210fedcba987654": [17927865]
   },
-  "searchTracks": [17927864, 17927865, 17927866, 58990486]
+  "searchTracks": [17927864, 17927865, 17927866, 58990486],
+  "videos": [
+    {"id": 143792065, "title": "Around the World", "volumeNumber": 1, "trackNumber": 1, "releaseDate": "1997-04-01T00:00:00.000+0000",
+     "imagePath": null, "imageId": "a1b2c3d4-0000-4000-8000-000000000001", "vibrantColor": "#e1b04c", "duration": 175, "quality": "MP4_1080P",
+     "streamReady": true, "adSupportedStreamReady": true, "djReady": true, "stemReady": false, "streamStartDate": "2015-01-01T00:00:00.000+0000",
+     "allowStreaming": true, "explicit": false, "popularity": 40, "type": "Music Video", "adsUrl": null, "adsPrePaywallOnly": true,
+     "artist": {"id": 8847, "name": "Daft Punk", "handle": null, "type": "MAIN", "picture": null},
+     "artists": [{"id": 8847, "name": "Daft Punk", "handle": null, "type": "MAIN", "picture": null}], "album": null},
+    {"id": 143792066, "title": "Live at the Club", "volumeNumber": 1, "trackNumber": 1, "releaseDate": null,
+     "imagePath": null, "imageId": null, "vibrantColor": null, "duration": 241.6, "quality": "MP4_720P",
+     "streamReady": false, "adSupportedStreamReady": false, "djReady": false, "stemReady": false, "streamStartDate": null,
+     "allowStreaming": false, "explicit": true, "popularity": 3, "type": "Music Video", "adsUrl": null, "adsPrePaywallOnly": true,
+     "artist": {"id": 8848, "name": "Guest", "handle": null, "type": "MAIN", "picture": null},
+     "artists": [{"id": 8848, "name": "Guest", "handle": null, "type": "MAIN", "picture": null}, {"id": 8847, "name": "Daft Punk", "handle": null, "type": "FEATURED", "picture": null}], "album": null}
+  ],
+  "favoriteVideos": [143792065, 143792066]
 }

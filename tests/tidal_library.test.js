@@ -179,10 +179,10 @@ test('playlists asks TIDAL for at most 50 at a time (its limit for this list)', 
         assert.ok(c.every((x) => Number(x.query.limit) <= 50), JSON.stringify(c.map((x) => x.query)));
     })));
 
-test('playlist: its tracks; an unknown one is not-found', () => withEnv({}, (env) =>
+test('playlist: its items (tracks and videos, tidalapi playlist.py items()); an unknown one is not-found', () => withEnv({}, (env) =>
     env.tidal.playlist('36ea71a8-445e-41a4-82ab-6628c581535d', 0, 50).then((r) => {
         valid('playlist', r);
-        const c = calls(env, 'playlists/36ea71a8-445e-41a4-82ab-6628c581535d/tracks');
+        const c = calls(env, 'playlists/36ea71a8-445e-41a4-82ab-6628c581535d/items');
         assert.deepStrictEqual(c[0].query, { countryCode: 'RO', offset: '0', limit: '50' });
         assert.deepStrictEqual(r.items.map((t) => t.id), [17927864, 17927865, 58990486]);
         assert.deepStrictEqual(r.items[0], ONE_MORE_TIME);

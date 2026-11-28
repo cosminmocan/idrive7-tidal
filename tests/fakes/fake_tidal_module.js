@@ -4,15 +4,17 @@
  *
  *   createFakeTidal(cfg)(opts)   a createTidal: (opts { netx, sessionFile, coverDir }) -> the tidal module's object.
  *                                cfg (the test's knobs, may be changed while the test runs):
- *                                  library: { favorites: { tracks: [], albums: [] }, playlists: [], playlist: { <uuid>: [] },
+ *                                  library: { favorites: { tracks: [], albums: [], videos: [] }, playlists: [], playlist: { <uuid>: [] },
  *                                             album: { <id>: [] }, mixes: [], mix: { <id>: [] }, search: [],
- *                                             tracks: { <id>: track } (what track(id) finds) }
+ *                                             tracks: { <id>: track } (what track(id) finds), videos: { <id>: video } (video(id)) }
  *                                  login: ['pending', 'authorized'] (the poll answers in turn; the last one repeats;
  *                                         after loginCancel() the poll answers 'expired', as the real one)
  *                                  trackDelayMs   track(id) answers after this long
  *                                  interval (s), expiresIn (s)
  *                                  streams: { <trackId>: { url, codec, quality } | { error: code, retryAfter } }
  *                                  streamUrl: (id, quality, n) -> answer   (overrides streams; n: the call's number for this id)
+ *                                  videoUrls: { <videoId>: { url, quality } | { error: code } }   what videoUrl(id, height) answers
+ *                                  videoUrl: (id, height, n) -> answer   (overrides videoUrls)
  *                                  covers: { <coverId>: Buffer }
  *                                  fail: { <method>: code }   every call of that method rejects with code
  *                                  calls: [] (filled: { method, args })
@@ -20,6 +22,9 @@
  *   createFileServer(opts)       a local HTTP server for the track's bytes, with Range, cuts and expired addresses.
  *   pattern(len) / patternAt(i)  the bytes the file server serves: "fLaC" then a counter, so a byte out of place,
  *                                missing or twice is seen.
+ *   createHlsServer(opts)        a local HLS server shaped as TIDAL's (docs/live-check-results.md "Video"): a master
+ *                                playlist, one VOD variant per picture height, MPEG-TS-like segments (small bytes).
+ *   video(id, title)             a contract video item
  *
  * Every list method rejects with 'offline' when netx.online() is false (as the real one, whose netx refuses then).
  * Node 8.9.4 syntax.
@@ -32,6 +37,9 @@ const TRACK = { id: 17927864, title: 'One More Time', artists: ['Daft Punk'], al
     coverId: '24f52ab0-e7d6-414d-a650-20a4c686aa57', duration: 320, streamReady: true, explicit: false };
 
 function track(id, title) { return Object.assign({}, TRACK, { id: id, title: title || ('Track ' + id) }); }
+const VIDEO = { kind: 'video', id: 143792065, title: 'Around the World', artists: ['Daft Punk'], album: null,
+    coverId: 'a1b2c3d4-0000-4000-8000-000000000001', duration: 175, streamReady: true, explicit: false };
+function video(id, title) { return Object.assign({}, VIDEO, { id: id, title: title || ('Video ' + id) }); }
 
 function err(code, extra) { const e = new Error(code); e.code = code; return Object.assign(e, extra || {}); }
 
@@ -53,6 +61,7 @@ function createFakeTidal(cfg) {
         let polls = 0;
         let cancelled = false;
         const streamCalls = {};
+        const videoCalls = {};
 
         function call(method, args, fn) {
             cfg.calls.push({ method: method, args: args });
@@ -117,6 +126,19 @@ function createFakeTidal(cfg) {
                     const t = (lib().tracks || {})[id]; if (!t) throw err('not-found');
                     return t;
                 });
+            }),
+            video: (id) => call('video', [id], () => {
+                needLogin(); needNet();
+                const v = (lib().videos || {})[id]; if (!v) throw err('not-found');
+                return v;
+            }),
+            videoUrl: (id, height) => call('videoUrl', [id, height], () => {
+                needLogin(); needNet();
+                videoCalls[id] = (videoCalls[id] || 0) + 1;
+                const a = cfg.videoUrl ? cfg.videoUrl(id, height, videoCalls[id]) : (cfg.videoUrls || {})[id];
+                if (!a) throw err('not-found');
+                if (a.error) throw err(a.error, a.retryAfter ? { retryAfter: a.retryAfter } : {});
+                return a;
             }),
             search: (q, offset, limit) => call('search', [q, offset, limit], () => { needLogin(); needNet(); return page(lib().search, offset, limit); }),
             streamUrl: (id, quality) => call('streamUrl', [id, quality], () => {
@@ -199,5 +221,87 @@ function createFileServer(opts) {
     return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(srv)));
 }
 
-module.exports = { createFakeTidal: createFakeTidal, createFileServer: createFileServer, pattern: pattern, patternAt: patternAt,
-    track: track, TRACK: TRACK, rmrf: rmrf };
+/* ---------- the HLS server ---------- */
+const HLS_SIZES = { 180: 320, 360: 640, 480: 854, 720: 1280, 1080: 1920 };
+const HLS_RATES = { 180: 463000, 360: 718000, 480: 1498000, 720: 3112000, 1080: 6403000 };
+
+/** segment i of the variant of picture height h: a TS sync byte, then bytes made of h, i and the place */
+function hlsSegment(h, i, size) {
+    const b = Buffer.alloc(size);
+    b[0] = 0x47;
+    for (let j = 1; j < size; j++) b[j] = (h * 7 + i * 31 + j + Math.floor(j / 256) * 13) & 255;
+    return b;
+}
+
+/**
+ * createHlsServer({ heights: [180, 360, 480, 720, 1080], durations: [6, 6, 6, 6, 4.5], segSize: 4000,
+ *                   query: '?token=...' (added to every address in the playlists), fail: { '<h>/<i>': n } (the first n
+ *                   requests of that segment get 500), expired: { '<h>/<i>': n } (403), cuts: { '<h>/<i>': byte } (the
+ *                   connection cut once after that byte; Range continues) })
+ *   -> Promise<{ masterUrl, segment(h, i), expected(h, from, skip), requests, close() }>
+ * Variant h is at /<h>/index.m3u8 (in the master: relative and absolute addresses in turn); its segments are relative
+ * addresses (even i) and absolute ones (odd i).
+ */
+function createHlsServer(opts) {
+    const o = Object.assign({ heights: [180, 360, 480, 720, 1080], durations: [6, 6, 6, 6, 4.5], segSize: 4000, query: '', fail: {}, expired: {}, cuts: {} }, opts || {});
+    const srv = { requests: [], sockets: [] };
+    const seen = {};
+    const cuts = Object.assign({}, o.cuts);
+    let base = '';
+    function master() {
+        const l = ['#EXTM3U', '#EXT-X-VERSION:3', '#EXT-X-INDEPENDENT-SEGMENTS'];
+        o.heights.forEach((h, k) => {
+            l.push('#EXT-X-STREAM-INF:BANDWIDTH=' + HLS_RATES[h] + ',AVERAGE-BANDWIDTH=' + Math.round(HLS_RATES[h] * 0.9) + ',CODECS="avc1.640028,mp4a.40.2",RESOLUTION=' +
+                HLS_SIZES[h] + 'x' + h + ',FRAME-RATE=25.000');
+            l.push((k % 2 ? base + '/' : '') + h + '/index.m3u8' + o.query);   // relative and absolute addresses
+        });
+        return l.join('\n') + '\n';
+    }
+    function variant(h) {
+        const l = ['#EXTM3U', '#EXT-X-VERSION:3', '#EXT-X-PLAYLIST-TYPE:VOD', '#EXT-X-TARGETDURATION:6', '#EXT-X-MEDIA-SEQUENCE:0'];
+        o.durations.forEach((d, i) => { l.push('#EXTINF:' + d.toFixed(3) + ','); l.push((i % 2 ? base + '/' + h + '/' : '') + 'seg-' + i + '.ts' + o.query); });
+        l.push('#EXT-X-ENDLIST');
+        return l.join('\n') + '\n';
+    }
+    const server = http.createServer((req, res) => {
+        const u = req.url.split('?');
+        const p = u[0];
+        srv.requests.push({ path: p, query: u[1] || null, range: req.headers.range || null });
+        seen[p] = (seen[p] || 0) + 1;
+        if (p === '/master.m3u8') { res.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl' }); return res.end(master()); }
+        let m = /^\/(\d+)\/index\.m3u8$/.exec(p);
+        if (m && o.heights.indexOf(Number(m[1])) >= 0) { res.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl' }); return res.end(variant(Number(m[1]))); }
+        m = /^\/(\d+)\/seg-(\d+)\.ts$/.exec(p);
+        if (!m || o.heights.indexOf(Number(m[1])) < 0 || Number(m[2]) >= o.durations.length) { res.writeHead(404); return res.end(); }
+        const key = m[1] + '/' + m[2];
+        if (seen[p] <= (o.fail[key] || 0)) { res.writeHead(500); return res.end('fault'); }
+        if (seen[p] <= (o.expired[key] || 0)) { res.writeHead(403); return res.end('expired'); }
+        const body = hlsSegment(Number(m[1]), Number(m[2]), o.segSize);
+        const r = /^bytes=(\d+)-$/.exec(req.headers.range || '');
+        const start = r ? Math.min(Number(r[1]), body.length) : 0;
+        const headers = { 'Content-Type': 'video/mp2t', 'Content-Length': String(body.length - start) };
+        if (r) headers['Content-Range'] = 'bytes ' + start + '-' + (body.length - 1) + '/' + body.length;
+        res.writeHead(r ? 206 : 200, headers);
+        if (cuts[key] !== undefined && cuts[key] > start) {
+            const at = cuts[key]; delete cuts[key];
+            res.write(body.slice(start, at));
+            setTimeout(() => res.socket && res.socket.destroy(), 20);
+            return;
+        }
+        res.end(body.slice(start));
+    });
+    server.on('connection', (s) => { srv.sockets.push(s); s.on('close', () => { srv.sockets = srv.sockets.filter((x) => x !== s); }); });
+    srv.segment = (h, i) => hlsSegment(h, i, o.segSize);
+    /** what the player should get: variant h's segments from `from` on, without those in `skip` */
+    srv.expected = (h, from, skip) => Buffer.concat(o.durations.map((d, i) => i).filter((i) => i >= (from || 0) && (skip || []).indexOf(i) < 0).map((i) => srv.segment(h, i)));
+    srv.segmentRequests = (h, i) => srv.requests.filter((r) => r.path === '/' + h + '/seg-' + i + '.ts');
+    srv.close = () => new Promise((resolve) => { srv.sockets.forEach((s) => s.destroy()); server.close(() => resolve()); });
+    return new Promise((resolve) => server.listen(0, '127.0.0.1', () => {
+        base = 'http://127.0.0.1:' + server.address().port;
+        srv.masterUrl = base + '/master.m3u8' + o.query;
+        resolve(srv);
+    }));
+}
+
+module.exports = { createFakeTidal: createFakeTidal, createFileServer: createFileServer, createHlsServer: createHlsServer, pattern: pattern, patternAt: patternAt,
+    track: track, TRACK: TRACK, video: video, VIDEO: VIDEO, rmrf: rmrf };
