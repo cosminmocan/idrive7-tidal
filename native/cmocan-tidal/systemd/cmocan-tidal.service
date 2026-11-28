@@ -29,8 +29,8 @@ IOSchedulingClass=idle
 # FLAC and AAC decoding is light (Music Assistant runs at 100%, nice 5); nice 5 keeps CarPlay and the HMI first.
 # The download's queue is bounded by the pipes (backpressure), so memory stays small: the service, the client and
 # the player share these limits.
-CPUQuota=100%
-MemoryLimit=160M
+CPUQuota=200%
+MemoryLimit=256M
 TasksMax=32
 # No core dump goes to the crash handler (which restarts the head unit for a program it does not list),
 # so a crash restarts this service and never the head unit.
