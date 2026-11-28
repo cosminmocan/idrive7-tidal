@@ -122,6 +122,11 @@ test('the service unit: LimitCORE=1, memory, CPU and task limits, a start limit,
     assert.deepStrictEqual(s.Service.LimitCORE, ['1']);
     assert.ok(/^\d+M$/.test(s.Service.MemoryLimit[0]), 'MemoryLimit');
     assert.ok(/^\d+%$/.test(s.Service.CPUQuota[0]), 'CPUQuota');
+    // video (tidal-video in the same unit): decoding and the NV12 to I420 copy, or software decoding when the Media SDK
+    // fails; tvh-player needs 2 of the 4 cores, and a 1080p frame file is 9.3 MB
+    assert.ok(parseInt(s.Service.CPUQuota[0], 10) >= 200, 'CPUQuota at least 200% for video');
+    assert.ok(parseInt(s.Service.MemoryLimit[0], 10) >= 256, 'MemoryLimit at least 256M for video');
+    assert.ok(parseInt(s.Service.CPUQuota[0], 10) <= 300, 'never more than 3 of the 4 cores: the HMI and CarPlay come first');
     assert.ok(/^\d+$/.test(s.Service.TasksMax[0]), 'TasksMax');
     assert.ok(Number(s.Unit.StartLimitBurst[0]) > 0 && Number(s.Unit.StartLimitIntervalSec[0]) > 0, 'a start limit');
     assert.deepStrictEqual(s.Unit.Requires, ['cmocan-tidal.socket']);
