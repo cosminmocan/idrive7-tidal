@@ -57,5 +57,28 @@ The app's log with the service's lines (eight QR pages): `docs/car-logs/2026-11-
 | First start after the update | failed once (16:25:37, "the SDK created no RHMI application"), the next start worked: as docs/first-start.md says |
 | New | `openEntryState ... INVALID_UUID` at 16:36:23, opening the app right after a popup; the app showed anyway |
 
+**A1, what the code and the log show (2026-11-28), and the change.** `car_audio.js` treats every connection on
+source 287 that it did not make as another app's sound and waits for it to go. Twice the car had such a connection
+that no app had made: id 2 at 06:57:07 (three seconds after the app's start: among the first connections the audio
+manager made in that boot) and id 9 at 08:24:11 (no start of the app in between, and the ids go on from our 6: the
+head unit was not restarted, so this is not only a matter of a boot). In both cases ours had been the last source
+before (06:57: not in the log; 08:24: ours ended at 07:14:53 and the log's next line is an hour later). No other app had a newer claim
+("waiting for it to let go"). So, most likely: the car brings its last connection back (who made it is not in the
+log); with it there was no sound of ours.
+The change: a 287 connection that is not ours **and that no other app claims** (no file of another app in
+/tmp/aurelm-287) is disconnected, then ours is connected: the same two steps as the owner's "pick another source",
+which the log shows working (07:01:01, 08:24:45). Using the car's connection as it is was not chosen: it is the one
+that stayed silent. Rule R7 is narrower by this: the app still never ends a connection of an app that claims the
+speakers, and never takes them back after the driver chose another source.
+
+Not yet checked in the car (next visit):
+
+| Check | Expected |
+|---|---|
+| Start the car with TIDAL as the last source, open the app, play | sound without choosing anything; the log has `287 is in use (N) and claimed by no app`, `disconnect N (not ours, unclaimed) {"amError":"E_OK"}`, `connect {... "E_OK"}` |
+| The same log line | it prints the car's connection whole (`sinkID`, `connectionState`): write it down |
+| Radio, then back to the app and play | sound; no radio connection is touched (only source 287 ever is) |
+| With one of aurelmarius' apps playing (if installed), play in TIDAL | as before: that app lets go, then ours connects; no `unclaimed` line |
+
 The owner asks for: the video's controls hidden until touched, scaling (best fit, fill, zoom), a search with a
 QWERTY keyboard or the touchpad's handwriting. Planned as Phase 4 in WORKPLAN.md.
