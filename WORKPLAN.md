@@ -1091,7 +1091,7 @@ the release through `make release` (its x86-64 gate, then the x86-64 packages).
   it to our app, it becomes a second way in; if not, it is dropped. **Success:** e2e: type, results, play one.
 - **K6b. The cluster card's progress bar** (apps/cmocan_tidal/cluster.js).
 
-**FLAC (lossless), its own track beside both waves** (the owner, 2026-11-28: "add the flac to the list"):
+**FLAC (lossless), its own track** (the owner, 2026-11-28: "add the flac to the list"; then "leave flac for later": **deferred**, not started):
 
 Why FLAC does nothing today: the QR (device) login gets AAC 320 at most, whatever the subscription
 (docs/live-check-results.md); lossless needs TIDAL's PKCE login. The player already decodes FLAC (its FFmpeg is
@@ -1116,7 +1116,7 @@ of AAC, not hi-res.
   lossless falls back to AAC with a line saying so; in the car: "FLAC" on now playing and in the log.
 - **Depends on:** L1b's login screen on S3's keyboard if that route is chosen; otherwise independent of wave 1.
 
-**Wave 2:**
+**Wave 2** (U2 and the small fixes started 2026-11-28 beside wave 1; K6a waits for the owner's file):
 
 - **K6a.** The cluster card only while the media widget is selected. Needs the car's signal list from the owner
   (`/etc/oap/someip/someip-interfaces.json`) or a Signal Hunter session. The log's "slot locked" (07:12:31) is the
