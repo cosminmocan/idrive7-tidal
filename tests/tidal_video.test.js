@@ -199,4 +199,60 @@ test('the HLS fixtures hold no real address or token', () => {
     });
 });
 
+/* ---------- the fake TIDAL's HLS video, for the end-to-end test (task V1d) ---------- */
+
+test('the fake TIDAL: an HLS video at made-up hosts (videoUrl gives its master; the variants and segments over netx), the names resolved by its own DNS server', () => withEnv({ fake: { dns: true } }, (env) => {
+    const urlMod = require('url');
+    const createNetx = require('../native/cmocan-tidal/lib/netx').createNetx;
+    const seg = (h, i) => Buffer.from('MPEG-TS ' + h + 'p segment ' + i + ' ' + 'x'.repeat(200 + i));
+    const segments = (h) => [2, 2, 1.5].map((d, i) => ({ duration: d, data: seg(h, i) }));
+    const master = env.fake.addVideoHls(143792065, { host: 'im-fa.manifest.e2e.test', variants: [
+        { width: 640, height: 360, bandwidth: 720000, host: 'vod-360.cdn.e2e.test', segments: segments(360) },
+        { width: 1280, height: 720, bandwidth: 3100000, host: 'vod-720.cdn.e2e.test', segments: segments(720) }] });
+    const port = env.fake.port;
+    assert.strictEqual(master, 'http://im-fa.manifest.e2e.test:' + port + '/files/hls/143792065/master.m3u8');
+    assert(/^127\.0\.0\.1:\d+$/.test(env.fake.dnsServer), 'the DNS server: ' + env.fake.dnsServer);
+    const leasePath = path.join(env.dir, 'lease-dns.json');
+    fs.writeFileSync(leasePath, JSON.stringify({ ip: '10.0.0.2', dns: [env.fake.dnsServer] }));
+    const netx = createNetx({ leasePath: leasePath, ca: '' });
+    const get = (u) => netx.request({ method: 'GET', url: u, headers: {}, timeoutMs: 5000 });
+    const host = (u) => urlMod.parse(u).hostname;
+    let v720;
+    return env.tidal.videoUrl(143792065, 720).then((u) => {
+        assert.deepStrictEqual(u, { url: master, quality: 'HIGH' });
+        return get(master);
+    }).then((r) => {
+        assert.strictEqual(r.status, 200);
+        assert.strictEqual(r.headers['content-type'], 'application/vnd.apple.mpegurl');
+        const vs = H.parseMaster(r.body.toString('utf8'), master);
+        assert.deepStrictEqual(vs.map((v) => [v.width, v.height, v.bandwidth, host(v.url)]),
+            [[640, 360, 720000, 'vod-360.cdn.e2e.test'], [1280, 720, 3100000, 'vod-720.cdn.e2e.test']]);
+        vs.forEach((v) => assert(/avc1\.[0-9a-f]+,mp4a\.40\.2/.test(v.codecs), 'H.264 + AAC-LC: ' + v.codecs));
+        v720 = H.chooseVariant(vs, 720);
+        return get(v720.url);
+    }).then((r) => {
+        assert.strictEqual(r.status, 200);
+        const text = r.body.toString('utf8');
+        assert(/#EXT-X-PLAYLIST-TYPE:VOD/.test(text) && /#EXT-X-ENDLIST/.test(text), 'a VOD playlist: ' + text);
+        assert(/^seg-0\.ts$/m.test(text) && /^http:\/\/vod-720\.cdn\.e2e\.test:\d+\/files\/hls\/143792065\/720\/seg-1\.ts$/m.test(text), 'relative and absolute addresses: ' + text);
+        const m = H.parseMedia(text, v720.url);
+        assert.deepStrictEqual(m.segments.map((s) => [s.duration, host(s.url)]), [[2, 'vod-720.cdn.e2e.test'], [2, 'vod-720.cdn.e2e.test'], [1.5, 'vod-720.cdn.e2e.test']]);
+        return Promise.all(m.segments.map((s) => get(s.url)));
+    }).then((rs) => {
+        rs.forEach((r, i) => {
+            assert.strictEqual(r.status, 200);
+            assert.strictEqual(r.headers['content-type'], 'video/mp2t');
+            assert(r.body.equals(seg(720, i)), 'segment ' + i + ' as given');
+        });
+        const asked = env.fake.requests(/^\/files\/hls\//).map((e) => e.headers.host + ' ' + e.path);
+        assert.deepStrictEqual(asked.slice(0, 2), ['im-fa.manifest.e2e.test:' + port + ' /files/hls/143792065/master.m3u8',
+            'vod-720.cdn.e2e.test:' + port + ' /files/hls/143792065/720/index.m3u8']);
+        const names = env.fake.dnsLog.filter((q) => q.type === 1).map((q) => q.name);
+        assert.deepStrictEqual(names.filter((n, i) => names.indexOf(n) === i).sort(), ['im-fa.manifest.e2e.test', 'vod-720.cdn.e2e.test'], 'the names asked for');
+        // a name it was not given: not found
+        return get('http://not-given.e2e.test:' + port + '/files/hls/143792065/master.m3u8').then((r) => { throw new Error('answered: ' + r.status); },
+            (e) => assert.strictEqual(e.code, 'offline', e.message));
+    }).then(() => netx.close(), (e) => { netx.close(); throw e; });
+}));
+
 run();
