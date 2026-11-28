@@ -74,18 +74,33 @@ tidal.loginCancel()                       // stops a pending login: the next log
 tidal.logout()                            // -> Promise: session file and cover cache deleted; stops a pending login
 
 // lists: items are the objects of docs/PROTOCOL.md ("Objects"); total when TIDAL says
-tidal.favorites(kind, offset, limit)      // kind 'tracks' | 'albums' -> Promise<{ items, total }>
+tidal.favorites(kind, offset, limit)      // kind 'tracks' | 'albums' | 'videos' -> Promise<{ items, total }>
+                                          //    (users/<id>/favorites/<kind>, newest first); 'videos': video items
+                                          //    (kind: 'video'); another kind rejects with bad-request
 tidal.playlists(offset, limit)
-tidal.playlist(uuid, offset, limit)
+tidal.playlist(uuid, offset, limit)       // read from playlists/<uuid>/items (not /tracks): its tracks and its
+                                          //    videos (kind: 'video') in the playlist's order; an item of
+                                          //    another type is left out
 tidal.album(albumId, offset, limit)
 tidal.mixes(offset, limit)                // paged as the others (the module pages TIDAL's answer itself if
-tidal.mix(mixId, offset, limit)           //    TIDAL does not), total always given
+tidal.mix(mixId, offset, limit)           //    TIDAL does not), total always given; a mix's items can be videos
+                                          //    too (a video mix, or a mixed list)
 tidal.track(trackId)                      // -> Promise<track>: one track by id (contract object), for "now playing"
                                           //    after a restart; rejects with not-found
+tidal.video(videoId)                      // -> Promise<video>: one video by id (GET videos/<id>; kind: 'video',
+                                          //    album null, coverId its picture), as track() for a video in the
+                                          //    queue; rejects with not-found
 tidal.search(query, offset, limit)        // tracks only
 
 tidal.streamUrl(trackId, quality)         // quality 'LOSSLESS' | 'HIGH' -> Promise<{ url, codec: 'flac' | 'aac', quality }>
                                           //    falls back LOSSLESS -> HIGH; 'quality' is what TIDAL granted
+tidal.videoUrl(videoId, height)           // height 480 | 720 | 1080 -> Promise<{ url, quality: 'HIGH' | null }>
+                                          //    (videos/<id>/urlpostpaywall, videoquality HIGH); url is TIDAL's HLS
+                                          //    master playlist with every picture size: the service picks the
+                                          //    variant itself (playback.js with lib/tidal/hls.js chooseVariant:
+                                          //    the highest not above `height`, else the lowest); the module only
+                                          //    checks height (else bad-request). No address, an encrypted one,
+                                          //    401, 403 or 404: rejects with not-available
 tidal.cover(coverId)                      // -> Promise<Buffer> JPEG 320x320, at most 128 KiB, cached in coverDir
 ```
 

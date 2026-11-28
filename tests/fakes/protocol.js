@@ -195,10 +195,13 @@ const STATE_FIELDS = {
         nestr(e, s, 'accessToken'); nestr(e, s, 'refreshToken'); oneOf(e, s, 'tokenType', ['Bearer']);
         int(e, s, 'expiresAt', 0); int(e, s, 'userId', 1); if (str(e, s, 'countryCode')) need(e, /^[A-Z]{2}$/.test(s.countryCode), 'countryCode must be two capital letters');
     },
-    prefs: (e, s) => { oneOf(e, s, 'quality', QUALITIES); },
+    // videoHeight: optional (a file written before videos has none: 720 then)
+    prefs: (e, s) => { oneOf(e, s, 'quality', QUALITIES); oneOf(e, s, 'videoHeight', VIDEO_HEIGHTS, true); },
     queue: (e, s) => {
         need(e, Array.isArray(s.tracks) && s.tracks.every((t) => isInt(t) && t > 0), 'tracks must be a list of track ids');
         int(e, s, 'index', -1, Array.isArray(s.tracks) ? s.tracks.length - 1 : undefined); num(e, s, 'position', 0);
+        // kinds: optional (without it every id is a track), else one per id in tracks
+        if (s.kinds !== undefined) need(e, Array.isArray(s.kinds) && Array.isArray(s.tracks) && s.kinds.length === s.tracks.length && s.kinds.every((k) => ITEM_KINDS.indexOf(k) >= 0), 'kinds must name track or video for every id in tracks');
     },
 };
 

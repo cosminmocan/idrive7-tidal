@@ -528,17 +528,32 @@ rename) and has `"version": 1`; a file that does not parse or has another versio
 
 ### `prefs.json`
 
+What the `prefs` command set: `quality` (`HIGH` or `LOSSLESS`) and `videoHeight` (`480`, `720` or `1080`, the
+picture size asked for a video). `videoHeight` may be missing (a file written before videos, or none yet): `720`
+then. Once a `prefs` command changes anything, both are written. A `videoHeight` that is not one of the three
+makes the file invalid (it is replaced by the default: `HIGH`, no `videoHeight`).
+
 ```json state prefs
 {"version": 1, "quality": "HIGH"}
+```
+
+```json state prefs
+{"version": 1, "quality": "HIGH", "videoHeight": 720}
 ```
 
 ### `queue.json`
 
 The queue, so a restart of the service (or the head unit) can continue: `index` -1 with no queue, `position` in
-seconds.
+seconds. `tracks` holds the ids of tracks and videos alike; `kinds` (as in `play`: as long as `tracks`, each `track`
+or `video`) says which are videos. It is written only when the queue holds a video; without it every id is a
+track. A `kinds` of another length, or with another word, makes the file invalid (it is replaced by an empty queue).
 
 ```json state queue
 {"version": 1, "tracks": [17927864, 17927865, 17927866], "index": 1, "position": 42.5}
+```
+
+```json state queue
+{"version": 1, "tracks": [17927864, 25958039], "kinds": ["track", "video"], "index": 1, "position": 12}
 ```
 
 ### `covers/`
