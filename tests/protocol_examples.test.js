@@ -155,6 +155,39 @@ test('the document names the player\'s start position (MGU_START_MS)', () => {
     assert.ok(DOC.indexOf('`MGU_START_MS`') >= 0);
 });
 
+// contract 4 (2026-11-28): video
+test('video: a list item can be a video; favourites of videos; play says which ids are videos', () => {
+    const v = { kind: 'video', id: 143792065, title: 'Around the World', artists: ['Daft Punk'], album: null, coverId: 'a1b2c3d4-0000-4000-8000-000000000001', duration: 175, streamReady: true, explicit: false };
+    assert.deepStrictEqual(P.validateAnswer('favorites', { id: 1, ok: true, total: 1, items: [v] }), []);
+    assert.ok(P.validateAnswer('favorites', { id: 1, ok: true, items: [Object.assign({}, v, { kind: 'film' })] }).length > 0, 'unknown kind');
+    assert.deepStrictEqual(P.validateRequest({ id: 1, cmd: 'favorites', kind: 'videos' }), []);
+    assert.deepStrictEqual(P.validateRequest({ id: 1, cmd: 'play', tracks: [5, 143792065], kinds: ['track', 'video'], index: 1 }), []);
+    assert.ok(P.validateRequest({ id: 1, cmd: 'play', tracks: [5, 6], kinds: ['video'], index: 0 }).length > 0, 'kinds must be as long as tracks');
+    assert.ok(P.validateRequest({ id: 1, cmd: 'play', tracks: [5], kinds: ['film'], index: 0 }).length > 0, 'unknown kind');
+});
+
+test('video: status.player.video is null or the picture\'s frame file and size; prefs.videoHeight is 480, 720 or 1080', () => {
+    assert.deepStrictEqual(P.validateAnswer('status', statusWith((s) => { s.player.video = null; })), []);
+    assert.deepStrictEqual(P.validateAnswer('status', statusWith((s) => { s.player.video = { file: '/dev/shm/mgu-video-cmocan-tidal', width: 1280, height: 720 }; })), []);
+    assert.ok(P.validateAnswer('status', statusWith((s) => { s.player.video = { file: 'relative', width: 1280, height: 720 }; })).length > 0, 'an absolute path');
+    assert.ok(P.validateAnswer('status', statusWith((s) => { s.player.video = { file: '/dev/shm/x', width: 0, height: 720 }; })).length > 0);
+    assert.deepStrictEqual(P.validateAnswer('status', statusWith((s) => { s.prefs.videoHeight = 1080; })), []);
+    assert.ok(P.validateAnswer('status', statusWith((s) => { s.prefs.videoHeight = 999; })).length > 0);
+    assert.deepStrictEqual(P.validateRequest({ id: 1, cmd: 'prefs', videoHeight: 480 }), []);
+    assert.ok(P.validateRequest({ id: 1, cmd: 'prefs', videoHeight: 4320 }).length > 0);
+});
+
+test('video: the player says what picture it found and how it decodes it; ticks count pictures', () => {
+    assert.deepStrictEqual(P.validatePlayerEvent({ ev: 'open', codec: 'aac', rate: 44100, channels: 2, duration: null, video: { codec: 'h264', width: 1280, height: 720 } }), []);
+    assert.ok(P.validatePlayerEvent({ ev: 'open', codec: 'aac', rate: 44100, channels: 2, duration: null, video: { codec: 'vp9', width: 1280, height: 720 } }).length > 0);
+    assert.deepStrictEqual(P.validatePlayerEvent({ ev: 'video', state: 'open', decoder: 'msdk', width: 1280, height: 720, file: '/dev/shm/mgu-video-cmocan-tidal' }), []);
+    assert.deepStrictEqual(P.validatePlayerEvent({ ev: 'video', state: 'error', decoder: 'sw', message: 'no frame file' }), []);
+    assert.ok(P.validatePlayerEvent({ ev: 'video', state: 'open', decoder: 'gpu' }).length > 0, 'unknown decoder');
+    assert.deepStrictEqual(P.validatePlayerEvent({ ev: 'tick', pos: 3, state: 'playing', buffered: 2, dropped: 0, vframes: 75, vdropped: 1 }), []);
+    assert.ok(P.validatePlayerEvent({ ev: 'tick', pos: 3, state: 'playing', buffered: 2, dropped: 0, vframes: -1 }).length > 0);
+    ['`MGU_VIDEO`', '`MGU_VIDEO_DECODER`', '`MGU_BASE_MS`', '`tidal-video`'].forEach((w) => assert.ok(DOC.indexOf(w) >= 0, w + ' is documented'));
+});
+
 test('player events: unknown events and bad fields are refused', () => {
     assert.ok(P.validatePlayerEvent({ ev: 'boom' }).length > 0);
     assert.ok(P.validatePlayerEvent({ ev: 'tick', pos: -1, state: 'playing', buffered: 0, dropped: 0 }).length > 0, 'negative position');

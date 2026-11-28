@@ -139,6 +139,31 @@ test('fake service: seek moves the position of a playing track; with nothing pla
     } finally { await svc.close(); }
 });
 
+test('fake player: with MGU_VIDEO it reports a picture (open.video, a video event, pictures counted) and MGU_BASE_MS moves the position', async () => {
+    const r = await runPlayer(Buffer.from('G@\u0000\u0010'), { seconds: 2, env: { MGU_VIDEO: 'shm:test-fake', MGU_BASE_MS: '12000' } });
+    assert.strictEqual(r.code, 0);
+    r.events.forEach((e) => assert.deepStrictEqual(P.validatePlayerEvent(e), [], JSON.stringify(e)));
+    const open = r.events.filter((e) => e.ev === 'open')[0];
+    assert.ok(open.video && open.video.codec === 'h264', JSON.stringify(open));
+    const v = r.events.filter((e) => e.ev === 'video')[0];
+    assert.ok(v && v.state === 'open' && v.file === '/dev/shm/mgu-video-test-fake', JSON.stringify(v));
+    const ticks = r.events.filter((e) => e.ev === 'tick');
+    assert.ok(ticks[0].pos >= 12 && ticks[ticks.length - 1].vframes > 0, JSON.stringify(ticks[0]));
+});
+
+test('fake service: favourite videos are video items; every answer stays valid', async () => {
+    const sock = tmpSock();
+    const svc = await createFakeService({ socketPath: sock });
+    try {
+        const got = await ask(sock, [{ id: 1, cmd: 'favorites', kind: 'videos' }, { id: 2, cmd: 'prefs', videoHeight: 1080 }, { id: 3, cmd: 'status' }]);
+        assert.deepStrictEqual(P.validateAnswer('favorites', got[0]), []);
+        assert.strictEqual(got[0].items[0].kind, 'video');
+        assert.strictEqual(got[1].prefs.videoHeight, 1080);
+        assert.strictEqual(got[2].state.prefs.videoHeight, 1080);
+        assert.deepStrictEqual(P.validateAnswer('status', got[2]), []);
+    } finally { await svc.close(); }
+});
+
 test('fake player: empty input is an input error with exit code 4', async () => {
     const r = await runPlayer(Buffer.alloc(0));
     assert.strictEqual(r.code, 4);
