@@ -1,7 +1,7 @@
 {
   "id": "cmocan-tidal",
   "kind": "tool",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "license": "GPL-3.0-or-later",
   "title": "TIDAL service",
   "description": "For the app cmocan_tidal: TIDAL's music on the head unit. Logs in with TIDAL's device login (the phone approves the app's QR code over its own internet) and keeps the login (root's, 0600). The track is played by tidal-player into SmartXbar's CarLife input; a music video by tidal-video (the picture to the app's frame file, the sound the same way). Started by the app, never at boot; ends 10 minutes after the app's last request while nothing plays. Its internet goes through mgu-uplink, as uid 13150 only; the player runs as nobody.",
