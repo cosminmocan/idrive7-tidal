@@ -55,8 +55,12 @@ process.stdin.on('data', (d) => chunks.push(d));
 process.stdin.on('end', () => {
     const input = Buffer.concat(chunks);
     if (process.env.FAKE_RECORD) fs.writeFileSync(process.env.FAKE_RECORD, input);
-    if (process.env.FAKE_ENV) fs.writeFileSync(process.env.FAKE_ENV, JSON.stringify(Object.assign({ MGU_START_MS: process.env.MGU_START_MS || null },
-        process.env.MGU_BASE_MS ? { MGU_BASE_MS: process.env.MGU_BASE_MS } : {}, process.env.MGU_VIDEO ? { MGU_VIDEO: process.env.MGU_VIDEO } : {})));
+    // written whole, then renamed: a test that polls the file never reads it half written
+    if (process.env.FAKE_ENV) {
+        fs.writeFileSync(process.env.FAKE_ENV + '.part', JSON.stringify(Object.assign({ MGU_START_MS: process.env.MGU_START_MS || null },
+            process.env.MGU_BASE_MS ? { MGU_BASE_MS: process.env.MGU_BASE_MS } : {}, process.env.MGU_VIDEO ? { MGU_VIDEO: process.env.MGU_VIDEO } : {})));
+        fs.renameSync(process.env.FAKE_ENV + '.part', process.env.FAKE_ENV);
+    }
     if (!input.length) { emit({ ev: 'error', code: 'input', message: 'empty input' }); return finish(EXIT.input); }
     const flac = input.slice(0, 4).toString('latin1') === 'fLaC';
     const open = { ev: 'open', codec: flac ? 'flac' : 'aac', rate: 44100, channels: 2, duration: SECONDS };
