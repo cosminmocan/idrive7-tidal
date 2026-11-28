@@ -13,9 +13,18 @@
  * sample, so no sound is lost or repeated by pauses, cuts and retries. A player started by a seek must equal the
  * reference from its position on.
  *
+ * Videos (contract 4, scenarios 11 to 13): a clip made from FFmpeg's testsrc and a tone (H.264 + AAC-LC in 2 s
+ * MPEG-TS segments, two picture sizes: 640x360 and 1280x720, make-fixtures.sh), served by the fake TIDAL as TIDAL
+ * serves a video (an HLS master on a manifest host, each variant and its segments on a CDN host: made-up names the
+ * fake's own DNS server resolves, as the lease's DNS servers do in the car). The REAL video player tidal-video
+ * (E2E_VIDEO, the software decoder) writes its pictures into a frame file in /dev/shm and its sound into a WAV. The
+ * pictures are checked against the ffmpeg command line's decode of the clip, the sound against the music player's
+ * decode of the clip's own AAC (copied out), sample for sample.
+ *
  * The scenarios run in order, one session: each starts from where the one before left the service.
  * Needs E2E_PLAYER (the player binary) and E2E_FIXTURES (make-fixtures.sh's folder); without them (as in `make
- * test`, whose node:8.9.4 image cannot run the binary) it prints one skip line and passes.
+ * test`, whose node:8.9.4 image cannot run the binary) it prints one skip line and passes. E2E_VIDEO (the video
+ * player) is needed by the video scenarios.
  * E2E_VERBOSE=1 shows the service's log. Node 8 syntax.
  */
 const assert = require('assert');
@@ -32,6 +41,7 @@ const T0 = Date.now();
 const stamp = () => ('      ' + (Date.now() - T0)).slice(-7) + ' ';
 
 const PLAYER = process.env.E2E_PLAYER || '';
+const VIDEO = process.env.E2E_VIDEO || '';
 const FIXTURES = process.env.E2E_FIXTURES || '';
 if (!PLAYER || !fs.existsSync(PLAYER) || !FIXTURES || !fs.existsSync(path.join(FIXTURES, 'tone440_8s.m4a'))) {
     console.log('  skip e2e.test.js: no player binary or fixtures (E2E_PLAYER, E2E_FIXTURES); it runs in `make e2e`');
@@ -58,6 +68,20 @@ TONES[E] = { file: 'tone550_10s.m4a', hz: 550, secs: 10 };
 TONES[F] = { file: 'tone770_190s.m4a', hz: 770, secs: 190 };
 const IDS = [A, B, C, D, E];
 const ALL = IDS.concat([F]);
+
+// the favourite video (tests/fixtures/tidal/library.json): make-fixtures.sh's clip, 12 s in 2 s segments
+const V = 143792065;
+const CLIP_SECS = 12;
+const FPS = 25;
+const MANIFEST_HOST = 'im-fa.manifest.e2e-tidal.test';    // TIDAL's master is on im-fa.manifest.tidal.com
+const VARIANTS = {
+    360: { width: 640, height: 360, bandwidth: 720000, host: 'vod-360.cdn.e2e-tidal.test' },
+    720: { width: 1280, height: 720, bandwidth: 3100000, host: 'vod-720.cdn.e2e-tidal.test' },
+};
+const VIDEO_HZ = 523;   // the clip's tone
+const SEEK_TO = 9.3;   // scenario 12: inside the fifth segment (8 s to 10 s)
+const FRAME_NAME = 'cmocan-e2e-' + process.pid;
+const FRAME_FILE = '/dev/shm/mgu-video-' + FRAME_NAME;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function waitFor(fn, ms, what) {
@@ -174,9 +198,83 @@ function aacObjectType(b) {
     return { oti: oti, aot: b[off] >> 3 };
 }
 
+/* ---------- video: the clip's files, the frame file, the reference pictures ---------- */
+const videoDir = (h) => path.join(FIXTURES, 'video', String(h));
+/** a variant of the clip as make-fixtures.sh made it: its segments [{ name, file, duration, start, data }] (from its playlist) */
+function clipVariant(h) {
+    const dir = videoDir(h);
+    const segs = [];
+    let at = 0, dur = 0;
+    fs.readFileSync(path.join(dir, 'index.m3u8'), 'utf8').split('\n').forEach((line) => {
+        const m = /^#EXTINF:([0-9.]+)/.exec(line);
+        if (m) { dur = Number(m[1]); return; }
+        const name = line.trim();
+        if (/\.ts$/.test(name)) { segs.push({ name: name, file: path.join(dir, name), duration: dur, start: at, data: fs.readFileSync(path.join(dir, name)) }); at += dur; }
+    });
+    assert(segs.length >= 5, 'the clip at ' + h + 'p has ' + segs.length + ' segments');
+    assert(Math.abs(at - CLIP_SECS) < 0.1, 'the clip at ' + h + 'p is ' + at + ' s');
+    return { height: h, dir: dir, segments: segs, whole: path.join(dir, 'whole.ts'), duration: at };
+}
+/** the index of the segment holding position p (s) */
+function segmentAt(segs, p) { let k = 0; while (k + 1 < segs.length && segs[k + 1].start <= p) k++; return k; }
+
+/** the frame file's MGVF header and its newest picture (I420) */
+function readFrameFile(file) {
+    const b = fs.readFileSync(file);
+    assert(b.length >= 64, file + ' has no MGVF header (' + b.length + ' bytes)');
+    const u = (i) => b.readUInt32LE(4 * i);
+    const hd = { magic: u(0), version: u(1), w: u(2), h: u(3), seq: u(4), slot: u(5), nslot: u(6), matrix: u(7), range: u(8), format: u(9), size: b.length };
+    const fsz = hd.w * hd.h * 3 / 2;
+    hd.picture = b.slice(64 + hd.slot * fsz, 64 + (hd.slot + 1) * fsz);
+    return hd;
+}
+function assertHeader(hd, w, h, what) {
+    assert.strictEqual(hd.magic, 0x4656474d, what + ': magic MGVF');
+    assert.strictEqual(hd.version, 1, what + ': version 1');
+    assert.deepStrictEqual([hd.w, hd.h], [w, h], what + ': the picture size');
+    assert.strictEqual(hd.nslot, 3, what + ': 3 slots');
+    assert(hd.slot < 3, what + ': slot ' + hd.slot);
+    assert.strictEqual(hd.format, 0, what + ': I420');
+    assert.strictEqual(hd.matrix, 1, what + ': BT.709');
+    assert.strictEqual(hd.range, 0, what + ': limited range');
+    assert.strictEqual(hd.size, 64 + 3 * w * h * 3 / 2, what + ': the header and 3 slots');
+}
+const probes = {};
+/** the clip's first timestamp and its picture's (s), as ffprobe sees the whole clip */
+function probe(file) {
+    if (!probes[file]) {
+        const j = JSON.parse(cp.execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=start_time:stream=codec_type,start_time', '-of', 'json', file]).toString());
+        const v = j.streams.filter((x) => x.codec_type === 'video')[0];
+        probes[file] = { t0: Number(j.format.start_time), vstart: Number(v.start_time) };
+    }
+    return probes[file];
+}
+/** the source picture shown at position p */
+function frameAt(file, p) { const pr = probe(file); return Math.floor((p - (pr.vstart - pr.t0) + 0.004) * FPS + 1e-9); }
+/** the ffmpeg command line's decode of pictures a..b of the clip (I420, display order) */
+function refFrames(file, a, b, w, h) {
+    const raw = cp.execFileSync('ffmpeg', ['-v', 'error', '-i', file, '-map', '0:v', '-vf', 'select=between(n\\,' + a + '\\,' + b + ')',
+        '-vsync', '0', '-f', 'rawvideo', '-pix_fmt', 'yuv420p', '-'], { maxBuffer: 256 << 20 });
+    const size = w * h * 3 / 2, out = [];
+    for (let i = 0; i * size < raw.length; i++) out.push({ n: a + i, data: raw.slice(i * size, (i + 1) * size) });
+    return out;
+}
+function mad(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]); return s / a.length; }
+function whichFrame(pic, frames) {
+    let best = null;
+    frames.forEach((f) => { const d = mad(pic, f.data); if (!best || d < best.diff) best = { n: f.n, diff: d }; });
+    return best;
+}
+/** the AAC of these MPEG-TS bytes, copied out (not decoded) as ADTS: the reference player's input */
+function adtsOf(ts) {
+    const r = cp.spawnSync('ffmpeg', ['-v', 'error', '-f', 'mpegts', '-i', 'pipe:0', '-map', '0:a', '-c', 'copy', '-f', 'adts', 'pipe:1'], { input: ts, maxBuffer: 64 << 20 });
+    assert.strictEqual(r.status, 0, 'ffmpeg (the AAC copied out): ' + r.stderr);
+    return r.stdout;
+}
+
 /* ---------- the parts ---------- */
 const X = {
-    dir: null, fake: null, svc: null, app: null, logs: [], players: [], children: [], refs: {}, refPlayers: [], exited: null,
+    dir: null, fake: null, svc: null, app: null, logs: [], players: [], playerExits: [], children: [], refs: {}, refPlayers: [], exited: null, video: null,
     calls: {}, callId: 0,
 };
 function call(op, extra) {
@@ -194,17 +292,19 @@ const logsSince = (k) => X.logs.slice(k);
 function fileRequests(k, id) { return X.fake.log.slice(k).filter((e) => e.path === '/files/' + id + '.m4a'); }
 
 /** the track played straight from its file by the player, uninterrupted: the reference WAV */
-function reference(id) {
-    const wav = path.join(X.dir, 'ref-' + id + '.wav');
+function reference(id) { return referenceOf('ref-' + id, fs.readFileSync(path.join(FIXTURES, TONES[id].file))); }
+/** these bytes (MP4 or ADTS) played by the music player, uninterrupted, into ref-<name>.wav */
+function referenceOf(name, bytes) {
+    const wav = path.join(X.dir, name + '.wav');
     return new Promise((resolve, reject) => {
         const p = cp.spawn(PLAYER, [], { env: { PATH: process.env.PATH, MGU_AUDIO: 'wav:' + wav, MGU_PREBUFFER_MS: '200' }, stdio: ['pipe', 'ignore', 'pipe'] });
         let err = '';
         p.stderr.on('data', (d) => { err += d; });
         p.stdin.on('error', () => {});
-        p.stdin.end(fs.readFileSync(path.join(FIXTURES, TONES[id].file)));
+        p.stdin.end(bytes);
         X.refPlayers.push(p);
         p.on('exit', (code) => {
-            if (code !== 0) return reject(new Error('the reference player for ' + id + ' ended with ' + code + ': ' + err));
+            if (code !== 0) return reject(new Error('the reference player for ' + name + ' ended with ' + code + ': ' + err));
             try { resolve(readPcm(wav)); } catch (e) { reject(e); }
         });
     });
@@ -240,6 +340,79 @@ function checkWav(p, opts) {
         return got;
     });
 }
+
+/**
+ * The WAV of a video player of the service: 48 kHz stereo 16-bit, the same samples as `ref` (the music player's decode
+ * of the AAC that player was given): all of them (whole) or the first ones (stopped early). A player started by a
+ * seek to `from` (s) inside the segment that starts at `base`: `ref` is the sound of the segments from that one on,
+ * and the WAV is its tail from the position (found within 50 ms of from - base), to the end.
+ */
+function checkVideoWav(p, ref, opts) {
+    const o = opts || {};
+    const seek = o.from !== undefined;
+    const what = 'player ' + p.n + ' (video ' + p.id + (seek ? ' from ' + o.from + ' s' : '') + ')';
+    assert.strictEqual(p.kind, 'video', what + ': a video player');
+    return ref.then((r) => {
+        const got = readPcm(p.wav);
+        assertFormat(got, what);
+        const n = got.data.length;
+        assert(n >= (RATE / 2) * FRAME, what + ': only ' + seconds(got).toFixed(2) + ' s of sound');
+        assert(n <= r.data.length, what + ': ' + seconds(got).toFixed(3) + ' s, more than the reference ' + seconds(r).toFixed(3) + ' s');
+        let off = 0;
+        if (seek) {
+            off = r.data.length - n;
+            const at = off / FRAME / RATE;
+            assert(Math.abs(at - (o.from - o.base)) <= 0.05, what + ': the sound starts ' + at.toFixed(3) + ' s into the segment, the seek is ' + (o.from - o.base).toFixed(3) + ' s into it');
+        }
+        if (o.whole) assert.strictEqual(n, r.data.length, what + ': ' + seconds(got).toFixed(3) + ' s, the reference has ' + seconds(r).toFixed(3) + ' s');
+        const want = r.data.slice(off, off + n);
+        if (!want.equals(got.data)) {
+            let i = 0;
+            while (i < n && want[i] === got.data[i]) i++;
+            assert.fail(what + ': the sound differs from the reference ' + (Math.floor(i / FRAME) / RATE).toFixed(3) + ' s into the WAV (lost or repeated sound)');
+        }
+        const f = freqOf(got, Math.floor(n / FRAME / 2), VIDEO_HZ * 0.9, VIDEO_HZ * 1.1);
+        assert(Math.abs(f - VIDEO_HZ) / VIDEO_HZ < 0.01, what + ': ' + f + ' Hz, the clip\'s tone is ' + VIDEO_HZ + ' Hz');
+        return got;
+    });
+}
+
+/**
+ * The video, once (scenarios 11 to 13): the clip's two variants given to the fake TIDAL as an HLS video at made-up
+ * hosts (the master on the manifest host, each variant and its segments on its CDN host); the lease's DNS server the
+ * fake's, which knows those names; the catalogue's favourite video is the clip (one favourite, 12 s); the reference
+ * sounds start playing (in real time): each variant's whole sound, and the 720p one from the segment of SEEK_TO on.
+ */
+function videoSetup() {
+    if (X.video) return X.video;
+    assert(VIDEO && fs.existsSync(VIDEO), 'the video player (E2E_VIDEO): ' + (VIDEO || 'not set'));
+    const vv = {};
+    [360, 720].forEach((h) => { vv[h] = clipVariant(h); });
+    X.masterUrl = X.fake.addVideoHls(V, { host: MANIFEST_HOST, variants: [360, 720].map((h) => ({
+        width: VARIANTS[h].width, height: h, bandwidth: VARIANTS[h].bandwidth, host: VARIANTS[h].host,
+        segments: vv[h].segments.map((sg) => ({ duration: sg.duration, data: sg.data })) })) });
+    fs.writeFileSync(X.leasePath, JSON.stringify({ interface: 'vethuplink', ip: '10.0.0.2', dns: [X.fake.dnsServer] }));
+    const v = X.fake.data.videos.filter((x) => x.id === V)[0];
+    v.duration = CLIP_SECS;
+    v.streamReady = true;
+    X.fake.data.favoriteVideos = [V];
+    [360, 720].forEach((h) => {
+        vv[h].ref = referenceOf('video-' + h, adtsOf(fs.readFileSync(vv[h].whole)));
+        vv[h].ref.catch(() => {});
+    });
+    const segs = vv[720].segments, k = segmentAt(segs, SEEK_TO);
+    vv.seek = { index: k, base: segs[k].start, ref: referenceOf('video-720-from-' + k, adtsOf(Buffer.concat(segs.slice(k).map((sg) => sg.data)))) };
+    vv.seek.ref.catch(() => {});
+    X.video = vv;
+    return vv;
+}
+/** the fake's requests for the video's HLS files since log entry k: { host, name } */
+function hlsRequests(k) {
+    return X.fake.log.slice(k).filter((e) => e.path.indexOf('/files/hls/' + V + '/') === 0)
+        .map((e) => ({ host: String(e.headers.host || '').replace(/:\d+$/, ''), name: e.path.slice(('/files/hls/' + V + '/').length), range: e.headers.range || null }));
+}
+const isVideoPlaying = (minPos) => (s) => s.player && s.player.state === 'playing' && s.player.track && s.player.track.kind === 'video' &&
+    s.player.track.id === V && s.player.position >= minPos;
 
 const playing = (id, idx, minPos) => (s) => s.player && s.player.state === 'playing' && s.player.track && s.player.track.id === id &&
     s.player.queueIndex === idx && s.player.position >= minPos;
@@ -277,7 +450,7 @@ test('start: the fake TIDAL, the real service with client.js and the player, the
 
     X.svc = cp.fork(path.join(__dirname, '..', 'tools', 'e2e', 'service-main.js'), [JSON.stringify({
         dir: X.dir, sock: X.sock, stateDir: X.stateDir, leasePath: X.leasePath, baseUrls: fake.baseUrls, playerBin: PLAYER,
-        wavDir: X.wavDir, tickMs: 500,
+        wavDir: X.wavDir, tickMs: 500, videoBin: VIDEO, videoName: FRAME_NAME, videoDecoder: 'sw',
     })], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
     X.exited = new Promise((r) => X.svc.on('exit', (code, signal) => r({ code: code, signal: signal })));
     const ready = new Promise((resolve) => {
@@ -287,6 +460,7 @@ test('start: the fake TIDAL, the real service with client.js and the player, the
             else if (m.ev === 'ready') resolve();
             else if (m.ev === 'log') { X.logs.push(m.line); if (VERBOSE) console.log(stamp() + 'svc: ' + m.line); }
             else if (m.ev === 'player') X.players.push(m);
+            else if (m.ev === 'player-exit') X.playerExits.push(m);
             else if (m.ev === 'child') X.children.push(m);
         });
     });
@@ -605,6 +779,140 @@ test('10. seek: forward, back, to the last seconds and to 3 minutes; each player
     await checkWav(pf[1], { from: 180, whole: true });
 }, { timeout: 400000 });
 
+// the videos (contract 4) run before 9 too
+test('11. a favourite video: listed as a video, played with kinds by tidal-video; the frame file at the variant\'s size fills, a picture paused at a known time is the source\'s; the WAV is the clip\'s sound; the variant follows prefs.videoHeight', async () => {
+    const app = X.app;
+    const vv = videoSetup();
+    const f = await app.openList('fav-videos', 'Videos', 'tracks', 'favorites', { kind: 'videos' });
+    assert.deepStrictEqual(f.items.map((x) => [x.kind, x.id]), [['video', V]], 'the favourite videos');
+    assert.strictEqual(f.items[0].duration, CLIP_SECS);
+    const k = X.players.length, kf = X.fake.log.length, ks = app.sent.length;
+    const a = await app.play(0);
+    assert.strictEqual(a.ok, true, JSON.stringify(a));
+    const sent = app.sent.slice(ks).filter((x) => x.cmd === 'play')[0];
+    assert.deepStrictEqual(sent.params, { tracks: [V], index: 0, kinds: ['video'] }, 'play with the kinds');
+    // a video is watched: the app goes to now playing
+    assert.strictEqual(app.state().screen, 'NOW_PLAYING');
+    await app.until(isVideoPlaying(1), 30000, 'the video playing');
+    const st = app.state().player;
+    assert.deepStrictEqual(st.video, { file: FRAME_FILE, width: 1280, height: 720 }, 'status.player.video');
+    assert(Math.abs(st.duration - CLIP_SECS) < 0.1, 'the length from the playlist: ' + st.duration);
+    const p = playersSince(k)[0];
+    assert.deepStrictEqual([p.kind, p.bin, p.startMs, p.baseMs], ['video', VIDEO, 0, 0], 'the video player: ' + JSON.stringify(p));
+    // the frame file: MGVF at the variant's size, its seq growing while it plays
+    const h1 = readFrameFile(FRAME_FILE);
+    assertHeader(h1, 1280, 720, 'the frame file');
+    await sleep(1000);
+    const h2 = readFrameFile(FRAME_FILE);
+    assert(h2.seq >= h1.seq + 15, 'pictures while playing: seq ' + h1.seq + ' then ' + h2.seq + ' a second later');
+    // paused at about 4 s: the picture there is the source's picture of that time
+    await app.until(isVideoPlaying(4), 20000, 'the video past 4 s');
+    await app.request('pause');
+    await app.until((s) => s.player && s.player.state === 'paused', 5000, 'paused');
+    await sleep(1000);
+    await app.poll();
+    const pos = app.state().player.position;
+    const hp = readFrameFile(FRAME_FILE);
+    await sleep(600);
+    assert.strictEqual(readFrameFile(FRAME_FILE).seq, hp.seq, 'no picture while paused');
+    const n = frameAt(vv[720].whole, pos);
+    const m = whichFrame(hp.picture, refFrames(vv[720].whole, Math.max(0, n - 3), n + 3, 1280, 720));
+    assert(Math.abs(m.n - n) <= 1 && m.diff < 1, 'paused at ' + pos + ' s the picture is source picture ' + n + ' (+-1): ' + JSON.stringify(m));
+    await app.request('resume');
+    await app.until((s) => s.player && s.player.state === 'idle', 30000, 'the video played to its end');
+    assert.strictEqual(app.state().player.video, null, 'no picture once it ended');
+    const shown = readFrameFile(FRAME_FILE).seq;
+    assert(shown + 10 >= CLIP_SECS * FPS && shown <= CLIP_SECS * FPS, 'pictures shown: ' + shown + ' of ' + CLIP_SECS * FPS);
+    assert.deepStrictEqual(playersSince(k).map((x) => x.kind), ['video'], 'one player');
+    // what was fetched: the master from the manifest host, the 720p variant and each of its segments once from its host
+    const segs720 = vv[720].segments.map((sg, i) => ({ host: VARIANTS[720].host, name: '720/seg-' + i + '.ts', range: null }));
+    assert.deepStrictEqual(hlsRequests(kf), [{ host: MANIFEST_HOST, name: 'master.m3u8', range: null },
+        { host: VARIANTS[720].host, name: '720/index.m3u8', range: null }].concat(segs720), 'the HLS files fetched');
+    await checkVideoWav(p, vv[720].ref, { whole: true });
+
+    // prefs.videoHeight 480: the 360p variant (the closest one not above it)
+    const pr = await app.request('prefs', { videoHeight: 480 });
+    assert.strictEqual(pr.prefs.videoHeight, 480);
+    await app.openList('fav-videos-360', 'Videos', 'tracks', 'favorites', { kind: 'videos' });
+    const k2 = X.players.length, kf2 = X.fake.log.length;
+    await app.play(0);
+    await app.until((s) => isVideoPlaying(1.5)(s) && s.player.video, 30000, 'the video playing at 360p');
+    assert.deepStrictEqual(app.state().player.video, { file: FRAME_FILE, width: 640, height: 360 }, 'status.player.video at 360p');
+    assertHeader(readFrameFile(FRAME_FILE), 640, 360, 'the frame file at 360p');
+    await app.request('stop');
+    await app.until((s) => s.player && s.player.state === 'idle', 10000, 'stopped');
+    const req2 = hlsRequests(kf2);
+    assert.deepStrictEqual(req2.slice(0, 2).map((r) => r.host + ' ' + r.name), [MANIFEST_HOST + ' master.m3u8', VARIANTS[360].host + ' 360/index.m3u8']);
+    assert(req2.length > 2, 'segments fetched');
+    req2.slice(2).forEach((r) => assert(r.host === VARIANTS[360].host && /^360\/seg-\d+\.ts$/.test(r.name), 'a 360p segment: ' + JSON.stringify(r)));
+    const p2 = playersSince(k2);
+    assert.strictEqual(p2.length, 1);
+    await checkVideoWav(p2[0], vv[360].ref);
+    assert.strictEqual((await app.request('prefs', { videoHeight: 720 })).prefs.videoHeight, 720);
+}, { timeout: 150000 });
+
+test('12. seek in a video to a later segment: a new player from that segment (MGU_BASE_MS its start, MGU_START_MS the position); its WAV is the reference from there; the picture comes back', async () => {
+    const app = X.app;
+    const vv = videoSetup();
+    await app.openList('fav-videos-12', 'Videos', 'tracks', 'favorites', { kind: 'videos' });
+    const k = X.players.length;
+    await app.play(0);
+    await app.until((s) => isVideoPlaying(1.5)(s) && s.player.video, 30000, 'the video playing');
+    const kf = X.fake.log.length;
+    const a = await app.request('seek', { position: SEEK_TO });
+    assert.strictEqual(a.ok, true, JSON.stringify(a));
+    await app.poll();
+    const after = app.state().player;
+    assert(after.position >= SEEK_TO && after.position < SEEK_TO + 1, 'right after the seek: ' + after.position);
+    await waitFor(() => X.players.length >= k + 2, 15000, 'a new player for the seek');
+    await app.until((s) => isVideoPlaying(SEEK_TO)(s) && s.player.video, 20000, 'playing from the position with its picture');
+    assert.deepStrictEqual(app.state().player.video, { file: FRAME_FILE, width: 1280, height: 720 }, 'status.player.video is back');
+    await app.until((s) => s.player && s.player.state === 'idle', 30000, 'played to its end');
+    const ps = playersSince(k);
+    assert.deepStrictEqual(ps.map((x) => [x.kind, x.startMs, x.baseMs]), [['video', 0, 0], ['video', Math.round(SEEK_TO * 1000), Math.round(vv.seek.base * 1000)]],
+        'the players: ' + JSON.stringify(ps));
+    assert(X.playerExits.some((e) => e.pid === ps[0].pid && e.at <= ps[1].at), 'the first player ended before the second started');
+    // from the seek on: the segments from the one holding the position, each once; the playlists not again
+    const segs = vv[720].segments;
+    const want = [];
+    for (let i = vv.seek.index; i < segs.length; i++) want.push({ host: VARIANTS[720].host, name: '720/seg-' + i + '.ts', range: null });
+    assert.deepStrictEqual(hlsRequests(kf), want, 'the segments fetched after the seek');
+    await checkVideoWav(ps[0], vv[720].ref);
+    await checkVideoWav(ps[1], vv.seek.ref, { from: SEEK_TO, base: vv.seek.base });
+    const shown = readFrameFile(FRAME_FILE).seq;
+    assert(shown >= (CLIP_SECS - SEEK_TO) * FPS - 10, 'the pictures after the seek: ' + shown);
+}, { timeout: 120000 });
+
+test('13. a mixed queue, track -> video -> track: tidal-player, then tidal-video, then tidal-player, one at a time', async () => {
+    const app = X.app;
+    const vv = videoSetup();
+    const uuid = X.fake.data.playlists[1].uuid;
+    X.fake.data.playlistItems = X.fake.data.playlistItems || {};
+    X.fake.data.playlistItems[uuid] = [{ type: 'track', id: B }, { type: 'video', id: V }, { type: 'track', id: C }];
+    const f = await app.openList('pl-13', 'Mixed', 'tracks', 'playlist', { uuid: uuid });
+    assert.deepStrictEqual(f.items.map((x) => [x.kind || 'track', x.id]), [['track', B], ['video', V], ['track', C]]);
+    const k = X.players.length, ks = app.sent.length, kst = app.statuses.length;
+    await app.play(0);
+    assert.deepStrictEqual(app.sent.slice(ks).filter((x) => x.cmd === 'play')[0].params, { tracks: [B, V, C], index: 0, kinds: ['track', 'video', 'track'] });
+    await app.until(playing(B, 0, 1), 20000, 'B playing');
+    await app.until((s) => isVideoPlaying(1)(s) && s.player.queueIndex === 1 && s.player.video, 30000, 'the video after B');
+    await app.until(playing(C, 2, 1), 40000, 'C after the video');
+    assert.strictEqual(app.state().player.video, null, 'no picture for a track');
+    await app.until((s) => s.player && s.player.state === 'idle', 20000, 'C played, the queue at its end');
+    const ps = playersSince(k);
+    assert.deepStrictEqual(ps.map((x) => [x.kind, x.id, x.bin]), [['track', B, PLAYER], ['video', V, VIDEO], ['track', C, PLAYER]], 'the right player each time');
+    for (let i = 1; i < ps.length; i++) {
+        const ex = X.playerExits.filter((e) => e.pid === ps[i - 1].pid)[0];
+        assert(ex && ex.at <= ps[i].at, 'player ' + ps[i - 1].pid + ' ended before ' + ps[i].pid + ' started: ' + JSON.stringify(ex));
+    }
+    const seen = [];
+    app.statuses.slice(kst).forEach((x) => { const kd = x.trackKind + ' ' + x.queueIndex; if (x.trackId && seen[seen.length - 1] !== kd) seen.push(kd); });
+    assert.deepStrictEqual(seen, ['track 0', 'video 1', 'track 2'], 'what status said');
+    await checkWav(ps[0], { whole: true });
+    await checkVideoWav(ps[1], vv[720].ref, { whole: true });
+    await checkWav(ps[2], { whole: true });
+}, { timeout: 150000 });
+
 test('9. log out removes the session file; the app is back on the login screen', async () => {
     const app = X.app;
     assert(fs.existsSync(X.sessionFile));
@@ -633,6 +941,7 @@ test('the end: the service ends, its children with it; no process left', async (
         pids.forEach((p) => { try { process.kill(p, 'SIGKILL'); } catch (e) { /* gone */ } });
         if (X.fake) await X.fake.close();
         if (X.dir && !process.env.E2E_KEEP) cp.spawnSync('rm', ['-rf', X.dir]);
+        try { fs.unlinkSync(FRAME_FILE); } catch (e) { /* none */ }
     }
 }, { timeout: 30000 });
 
