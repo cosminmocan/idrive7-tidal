@@ -1033,6 +1033,21 @@ cluster".
 **K6b (how):** a thin bar with elapsed and total time under the artist, on a small layer of its own (a whole-card
 frame each second would be 870 KB a second); tests first with the stand-in cluster-render.
 
+### T1. Native arm64 for development, x86-64 as the release gate (the owner, 2026-11-28; after the video release)
+
+- **Why:** the Mac is Apple silicon; today the JS suite (Node 8.9.4), the player tests, the end-to-end test and the
+  soak run as x86-64 under emulation, several times slower.
+- **Do:** `make test`, `make test-player`, `make test-video-player`, `make e2e`, `make soak` run on the Mac's own
+  architecture (arm64 images: node:8.9.4 and the players' Ubuntu 18.04 image built for arm64, FFmpeg built natively);
+  `ARCH=amd64` runs any of them as x86-64 as today. The target binaries stay x86-64 only (`make player`,
+  `make video-player`, check-target). **The release gate:** `make release` runs `make test`, `make test-player`,
+  `make test-video-player` and `make e2e` once as x86-64 (the car's architecture) before publishing.
+- **Know:** FFmpeg's SIMD code differs between x86 and arm, so the sound tests that compare sample for sample need
+  the same SIMD switches (as tidal-video already does for its sound) or a small tolerance on arm64; exact on x86-64.
+  The Intel Media SDK exists only on x86 (and only in the car): arm64 runs use the software decoder.
+- **Success:** each target green on arm64 and on amd64; the arm64 times measured against today's; `make release` still
+  refuses when the amd64 gate fails.
+
 ### Releases and car checks in this phase
 
 After each merged group: `make test`, `make e2e`, `make release` (the patch versions go up by themselves), then the
