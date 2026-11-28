@@ -25,8 +25,9 @@ has not seen the earlier discussion can pick up any task.
 ### Resume here (next session)
 
 **Now: video (V1), the owner's go 2026-11-28:** build, commit, push, until it works; the picture also while driving,
-with a setting "Picture only while parked" (off by default). V0 (contract 4) done. Running: V1a (the video player
-`tidal-video`), V1b (service + TIDAL module), V1c (app); then V1d (e2e) and a release.
+with a setting "Picture only while parked" (off by default). V0 (contract 4), V1a (`tidal-video`), V1b (service + TIDAL module), V1c (app) and V1d (`make e2e` 15/15 three
+times, a real HLS video end to end) done and merged 2026-11-28; the service's limits raised for video (2 cores,
+256 MiB). Released; next: the owner's car check (V1e), then T1.
 
 **Now: phase 3** (in section 9: "Phase 3: after the second car check"), waiting for the owner's go, the silent-state
 QR log (A1) and the car's signal list (K6a).
