@@ -1060,6 +1060,49 @@ After each merged group: `make test`, `make e2e`, `make release` (the patch vers
 owner updates in the Store and checks the lines above; the results go into docs/car-log.md. A failed line becomes
 an automated test first, then a fix.
 
+### Phase 4 (planned 2026-11-28, after the third car visit; waits for the owner's OK)
+
+The car's results: docs/car-log.md, "Third visit"; the log: docs/car-logs/2026-11-28-video-first-run.log.
+**V1e passed:** video plays, hardware decoded (`msdk` on /dev/dri/renderD128), 0 decode errors, seek works.
+
+Rules as before: test first, one git worktree per task, development and tests on arm64 (`make test` etc.),
+the release through `make release` (its x86-64 gate, then the x86-64 packages).
+
+**Wave 1, four tasks in parallel** (separate files; merged in this order):
+
+- **A1. Sound after the car starts.** Cause, from the log (06:57:07, 08:24:11): `car audio: 287 is in use (2): not
+  connecting (waiting for it to let go)`: at start a main connection on source 287 already exists that is not ours
+  (the car brings back its last connection), and apps/cmocan_tidal/car_audio.js waits until the owner picks another
+  source. **Do:** when no live claim exists (the claims folder is empty after a start) and the connection on 287 is
+  the car's restored one, take it over (disconnect it, connect ours; or use it as it is, whichever the audio manager
+  allows). A live claim of another app is still respected. **Success:** a test replays the log's sequence and the app
+  connects by itself; in the car: sound right after a start, with nothing chosen.
+- **V2. Video view.** (a) While a video plays, the whole screen is the picture: tabs, bottom bar, title and seek bar
+  all go after 4 s and come back on a touch or a controller step (today only title and seek bar go). (b) Scaling:
+  **Best fit** (all of the picture, bars), **Fill** (the screen filled, aspect kept, the picture's top and bottom cut:
+  on 1920x720 a 16:9 picture loses a third of its height), **Zoom** (half way between). A button on the overlay steps
+  through them; the choice is kept (prefs). First step: whether mgu-render clips an op 19 rect larger than the
+  screen (`make test-render` answers it); if not, tidal-video cuts the frame. **Success:** tests for the three rects
+  for 16:9, 4:3 and 692x480; the render replay shows the cut picture; e2e scenario for the hidden controls.
+- **S3. Search.** The app has a search with a letter row, hidden while the car moves. **Do:** a QWERTY keyboard on
+  screen (touch, and the controller steps through keys), with space, delete and digits; results as typed (tracks,
+  videos, albums, artists, playlists); usable while driving too unless the owner says otherwise. **Spike, half a
+  day at most:** BMW's own speller (the RHMI input with the touchpad's handwriting): if the SDK on the car offers
+  it to our app, it becomes a second way in; if not, it is dropped. **Success:** e2e: type, results, play one.
+- **K6b. The cluster card's progress bar** (apps/cmocan_tidal/cluster.js).
+
+**Wave 2:**
+
+- **K6a.** The cluster card only while the media widget is selected. Needs the car's signal list from the owner
+  (`/etc/oap/someip/someip-interfaces.json`) or a Signal Hunter session. The log's "slot locked" (07:12:31) is the
+  same matter.
+- **U2.** Finger scrolling in lists (low priority).
+- **L1.** Lossless through the PKCE login (five minutes with the owner at the Mac first).
+- **Small:** `openEntryState ... INVALID_UUID` when the app is opened right after a popup (16:36:23); the contract
+  gaps V1b named (queue.json `kinds`, prefs.json `videoHeight`, INTERNAL-API additions).
+- **Known, harmless:** the first start after an update fails once ("the SDK created no RHMI application", 16:25:37)
+  and the next start works (docs/first-start.md).
+
 ---
 
 ## 10. Risks that can change the plan

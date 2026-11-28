@@ -1,0 +1,410 @@
+# cmocan_tidal 0.1.2, 7 of 8 pages, missing: 1
+-- 2026-11-28 (UTC)
+06:56:36 SDK_ERROR AnalyticsServiceImpl::init failed to initialize due to { Error: UserManagerImpl::init failed due to { Error: UserImpl::init failed due to { Error: TokenImpl::in
+06:56:44 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+06:57:04 safe boot: start ok
+06:57:07 car audio: 287 is in use (2): not connecting (waiting for it to let go)
+06:57:44 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+06:58:30 renderd: not on screen
+06:58:30 state MAIN covered by an HMI popup
+06:58:41 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+06:58:55 entry point CMOCAN_TIDAL_ENTRY (UNSPECIFIED)
+06:58:55 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+06:58:56 renderd: on screen
+06:59:14 click BTN_SETTINGS
+07:00:16 state MAIN covered by an HMI popup
+07:00:16 renderd: not on screen
+07:00:21 entry point CMOCAN_TIDAL_ENTRY (UNSPECIFIED)
+07:00:21 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+07:00:21 renderd: on screen
+07:00:27 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+07:01:01 car audio: source available
+07:01:01 car audio: connect {"mainConnectionID":4,"amError":"E_OK"}
+07:01:02 cluster: the panel is idle, held by none
+07:01:02 cluster: the card is hidden
+07:01:02 cluster: the card is on
+07:01:02 cluster: the panel is acquiring, held by none
+07:01:02 cluster: the card is waiting (target acquiring)
+07:01:02 cluster: the card is shown
+07:01:28 click BTN_SETTINGS
+07:02:10 state MAIN covered by an HMI popup
+07:02:10 renderd: not on screen
+07:02:20 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+07:04:21 car audio: our connection 4 is gone (the car switched to another source): not taking the speakers back
+07:04:21 audio: the car switched to another source: pausing
+07:04:21 cluster: the card is off (nothing of ours plays on the speakers)
+07:04:21 cluster: the panel is lingering, held by us
+07:04:27 entry point CMOCAN_TIDAL_ENTRY (UNSPECIFIED)
+07:04:27 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+07:04:27 renderd: on screen
+07:04:29 car audio: source available
+07:04:29 car audio: connect {"mainConnectionID":6,"amError":"E_OK"}
+07:04:30 cluster: the card is on
+07:05:21 click BTN_SETTINGS
+07:06:44 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+07:08:14 state MAIN covered by an HMI popup
+07:08:14 renderd: not on screen
+07:08:25 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+07:08:31 entry point CMOCAN_TIDAL_ENTRY (UNSPECIFIED)
+07:08:31 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+07:08:32 renderd: on screen
+07:12:31 cluster: the panel is waiting, held by none (slot locked)
+07:12:31 cluster: the card is waiting (target waiting: slot locked)
+07:13:12 state MAIN covered by an HMI popup
+07:13:12 renderd: not on screen
+07:14:00 state MAIN has focus again
+07:14:00 renderd: on screen
+07:14:18 state MAIN covered by an HMI popup
+07:14:18 renderd: not on screen
+07:14:28 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+07:14:53 car audio: our connection 6 is gone (the car switched to another source): not taking the speakers back
+07:14:53 audio: the car switched to another source: pausing
+07:14:53 cluster: the card is off (nothing of ours plays on the speakers)
+08:23:30 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+08:23:53 entry point CMOCAN_TIDAL_ENTRY (UNSPECIFIED)
+08:23:53 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+08:23:53 renderd: on screen
+08:23:58 renderd: not on screen
+08:23:58 state MAIN covered by an HMI popup
+08:23:59 entry point CMOCAN_TIDAL_ENTRY (UNSPECIFIED)
+08:23:59 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+08:23:59 renderd: on screen
+08:24:08 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+08:24:11 car audio: 287 is in use (9): not connecting (waiting for it to let go)
+08:24:45 car audio: source available
+08:24:45 car audio: connect {"mainConnectionID":11,"amError":"E_OK"}
+08:24:46 cluster: the card is on
+08:24:54 state MAIN covered by an HMI popup
+08:24:54 renderd: not on screen
+08:25:07 state MAIN has focus again
+08:25:07 renderd: on screen
+08:28:01 state MAIN covered by an HMI popup
+08:28:02 renderd: not on screen
+08:28:12 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+08:28:24 car audio: our connection 11 is gone (the car switched to another source): not taking the speakers back
+08:28:24 audio: the car switched to another source: pausing
+08:28:24 cluster: the card is off (nothing of ours plays on the speakers)
+08:33:30 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+09:29:32 entry point CMOCAN_TIDAL_ENTRY (UNSPECIFIED)
+09:29:32 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+09:29:33 renderd: on screen
+09:29:53 state MAIN covered by an HMI popup
+09:29:53 renderd: not on screen
+09:34:49 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+09:35:53 entry point CMOCAN_TIDAL_ENTRY (UNSPECIFIED)
+09:35:53 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+09:35:54 renderd: on screen
+09:35:58 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+09:36:06 car audio: source available
+09:36:06 car audio: connect {"mainConnectionID":20,"amError":"E_OK"}
+09:36:07 cluster: the card is on
+09:37:35 renderd: not on screen
+09:37:35 state MAIN covered by an HMI popup
+09:37:53 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+09:38:48 car audio: our connection 20 is gone (the car switched to another source): not taking the speakers back
+09:38:48 audio: the car switched to another source: pausing
+09:38:48 cluster: the card is off (nothing of ours plays on the speakers)
+09:47:26 SDK_ERROR Error: Proxy[OAPController@OAPControllerInst1]::getCurrentlyUsedMemory failed due to Error: method call getCurrentlyUsedMemory() with session 2329(0x919) timed 
+-- 2026-11-28 (UTC)
+09:47:26 SDK_ERROR Error: Proxy[OAPController@OAPControllerInst1]::getCurrentlyUsedCPU failed due to Error: method call getCurrentlyUsedCPU() with session 2330(0x91a) timed out af
+09:47:26 SDK_ERROR AnalyticsMemoryEvents::startMemoryTimer failed to get currently used memory due to { Error: Proxy[OAPController@OAPControllerInst1]::getCurrentlyUsedMemory fail
+09:47:26 SDK_ERROR AnalyticsCPUEvents::startCPUTimer failed to get currently used CPU due to { Error: Proxy[OAPController@OAPControllerInst1]::getCurrentlyUsedCPU failed due to Er
+09:50:47 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+16:25:36 starting cmocan_tidal 0.1.2 (node up 2196 ms)
+16:25:37 registered active (2999 ms)
+16:25:37 ERROR the SDK created no RHMI application, so the app has no screens and does not start. Causes: the SDK config has rhmiLoadingEnabled off (an SDK extracted from a newer donor app; build.py turns it on - rebuild the app), a CONFIG_STATE start, or the HMI could not load the app's resources (see the SDK_ li
+16:25:37 registered active (3783 ms)
+16:25:54 shutdown requested by MainApp
+16:25:54 exit code 0 rss=51MB
+16:26:48 starting cmocan_tidal 0.1.2 (node up 2004 ms)
+16:26:49 registered active (2889 ms)
+16:26:50 renderd: socket /run/mgu-renderd/renderd.sock
+16:26:50 registered active (3805 ms)
+16:26:50 screen resources done (3872 ms)
+16:26:50 settings screen done (3933 ms)
+16:26:50 app start done (4015 ms)
+16:26:50 app start (until it can draw) done (4016 ms)
+16:26:50 initialized (start reason ENTRY_POINT, 4045 ms)
+16:26:50 app can draw (4064 ms): ready, its start goes on
+16:26:50 mapped entry 2661afa3-1d8c-5c9d-8ac2-6a96f37f7f99 -> MAIN (4074 ms)
+16:26:50 renderd: connected, screen 1920x720, mgu-render/1 {"touch":true,"controller":true,"frontGate":true,"video":true}
+16:26:50 display: renderer placement {"x":0,"y":0,"w":1920,"h":720,"full":true,"scale":1.164,"ox":71,"oy":51} (layout full)
+16:26:51 frames: in RAM (/tmp/mgu-frames-cmocan_tidal-12223)
+16:26:51 image MAIN_GFX: png written 172 ms
+16:26:51 renderd: not on screen
+16:26:51 image MAIN_GFX: handle 284164811
+16:26:51 image MAIN_GFX: shown after 558 ms
+-- 2026-11-28 (UTC)
+16:26:51 renderd: on screen
+16:26:51 car volume: 21
+16:26:51 SDK_ERROR Error: buildTypedProxy(de.bmw.infotainment.telematic.usso.USSO@USSO_1) failed due to Error: fileAccess::readJsonFile failed due to Error: ENOENT: no such file o
+16:26:51 SDK_ERROR Error: TokenImpl::init failed due to { Error: buildTypedProxy(de.bmw.infotainment.telematic.usso.USSO@USSO_1) failed due to Error: fileAccess::readJsonFile fail
+16:26:51 SDK_ERROR Error: UserImpl::cleanup Failed due to { Error: TokenImpl::init failed due to { Error: buildTypedProxy(de.bmw.infotainment.telematic.usso.USSO@USSO_1) failed du
+16:26:51 SDK_ERROR Error: UserImpl::init failed due to { Error: TokenImpl::init failed due to { Error: buildTypedProxy(de.bmw.infotainment.telematic.usso.USSO@USSO_1) failed due t
+16:26:51 SDK_ERROR Error: UserManagerImpl::cleanup Failed due to { Error: UserImpl::init failed due to { Error: TokenImpl::init failed due to { Error: buildTypedProxy(de.bmw.infot
+16:26:51 SDK_ERROR Error: UserManagerImpl::init failed due to { Error: UserImpl::init failed due to { Error: TokenImpl::init failed due to { Error: buildTypedProxy(de.bmw.infotain
+16:26:51 SDK_ERROR AnalyticsServiceImpl::init failed to initialize due to { Error: UserManagerImpl::init failed due to { Error: UserImpl::init failed due to { Error: TokenImpl::in
+16:26:51 parked check: speed subscribed
+16:27:00 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+16:27:01 car audio: source available
+16:27:01 car audio: connect {"mainConnectionID":12,"amError":"E_OK"}
+16:27:01 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+16:27:02 cluster: the panel is idle, held by none
+16:27:02 cluster: the card is hidden
+16:27:02 cluster: the card is on
+16:27:02 cluster: the panel is acquiring, held by none
+16:27:02 cluster: the card is waiting (target acquiring)
+16:27:02 cluster: the card is shown
+16:27:20 safe boot: start ok
+16:28:00 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+16:32:33 state MAIN covered by an HMI popup
+16:32:33 renderd: not on screen
+16:32:35 entry point CMOCAN_TIDAL_ENTRY (UNSPECIFIED)
+16:32:35 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+16:32:36 renderd: on screen
+16:32:43 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+16:33:13 click BTN_SETTINGS
+16:33:41 renderd: not on screen
+16:33:41 state MAIN covered by an HMI popup
+16:33:44 entry point CMOCAN_TIDAL_ENTRY (UNSPECIFIED)
+16:33:44 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+16:33:44 renderd: on screen
+16:33:52 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+16:33:54 click BTN_NEXT
+16:35:55 state MAIN covered by an HMI popup
+16:35:55 renderd: not on screen
+16:36:18 state MAIN has focus again
+16:36:18 renderd: on screen
+16:36:20 click BTN_PLAY
+16:36:20 car audio: disconnect {"amError":"E_OK"}
+16:36:21 car audio: source unavailable
+16:36:21 cluster: the card is off (nothing of ours plays on the speakers)
+16:36:21 cluster: the panel is lingering, held by us
+16:36:21 renderd: not on screen
+16:36:21 state MAIN covered by an HMI popup
+16:36:23 entry point CMOCAN_TIDAL_ENTRY (UNSPECIFIED)
+16:36:23 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+16:36:23 SDK_ERROR Error: RhmiApplication[687e3e4e-4a12-5a49-b2bc-83e7c07512df]::openEntryState(2661afa3-1d8c-5c9d-8ac2-6a96f37f7f99) failed due to { RemoteError: 'INVALID_UUID' }
+16:36:23 ERROR open entry state Error: RhmiApplication[687e3e4e-4a12-5a49-b2bc-83e7c07512df]::openEntryState(2661afa3-1d8c-5c9d-8ac2-6a96f37f7f99) failed due to { RemoteError: 'INVALID_UUID' }
+16:36:24 renderd: on screen
+16:36:32 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+16:36:42 state MAIN covered by an HMI popup
+16:36:42 renderd: not on screen
+16:36:45 state MAIN has focus again
+16:36:45 state MAIN covered by an HMI popup
+16:37:00 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+17:20:21 state MAIN has focus again
+17:20:21 renderd: on screen
+17:20:59 state MAIN covered by an HMI popup
+17:20:59 renderd: not on screen
+17:21:10 SDK_ERROR Error: promiseWithTimeout::promiseWithTimeout AnalyticsServiceImpl::sendPlatformEvent analytics internal timeout. Works as designed. Analytics is most likely di
+-- 2026-11-28 (UTC)
+17:40:38 entry point CMOCAN_TIDAL_ENTRY (UNSPECIFIED)
+17:40:38 entry point CMOCAN_TIDAL_ENTRY (ENTRY_POINT)
+17:40:38 renderd: on screen
+17:40:45 click BTN_SETTINGS
+17:40:49 svc: 16:29:58 player 25461: {"ev":"audio","state":"open","device":"plug:smartx:CarLifeMedia_CF_48_STEREO"}
+17:40:49 svc: 16:29:58 next: video 318991213 (11 of 23)
+17:40:49 svc: 16:29:58 player: tidal-video: control: quit
+17:40:49 svc: 16:29:58 player: tidal-video: stream info: End of file
+17:40:49 svc: 16:29:58 player: tidal-video: quit
+17:40:49 svc: 16:29:58 player 25461: exited, code 0
+17:40:49 svc: 16:29:59 video 318991213: 1280x720, 33 segments, 197.5 s (3 Mbit/s)
+17:40:49 svc: 16:29:59 player: tidal-video: running as uid 65534 gid 65534 with 3 groups
+17:40:49 svc: 16:29:59 player: tidal-video: audio: plug:smartx:CarLifeMedia_CF_48_STEREO open
+17:40:49 svc: 16:29:59 player 25469: {"ev":"audio","state":"open","device":"plug:smartx:CarLifeMedia_CF_48_STEREO"}
+17:40:49 svc: 16:30:00 next: video 26830919 (12 of 23)
+17:40:49 svc: 16:30:00 player: tidal-video: control: quit
+17:40:49 svc: 16:30:01 player: tidal-video: aac, 48000 Hz, 2 channels; picture h264 1280x720; first timestamp 9.957 s
+17:40:49 svc: 16:30:01 player 25469: {"ev":"open","codec":"aac","rate":48000,"channels":2,"duration":null,"video":{"codec":"h264","width":1280,"height":720}}
+17:40:49 svc: 16:30:01 player: tidal-video: decoded 0 sound frames (0 errors), 0 frames at 48 kHz
+17:40:49 svc: 16:30:01 player: tidal-video: video: msdk: the Intel Media SDK decodes on /dev/dri/renderD128
+17:40:49 svc: 16:30:01 player: tidal-video: video: 1280x720, msdk decoder, /dev/shm/mgu-video-cmocan-tidal
+17:40:49 svc: 16:30:01 player: tidal-video: video: 0 pictures shown, 0 left out, 0 decode errors
+17:40:49 svc: 16:30:01 player 25469: {"ev":"video","state":"open","decoder":"msdk","width":1280,"height":720,"file":"/dev/shm/mgu-video-cmocan-tidal"}
+17:40:49 svc: 16:30:01 player: tidal-video: quit
+17:40:49 svc: 16:30:01 player 25469: exited, code 0
+17:40:49 svc: 16:30:01 video 26830919: 1280x720, 44 segments, 259.9 s (2.4 Mbit/s)
+17:40:49 svc: 16:30:01 player: tidal-video: running as uid 65534 gid 65534 with 3 groups
+17:40:49 svc: 16:30:01 player: tidal-video: audio: plug:smartx:CarLifeMedia_CF_48_STEREO open
+17:40:49 svc: 16:30:01 player 25480: {"ev":"audio","state":"open","device":"plug:smartx:CarLifeMedia_CF_48_STEREO"}
+17:40:49 svc: 16:30:04 player: tidal-video: aac, 48000 Hz, 2 channels; picture h264 1280x720; first timestamp 9.957 s
+17:40:49 svc: 16:30:04 player 25480: {"ev":"open","codec":"aac","rate":48000,"channels":2,"duration":null,"video":{"codec":"h264","width":1280,"height":720}}
+17:40:49 svc: 16:30:04 player: tidal-video: the sound starts at 0.000 s; 0.000 s of it thrown away
+17:40:49 svc: 16:30:04 player: tidal-video: video: msdk: the Intel Media SDK decodes on /dev/dri/renderD128
+17:40:49 svc: 16:30:04 player: tidal-video: video: 1280x720, msdk decoder, /dev/shm/mgu-video-cmocan-tidal
+17:40:49 svc: 16:30:04 player 25480: {"ev":"video","state":"open","decoder":"msdk","width":1280,"height":720,"file":"/dev/shm/mgu-video-cmocan-tidal"}
+17:40:49 svc: 16:30:04 player: tidal-video: playing at 0.000 s: 1.71 s queued
+17:40:49 svc: 16:30:05 playing video 26830919 (720p, msdk)
+-- 2026-11-28 (UTC)
+17:40:49 svc: 16:30:08 seek: video 26830919 to 27.8 s (segment 5 of 44, from 24 s)
+17:40:49 svc: 16:30:08 player: tidal-video: control: quit
+17:40:49 svc: 16:30:08 player: tidal-video: decoded 482 sound frames (0 errors), 493568 frames at 48 kHz
+17:40:49 svc: 16:30:08 player: tidal-video: video: 101 pictures shown, 0 left out, 0 decode errors
+17:40:49 svc: 16:30:08 player: tidal-video: quit
+17:40:49 svc: 16:30:08 player 25480: exited, code 0
+17:40:49 svc: 16:30:08 player: tidal-video: running as uid 65534 gid 65534 with 3 groups
+17:40:49 svc: 16:30:08 player: tidal-video: starting at 27.800 s (the input starts at 24.024 s): what is before it is thrown away
+17:40:49 svc: 16:30:08 player: tidal-video: audio: plug:smartx:CarLifeMedia_CF_48_STEREO open
+17:40:49 svc: 16:30:08 player 25530: {"ev":"audio","state":"open","device":"plug:smartx:CarLifeMedia_CF_48_STEREO"}
+17:40:49 svc: 16:30:11 player: tidal-video: aac, 48000 Hz, 2 channels; picture h264 1280x720; first timestamp 34.000 s
+17:40:49 svc: 16:30:11 player 25530: {"ev":"open","codec":"aac","rate":48000,"channels":2,"duration":null,"video":{"codec":"h264","width":1280,"height":720}}
+17:40:49 svc: 16:30:11 player: tidal-video: the sound starts at 24.024 s; 3.776 s of it thrown away
+17:40:49 svc: 16:30:11 player: tidal-video: video: msdk: the Intel Media SDK decodes on /dev/dri/renderD128
+17:40:49 svc: 16:30:11 player 25530: {"ev":"video","state":"open","decoder":"msdk","width":1280,"height":720,"file":"/dev/shm/mgu-video-cmocan-tidal"}
+17:40:49 svc: 16:30:11 player: tidal-video: video: 1280x720, msdk decoder, /dev/shm/mgu-video-cmocan-tidal
+17:40:49 svc: 16:30:11 player: tidal-video: playing at 27.800 s: 1.60 s queued
+17:40:49 svc: 16:30:11 playing video 26830919 (720p, msdk) from 27.8 s
+17:40:49 svc: 16:32:31 next: video 25661995 (13 of 23)
+17:40:49 svc: 16:32:31 player: tidal-video: control: quit
+17:40:49 svc: 16:32:31 player: tidal-video: decoded 7043 sound frames (0 errors), 7212032 frames at 48 kHz
+17:40:49 svc: 16:32:31 player: tidal-video: video: 3368 pictures shown, 0 left out, 0 decode errors
+17:40:49 svc: 16:32:31 player: tidal-video: quit
+17:40:49 svc: 16:32:31 player 25530: exited, code 0
+17:40:49 svc: 16:32:33 video 25661995: 640x480, 55 segments, 328.9 s (1.6 Mbit/s)
+17:40:49 svc: 16:32:33 player: tidal-video: running as uid 65534 gid 65534 with 3 groups
+17:40:49 svc: 16:32:33 player: tidal-video: audio: plug:smartx:CarLifeMedia_CF_48_STEREO open
+17:40:49 svc: 16:32:33 player 25863: {"ev":"audio","state":"open","device":"plug:smartx:CarLifeMedia_CF_48_STEREO"}
+17:40:49 svc: 16:32:36 player: tidal-video: aac, 44100 Hz, 2 channels; picture h264 640x480; first timestamp 9.954 s
+17:40:49 svc: 16:32:36 player 25863: {"ev":"open","codec":"aac","rate":44100,"channels":2,"duration":null,"video":{"codec":"h264","width":640,"height":480}}
+17:40:49 svc: 16:32:36 player: tidal-video: the sound starts at 0.000 s; 0.000 s of it thrown away
+17:40:49 svc: 16:32:36 player: tidal-video: video: msdk: the Intel Media SDK decodes on /dev/dri/renderD128
+17:40:49 svc: 16:32:36 player 25863: {"ev":"video","state":"open","decoder":"msdk","width":640,"height":480,"file":"/dev/shm/mgu-video-cmocan-tidal"}
+17:40:49 svc: 16:32:36 player: tidal-video: video: 640x480, msdk decoder, /dev/shm/mgu-video-cmocan-tidal
+17:40:49 svc: 16:32:36 player: tidal-video: playing at 0.000 s: 1.53 s queued
+17:40:49 svc: 16:32:37 playing video 25661995 (480p, msdk)
+-- 2026-11-28 (UTC)
+17:40:49 svc: 16:33:02 play: video 41767252 (39 of 50)
+17:40:49 svc: 16:33:02 player: tidal-video: control: quit
+17:40:49 svc: 16:33:02 player: tidal-video: decoded 1372 sound frames (0 errors), 1529156 frames at 48 kHz
+17:40:49 svc: 16:33:02 player: tidal-video: video: 644 pictures shown, 0 left out, 0 decode errors
+17:40:49 svc: 16:33:02 player: tidal-video: quit
+17:40:49 svc: 16:33:02 player 25863: exited, code 0
+17:40:49 svc: 16:33:03 video 41767252: 1280x720, 42 segments, 247.5 s (3 Mbit/s)
+17:40:49 svc: 16:33:03 player: tidal-video: running as uid 65534 gid 65534 with 3 groups
+17:40:49 svc: 16:33:03 player: tidal-video: audio: plug:smartx:CarLifeMedia_CF_48_STEREO open
+17:40:49 svc: 16:33:03 player 25951: {"ev":"audio","state":"open","device":"plug:smartx:CarLifeMedia_CF_48_STEREO"}
+17:40:49 svc: 16:33:05 player: tidal-video: aac, 48000 Hz, 2 channels; picture h264 1280x720; first timestamp 9.957 s
+17:40:49 svc: 16:33:05 player 25951: {"ev":"open","codec":"aac","rate":48000,"channels":2,"duration":null,"video":{"codec":"h264","width":1280,"height":720}}
+17:40:49 svc: 16:33:05 player: tidal-video: the sound starts at 0.000 s; 0.000 s of it thrown away
+17:40:49 svc: 16:33:05 player: tidal-video: video: msdk: the Intel Media SDK decodes on /dev/dri/renderD128
+17:40:49 svc: 16:33:05 player: tidal-video: video: 1280x720, msdk decoder, /dev/shm/mgu-video-cmocan-tidal
+17:40:49 svc: 16:33:05 player 25951: {"ev":"video","state":"open","decoder":"msdk","width":1280,"height":720,"file":"/dev/shm/mgu-video-cmocan-tidal"}
+17:40:49 svc: 16:33:05 player: tidal-video: playing at 0.000 s: 1.73 s queued
+17:40:49 svc: 16:33:06 playing video 41767252 (720p, msdk)
+17:40:49 svc: 16:33:12 seek: video 41767252 to 71 s (segment 12 of 42, from 66.1 s)
+17:40:49 svc: 16:33:12 player: tidal-video: control: quit
+17:40:49 svc: 16:33:12 player: tidal-video: decoded 625 sound frames (0 errors), 640000 frames at 48 kHz
+17:40:49 svc: 16:33:12 player: tidal-video: video: 174 pictures shown, 0 left out, 0 decode errors
+17:40:49 svc: 16:33:12 player: tidal-video: quit
+17:40:49 svc: 16:33:12 player 25951: exited, code 0
+17:40:49 svc: 16:33:12 player: tidal-video: running as uid 65534 gid 65534 with 3 groups
+17:40:49 svc: 16:33:12 player: tidal-video: starting at 71.000 s (the input starts at 66.066 s): what is before it is thrown away
+17:40:49 svc: 16:33:12 player: tidal-video: audio: plug:smartx:CarLifeMedia_CF_48_STEREO open
+17:40:49 svc: 16:33:12 player 25992: {"ev":"audio","state":"open","device":"plug:smartx:CarLifeMedia_CF_48_STEREO"}
+17:40:49 svc: 16:33:15 player: tidal-video: aac, 48000 Hz, 2 channels; picture h264 1280x720; first timestamp 76.027 s
+17:40:49 svc: 16:33:15 player 25992: {"ev":"open","codec":"aac","rate":48000,"channels":2,"duration":null,"video":{"codec":"h264","width":1280,"height":720}}
+17:40:49 svc: 16:33:15 player: tidal-video: the sound starts at 66.066 s; 4.934 s of it thrown away
+17:40:49 svc: 16:33:15 player: tidal-video: video: msdk: the Intel Media SDK decodes on /dev/dri/renderD128
+17:40:49 svc: 16:33:15 player: tidal-video: video: 1280x720, msdk decoder, /dev/shm/mgu-video-cmocan-tidal
+17:40:49 svc: 16:33:15 player 25992: {"ev":"video","state":"open","decoder":"msdk","width":1280,"height":720,"file":"/dev/shm/mgu-video-cmocan-tidal"}
+17:40:49 svc: 16:33:15 player: tidal-video: playing at 71.000 s: 1.89 s queued
+17:40:49 svc: 16:33:15 playing video 41767252 (720p, msdk) from 71 s
+17:40:49 svc: 16:33:54 next: video 145177331 (40 of 50)
+17:40:49 svc: 16:33:54 player: tidal-video: control: quit
+17:40:49 svc: 16:33:54 player: tidal-video: decoded 2373 sound frames (0 errors), 2429952 frames at 48 kHz
+-- 2026-11-28 (UTC)
+17:40:49 svc: 16:33:54 player: tidal-video: video: 950 pictures shown, 1 left out, 0 decode errors
+17:40:49 svc: 16:33:54 player: tidal-video: quit
+17:40:49 svc: 16:33:54 player 25992: exited, code 0
+17:40:49 svc: 16:33:55 video 145177331: 1280x720, 41 segments, 246.5 s (3.2 Mbit/s)
+17:40:49 svc: 16:33:55 player: tidal-video: running as uid 65534 gid 65534 with 3 groups
+17:40:49 svc: 16:33:55 player: tidal-video: audio: plug:smartx:CarLifeMedia_CF_48_STEREO open
+17:40:49 svc: 16:33:55 player 26105: {"ev":"audio","state":"open","device":"plug:smartx:CarLifeMedia_CF_48_STEREO"}
+17:40:49 svc: 16:33:58 player: tidal-video: aac, 48000 Hz, 2 channels; picture h264 1280x720; first timestamp 9.957 s
+17:40:49 svc: 16:33:58 player 26105: {"ev":"open","codec":"aac","rate":48000,"channels":2,"duration":null,"video":{"codec":"h264","width":1280,"height":720}}
+17:40:49 svc: 16:33:58 player: tidal-video: the sound starts at 0.000 s; 0.000 s of it thrown away
+17:40:49 svc: 16:33:58 player: tidal-video: video: msdk: the Intel Media SDK decodes on /dev/dri/renderD128
+17:40:49 svc: 16:33:58 player: tidal-video: video: 1280x720, msdk decoder, /dev/shm/mgu-video-cmocan-tidal
+17:40:49 svc: 16:33:58 player 26105: {"ev":"video","state":"open","decoder":"msdk","width":1280,"height":720,"file":"/dev/shm/mgu-video-cmocan-tidal"}
+17:40:49 svc: 16:33:58 player: tidal-video: playing at 0.000 s: 1.60 s queued
+17:40:49 svc: 16:33:58 playing video 145177331 (720p, msdk)
+17:40:49 svc: 16:34:20 next: video 24699775 (41 of 50)
+17:40:49 svc: 16:34:20 player: tidal-video: control: quit
+17:40:49 svc: 16:34:20 player: tidal-video: decoded 1321 sound frames (0 errors), 1352704 frames at 48 kHz
+17:40:49 svc: 16:34:20 player: tidal-video: video: 552 pictures shown, 0 left out, 0 decode errors
+17:40:49 svc: 16:34:20 player: tidal-video: quit
+17:40:49 svc: 16:34:20 player 26105: exited, code 0
+17:40:49 svc: 16:34:21 video 24699775: 854x480, 50 segments, 296.9 s (1.5 Mbit/s)
+17:40:49 svc: 16:34:21 player: tidal-video: running as uid 65534 gid 65534 with 3 groups
+17:40:49 svc: 16:34:21 player: tidal-video: audio: plug:smartx:CarLifeMedia_CF_48_STEREO open
+17:40:49 svc: 16:34:21 player 26164: {"ev":"audio","state":"open","device":"plug:smartx:CarLifeMedia_CF_48_STEREO"}
+17:40:49 svc: 16:34:23 player: tidal-video: aac, 48000 Hz, 2 channels; picture h264 854x480; first timestamp 10.000 s
+17:40:49 svc: 16:34:23 player 26164: {"ev":"open","codec":"aac","rate":48000,"channels":2,"duration":null,"video":{"codec":"h264","width":854,"height":480}}
+17:40:49 svc: 16:34:23 player: tidal-video: the sound starts at 0.000 s; 0.000 s of it thrown away
+17:40:49 svc: 16:34:23 player: tidal-video: video: msdk: the Intel Media SDK decodes on /dev/dri/renderD128
+17:40:49 svc: 16:34:23 player: tidal-video: video: 854x480, msdk decoder, /dev/shm/mgu-video-cmocan-tidal
+17:40:49 svc: 16:34:23 player 26164: {"ev":"video","state":"open","decoder":"msdk","width":854,"height":480,"file":"/dev/shm/mgu-video-cmocan-tidal"}
+17:40:49 svc: 16:34:23 player: tidal-video: playing at 0.000 s: 1.54 s queued
+17:40:49 svc: 16:34:24 playing video 24699775 (480p, msdk)
+17:40:49 svc: 16:34:26 next: video 187505030 (42 of 50)
+17:40:49 svc: 16:34:26 player: tidal-video: control: quit
+17:40:49 svc: 16:34:26 player: tidal-video: decoded 212 sound frames (0 errors), 434176 frames at 48 kHz
+17:40:49 svc: 16:34:26 player: tidal-video: video: 90 pictures shown, 0 left out, 0 decode errors
+17:40:49 svc: 16:34:26 player: tidal-video: quit
+17:40:49 svc: 16:34:26 player 26164: exited, code 0
+17:40:49 svc: 16:34:27 next: video 24698753 (43 of 50)
+17:40:49 svc: 16:34:27 video 187505030: 692x480, 31 segments, 181.3 s (1.6 Mbit/s)
+17:40:49 svc: 16:34:27 video 24698753: 854x480, 40 segments, 237 s (1.6 Mbit/s)
+# cmocan_tidal 0.1.2, 1 of 8 pages, missing: 2, 3, 4, 5, 6, 7, 8
+-- 2026-11-28 (UTC)
+17:40:49 svc: 16:34:27 player: tidal-video: running as uid 65534 gid 65534 with 3 groups
+17:40:49 svc: 16:34:27 player: tidal-video: audio: plug:smartx:CarLifeMedia_CF_48_STEREO open
+17:40:49 svc: 16:34:27 player 26191: {"ev":"audio","state":"open","device":"plug:smartx:CarLifeMedia_CF_48_STEREO"}
+17:40:49 svc: 16:34:28 next: video 25888164 (44 of 50)
+17:40:49 svc: 16:34:28 player: tidal-video: control: quit
+17:40:49 svc: 16:34:28 player: tidal-video: aac, 48000 Hz, 2 channels; picture h264 854x480; first timestamp 10.000 s
+17:40:49 svc: 16:34:28 player 26191: {"ev":"open","codec":"aac","rate":48000,"channels":2,"duration":null,"video":{"codec":"h264","width":854,"height":480}}
+17:40:49 svc: 16:34:28 player: tidal-video: decoded 0 sound frames (0 errors), 0 frames at 48 kHz
+17:40:49 svc: 16:34:28 player: tidal-video: video: msdk: the Intel Media SDK decodes on /dev/dri/renderD128
+17:40:49 svc: 16:34:28 player: tidal-video: video: 854x480, msdk decoder, /dev/shm/mgu-video-cmocan-tidal
+17:40:49 svc: 16:34:28 player: tidal-video: video: 0 pictures shown, 0 left out, 0 decode errors
+17:40:49 svc: 16:34:28 player 26191: {"ev":"video","state":"open","decoder":"msdk","width":854,"height":480,"file":"/dev/shm/mgu-video-cmocan-tidal"}
+17:40:49 svc: 16:34:28 player: tidal-video: quit
+17:40:49 svc: 16:34:28 player 26191: exited, code 0
+17:40:49 svc: 16:34:28 next: video 26367508 (45 of 50)
+17:40:49 svc: 16:34:29 video 26367508: 1280x720, 43 segments, 256.2 s (3.1 Mbit/s)
+17:40:49 svc: 16:34:29 player: tidal-video: running as uid 65534 gid 65534 with 3 groups
+17:40:49 svc: 16:34:29 player: tidal-video: audio: plug:smartx:CarLifeMedia_CF_48_STEREO open
+17:40:49 svc: 16:34:29 player 26205: {"ev":"audio","state":"open","device":"plug:smartx:CarLifeMedia_CF_48_STEREO"}
+17:40:49 svc: 16:34:32 player: tidal-video: aac, 48000 Hz, 2 channels; picture h264 1280x720; first timestamp 9.957 s
+17:40:49 svc: 16:34:32 player 26205: {"ev":"open","codec":"aac","rate":48000,"channels":2,"duration":null,"video":{"codec":"h264","width":1280,"height":720}}
+17:40:49 svc: 16:34:32 player: tidal-video: the sound starts at 0.000 s; 0.000 s of it thrown away
+17:40:49 svc: 16:34:32 player: tidal-video: playing at 0.000 s: 1.83 s queued
+17:40:49 svc: 16:34:32 player: tidal-video: video: msdk: the Intel Media SDK decodes on /dev/dri/renderD128
+17:40:49 svc: 16:34:32 player: tidal-video: video: 1280x720, msdk decoder, /dev/shm/mgu-video-cmocan-tidal
+17:40:49 svc: 16:34:32 player 26205: {"ev":"video","state":"open","decoder":"msdk","width":1280,"height":720,"file":"/dev/shm/mgu-video-cmocan-tidal"}
+17:40:49 svc: 16:34:33 next: video 25958039 (46 of 50)
+17:40:49 svc: 16:34:33 player: tidal-video: control: quit
+17:40:49 svc: 16:34:33 player: tidal-video: decoded 307 sound frames (0 errors), 314368 frames at 48 kHz
+17:40:49 svc: 16:34:33 player: tidal-video: video: 13 pictures shown, 0 left out, 0 decode errors
+17:40:49 svc: 16:34:33 player: tidal-video: quit
+17:40:49 svc: 16:34:33 player 26205: exited, code 0
+17:40:49 svc: 16:34:33 video 25958039: 1280x720, 42 segments, 249.7 s (3 Mbit/s)
+17:40:49 svc: 16:34:33 player: tidal-video: running as uid 65534 gid 65534 with 3 groups
+17:40:49 svc: 16:34:33 player: tidal-video: audio: plug:smartx:CarLifeMedia_CF_48_STEREO open
+17:40:49 svc: 16:34:33 player 26220: {"ev":"audio","state":"open","device":"plug:smartx:CarLifeMedia_CF_48_STEREO"}
+17:40:49 svc: 16:34:37 player: tidal-video: aac, 48000 Hz, 2 channels; picture h264 1280x720; first timestamp 9.957 s
+17:40:49 svc: 16:34:37 player 26220: {"ev":"open","codec":"aac","rate":48000,"channels":2,"duration":null,"video":{"codec":"h264","width":1280,"height":720}}
+17:40:49 svc: 16:34:37 player: tidal-video: the sound starts at 0.000 s; 0.000 s of it thrown away
+17:40:49 svc: 16:34:37 player: tidal-video: video: msdk: the Intel Media SDK decodes on /dev/dri/renderD128
+17:40:49 svc: 16:34:37 player: tidal-video: video: 1280x720, msdk decoder, /dev/shm/mgu-video-cmocan-tidal
+17:40:49 svc: 16:34:37 player 26220: {"ev":"video","state":"open","decoder":"msdk","width":1280,"height":720,"file":"/dev/shm/mgu-video-cmocan-tidal"}
+17:40:49 svc: 16:34:37 player: tidal-video: playing at 0.000 s: 1.51 s queued
+17:40:49 svc: 16:34:37 playing video 25958039 (720p, msdk)
+17:40:49 svc: 16:36:20 pause: video 25958039
+17:40:49 svc: 16:36:20 player: tidal-video: control: pause
+17:40:49 svc: 16:36:41 internet: offline
+17:40:49 svc: 17:20:35 internet: online
+17:40:49 svc: 17:21:29 internet: offline
+17:40:49 svc: 17:40:26 internet: online

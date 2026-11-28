@@ -45,3 +45,17 @@ Reported by the owner; no QR log from this visit yet.
 | 6 | **The cluster's menu cannot be changed: it switches back to the song card** | **a bug** (K6). Our card is on cluster-render's `panel` target, and "while `panel` is shown the cluster takes the stock HMI's media widget (slot 0x200) off screen" (cluster-render README): the card wins over whatever the driver selects while a track plays |
 
 Album art (C1) shows: confirmed by the owner's point 2 for the cluster; on the centre screen not said.
+
+## Third visit, 2026-11-28: service 0.1.3, app 0.1.2 (video)
+
+The app's log with the service's lines (eight QR pages): `docs/car-logs/2026-11-28-video-first-run.log`.
+
+| Check | Result |
+|---|---|
+| Video (V1e) | **passed.** Hardware decoded (`msdk`, /dev/dri/renderD128), 720p and 480p, 0 decode errors, 1 picture left out in 950; seek works; a start takes about 3 s; mgu-render offers video (`"video":true`) |
+| Sound after a start (A1) | cause found: `car audio: 287 is in use (2): not connecting (waiting for it to let go)` at 06:57:07 and 08:24:11; it connects once the owner picks another source |
+| First start after the update | failed once (16:25:37, "the SDK created no RHMI application"), the next start worked: as docs/first-start.md says |
+| New | `openEntryState ... INVALID_UUID` at 16:36:23, opening the app right after a popup; the app showed anyway |
+
+The owner asks for: the video's controls hidden until touched, scaling (best fit, fill, zoom), a search with a
+QWERTY keyboard or the touchpad's handwriting. Planned as Phase 4 in WORKPLAN.md.
