@@ -27,7 +27,7 @@ has not seen the earlier discussion can pick up any task.
 **Now: video (V1), the owner's go 2026-11-28:** build, commit, push, until it works; the picture also while driving,
 with a setting "Picture only while parked" (off by default). V0 (contract 4), V1a (`tidal-video`), V1b (service + TIDAL module), V1c (app) and V1d (`make e2e` 15/15 three
 times, a real HLS video end to end) done and merged 2026-11-28; the service's limits raised for video (2 cores,
-256 MiB). Released; next: the owner's car check (V1e), then T1.
+256 MiB). Released; next: the owner's car check (V1e). T1 (arm64) done.
 
 **Now: phase 3** (in section 9: "Phase 3: after the second car check"), waiting for the owner's go, the silent-state
 QR log (A1) and the car's signal list (K6a).
@@ -1048,6 +1048,11 @@ frame each second would be 870 KB a second); tests first with the stand-in clust
   The Intel Media SDK exists only on x86 (and only in the car): arm64 runs use the software decoder.
 - **Success:** each target green on arm64 and on amd64; the arm64 times measured against today's; `make release` still
   refuses when the amd64 gate fails.
+- **Done** 2026-11-28 (docs/arm64.md): all six targets green on arm64 and with `ARCH=amd64`; the gate
+  (tools/release-gate.sh, tested by `make test-release-gate`, 27/27) refuses before any GitHub call. The sound stays
+  exact on arm64 with no tolerance: tidal-player now opens FFmpeg with `av_force_cpu_flags(0)`, like tidal-video
+  (x86-64 output byte-identical). Times, arm64 vs emulated amd64: `make test` 329 s vs 589 s, test-player 577 vs
+  617, test-video-player 150 vs 170, e2e 277 vs 290, test-render 6 vs 71; the playback-bound tests gain little.
 
 ### Releases and car checks in this phase
 
