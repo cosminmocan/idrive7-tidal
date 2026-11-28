@@ -13,6 +13,7 @@ docker run --rm --init --platform linux/amd64 --user 1000:1000 -e HOME=/tmp -e E
     set -eu
     sh tools/e2e/make-fixtures.sh /tmp/e2e-fixtures >/dev/null
     export E2E_FIXTURES=/tmp/e2e-fixtures E2E_PLAYER=/w/native/tidal-player/build/out/tidal-player
-    echo "== e2e: $(node --version), uid $(id -u), $($E2E_PLAYER --version | head -n 1)"
+    export E2E_VIDEO=/w/native/tidal-video/build/out/tidal-video
+    echo "== e2e: $(node --version), uid $(id -u), $($E2E_PLAYER --version | head -n 1), $($E2E_VIDEO --version 2>&1 | head -n 1)"
     timeout 900 node tests/e2e.test.js
 '

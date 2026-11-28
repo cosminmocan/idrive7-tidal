@@ -8,12 +8,17 @@
  *   - the real TIDAL module (lib/tidal.js) pointed at the fake TIDAL (baseUrls), with the service's clock;
  *   - the real client.js forked as the test's own user (uid null: the container runs unprivileged);
  *   - the real player binary, each one writing its sound to <wavDir>/<n>-<track id>.wav (MGU_AUDIO=wav:...);
+ *   - for a video the real video player (videoBin), its pictures into /dev/shm/mgu-video-<videoName> with the
+ *     decoder videoDecoder ('sw': the software one), its sound to <wavDir>/<n>-video-<id>.wav;
  *   - a clock the test can move forward (skew), so 90 s and 3 minutes do not take that long.
  *
- *   node tools/e2e/service-main.js '<json: { dir, sock, stateDir, leasePath, baseUrls, playerBin, wavDir, tickMs }>'
+ *   node tools/e2e/service-main.js '<json: { dir, sock, stateDir, leasePath, baseUrls, playerBin, videoBin, videoName,
+ *       videoDecoder, wavDir, tickMs }>'
  *
- * Forked with an IPC channel. To the test: { ev: 'ready' } { ev: 'log', line } { ev: 'player', n, id, wav, pid, startMs }
- * (startMs: the MGU_START_MS the service gave the player, 0 without a seek)
+ * Forked with an IPC channel. To the test: { ev: 'ready' } { ev: 'log', line }
+ * { ev: 'player', n, id, kind, bin, wav, pid, startMs, baseMs, at } (kind 'track' or 'video'; bin the binary started;
+ * startMs, baseMs: the MGU_START_MS and MGU_BASE_MS the service gave it, 0 without; at: Date.now() when started)
+ * { ev: 'player-exit', pid, code, signal, at }
  * { ev: 'child', kind, pid } { ev: 'exit', code }. From the test (each answered by { re: id, value }):
  * { op: 'skew', ms } (the clock moves on by ms), { op: 'status' } (the service's status, which is not a request on
  * the socket: the app's watch does not see it), { op: 'stop' } (the service ends, its children first).
@@ -56,18 +61,25 @@ const svc = createService({
         return c;
     },
     playerBin: cfg.playerBin,
-    playerEnv: (id) => {
+    videoBin: cfg.videoBin,
+    videoName: cfg.videoName,
+    videoDecoder: cfg.videoDecoder,
+    playerEnv: (id, kind) => {
         n++;
-        const wav = path.join(cfg.wavDir, ('000' + n).slice(-4) + '-' + id + '.wav');
-        pendingPlayer = { n: n, id: id, wav: wav };
+        const video = kind === 'video';
+        const wav = path.join(cfg.wavDir, ('000' + n).slice(-4) + '-' + (video ? 'video-' : '') + id + '.wav');
+        pendingPlayer = { n: n, id: id, kind: video ? 'video' : 'track', wav: wav };
         return { MGU_AUDIO: 'wav:' + wav };
     },
     spawn: (bin, args, so) => {
         const c = cp.spawn(bin, args, so);
-        const p = pendingPlayer || { n: null, id: null, wav: null };
+        const p = pendingPlayer || { n: null, id: null, kind: null, wav: null };
         pendingPlayer = null;
-        send({ ev: 'player', n: p.n, id: p.id, wav: p.wav, pid: c.pid, startMs: Number((so.env && so.env.MGU_START_MS) || 0) });
+        const env = so.env || {};
+        send({ ev: 'player', n: p.n, id: p.id, kind: p.kind, bin: bin, wav: p.wav, pid: c.pid, startMs: Number(env.MGU_START_MS || 0),
+            baseMs: Number(env.MGU_BASE_MS || 0), at: Date.now() });
         send({ ev: 'child', kind: 'player', pid: c.pid });
+        c.on('exit', (code, signal) => send({ ev: 'player-exit', pid: c.pid, code: code, signal: signal, at: Date.now() }));
         return c;
     },
 });
