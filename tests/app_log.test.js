@@ -210,6 +210,9 @@ test('app: Settings > QR log shows the service\'s lines; Refresh shows the newer
         await press(sh);
         assert.strictEqual(sh.child, null, 'Back closes the QR log');
         toQrRow(sh);
+        // (the kit's list glides to the focused row frame by frame: with the app's settings longer than a page it
+        // needs a few frames to reach the last row, as on the screen)
+        for (let n = 0; n < 30; n++) drawSheet(sh);
         const tap = drawSheet(sh);
         await Promise.resolve(tap[tap.length - 1].act());               // the last row, by touch
         assert.ok(sh.child, 'opened again by touch');
