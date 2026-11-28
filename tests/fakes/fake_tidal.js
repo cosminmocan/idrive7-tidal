@@ -18,6 +18,16 @@
  *   fake.data.playlistItems[uuid] = [{ type: 'track' | 'video', id }]  // playlists/<uuid>/items (else its tracks)
  *   fake.data.mixItems[mixId] = [{ type: 'track' | 'video', id }]      // a mix page's items (else its tracks)
  *   fake.files[name] = Buffer; fake.fileUrl(name); fake.fileFault = { name, cutAfter, stallAfter }
+ *   fake.urlAt(host, name)       the file's address at a made-up host name (resolved by the fake's DNS server)
+ *   fake.addVideoHls(videoId, { host, variants: [{ width, height, bandwidth, host, segments: [{ duration, data }] }] })
+ *                                -> the master's address. An HLS video as TIDAL serves one (docs/live-check-results.md
+ *                                "Video"): the master playlist at `host` (videos/<id>/urlpostpaywall answers it), each
+ *                                variant's VOD playlist and MPEG-TS segments at the variant's host (the master lists it
+ *                                by its absolute address; the segments: relative and absolute addresses in turn).
+ *                                Served from files/hls/<id>/master.m3u8, <height>/index.m3u8, <height>/seg-<i>.ts
+ *   createFakeTidal({ dns: true }): fake.dnsServer ('127.0.0.1:<port>', for a lease's dns list), a DNS server (UDP)
+ *                                that answers the names in fake.hosts (name -> IPv4; addVideoHls adds its hosts) and
+ *                                no other (NXDOMAIN); every question in fake.dnsLog: { name, type }
  *   fake.covers[coverId] = Buffer (a JPEG; one is made up for any coverId of the catalogue otherwise)
  *   fake.data                    // the catalogue (tests/fixtures/tidal/library.json), changeable
  *   fake.pageMax                 // the largest page the fake gives (TIDAL caps limit too)
@@ -29,6 +39,7 @@ const fs = require('fs');
 const path = require('path');
 const querystring = require('querystring');
 const urlMod = require('url');
+const dgram = require('dgram');
 
 const LIBRARY = path.join(__dirname, '..', 'fixtures', 'tidal', 'library.json');
 
@@ -52,7 +63,7 @@ function jpeg(id, size) {
 function createFakeTidal(o) {
     const opts = o || {};
     const fake = {
-        log: [], faults: [], streams: {}, videoStreams: {}, files: {}, covers: {}, fileFault: null,
+        log: [], faults: [], streams: {}, videoStreams: {}, hlsMasters: {}, files: {}, covers: {}, fileFault: null, hosts: {}, dnsLog: [],
         data: JSON.parse(fs.readFileSync(LIBRARY, 'utf8')),
         pageMax: opts.pageMax || 100, tokenLifetime: opts.tokenLifetime || 604800,
         rotateRefreshTokens: !!opts.rotateRefreshTokens,
@@ -226,7 +237,7 @@ function createFakeTidal(o) {
             if (a) return send(res, 200, a);
             if (s || !videoById(id)) return apiError(res, 401, 4005, 'Asset is not ready for playback');
             return send(res, 200, { videoId: id, streamType: 'ON_DEMAND', assetPresentation: 'FULL', videoQuality: q.videoquality,
-                urls: [fake.fileUrl(id + '/master.m3u8')], streamingSessionId: 'fake' });
+                urls: [fake.hlsMasters[id] || fake.fileUrl(id + '/master.m3u8')], streamingSessionId: 'fake' });
         }
         if ((mm = /^tracks\/(\d+)\/urlpostpaywall$/.exec(p))) {
             const id = Number(mm[1]);
@@ -266,7 +277,8 @@ function createFakeTidal(o) {
         const m = /bytes=(\d+)-/.exec(req.headers.range || '');
         const start = m ? Math.min(Number(m[1]), buf.length) : 0;
         const body = buf.slice(start);
-        const head = { 'Content-Type': /\.flac$/.test(name) ? 'audio/flac' : 'audio/mp4', 'Content-Length': body.length, 'Accept-Ranges': 'bytes' };
+        const type = /\.flac$/.test(name) ? 'audio/flac' : /\.m3u8$/.test(name) ? 'application/vnd.apple.mpegurl' : /\.ts$/.test(name) ? 'video/mp2t' : 'audio/mp4';
+        const head = { 'Content-Type': type, 'Content-Length': body.length, 'Accept-Ranges': 'bytes' };
         if (m) head['Content-Range'] = 'bytes ' + start + '-' + (buf.length - 1) + '/' + buf.length;
         res.writeHead(m ? 206 : 200, head);
         const f = fake.fileFault && fake.fileFault.name === name ? fake.fileFault : null;
@@ -313,16 +325,90 @@ function createFakeTidal(o) {
     const server = opts.tls ? https.createServer(opts.tls, handler) : http.createServer(handler);
     server.on('connection', (s) => { sockets.push(s); s.on('error', () => {}); s.on('close', () => { const i = sockets.indexOf(s); if (i >= 0) sockets.splice(i, 1); }); });
 
-    return new Promise((resolve) => server.listen(0, '127.0.0.1', () => {
+    /* ---------- an HLS video at made-up hosts ---------- */
+    fake.addVideoHls = (videoId, v) => {
+        const dir = 'hls/' + videoId + '/';
+        fake.hosts[v.host] = '127.0.0.1';
+        const master = ['#EXTM3U', '#EXT-X-VERSION:3', '#EXT-X-INDEPENDENT-SEGMENTS'];
+        v.variants.forEach((va) => {
+            fake.hosts[va.host] = '127.0.0.1';
+            const at = dir + va.height + '/';
+            master.push('#EXT-X-STREAM-INF:BANDWIDTH=' + va.bandwidth + ',AVERAGE-BANDWIDTH=' + Math.round(va.bandwidth * 0.9) +
+                ',CODECS="avc1.640028,mp4a.40.2",RESOLUTION=' + va.width + 'x' + va.height + ',FRAME-RATE=25.000');
+            master.push(fake.urlAt(va.host, at + 'index.m3u8'));
+            const target = Math.ceil(va.segments.reduce((m, sg) => Math.max(m, sg.duration), 0));
+            const pl = ['#EXTM3U', '#EXT-X-VERSION:3', '#EXT-X-PLAYLIST-TYPE:VOD', '#EXT-X-TARGETDURATION:' + target, '#EXT-X-MEDIA-SEQUENCE:0'];
+            va.segments.forEach((sg, i) => {
+                const name = 'seg-' + i + '.ts';
+                fake.files[at + name] = sg.data;
+                pl.push('#EXTINF:' + sg.duration.toFixed(6) + ',');
+                pl.push(i % 2 ? fake.urlAt(va.host, at + name) : name);
+            });
+            pl.push('#EXT-X-ENDLIST');
+            fake.files[at + 'index.m3u8'] = Buffer.from(pl.join('\n') + '\n');
+        });
+        fake.files[dir + 'master.m3u8'] = Buffer.from(master.join('\n') + '\n');
+        fake.hlsMasters[videoId] = fake.urlAt(v.host, dir + 'master.m3u8');
+        return fake.hlsMasters[videoId];
+    };
+
+    /* ---------- the DNS server: A records for fake.hosts ---------- */
+    let dns = null;
+    function dnsAnswer(q) {
+        if (q.length < 17) return null;
+        let off = 12;
+        const labels = [];
+        while (off < q.length && q[off] !== 0) {
+            const n = q[off];
+            if (n > 63 || off + 1 + n > q.length) return null;
+            labels.push(q.toString('latin1', off + 1, off + 1 + n));
+            off += 1 + n;
+        }
+        off++;
+        if (off + 4 > q.length) return null;
+        const name = labels.join('.').toLowerCase();
+        const type = q.readUInt16BE(off);
+        fake.dnsLog.push({ name: name, type: type });
+        const ip = fake.hosts.hasOwnProperty(name) ? fake.hosts[name] : null;
+        const question = q.slice(12, off + 4);
+        const an = ip && type === 1 ? 1 : 0;
+        const head = Buffer.alloc(12);
+        head.writeUInt16BE(q.readUInt16BE(0), 0);
+        head.writeUInt16BE(0x8180 | (q.readUInt16BE(2) & 0x0100) | (ip ? 0 : 3), 2);   // an answer, recursion; NXDOMAIN when unknown
+        head.writeUInt16BE(1, 4);
+        head.writeUInt16BE(an, 6);
+        if (!an) return Buffer.concat([head, question]);
+        const rr = Buffer.alloc(16);
+        rr.writeUInt16BE(0xc00c, 0); rr.writeUInt16BE(1, 2); rr.writeUInt16BE(1, 4); rr.writeUInt32BE(60, 6); rr.writeUInt16BE(4, 10);
+        ip.split('.').forEach((x, i) => { rr[12 + i] = Number(x); });
+        return Buffer.concat([head, question, rr]);
+    }
+    const dnsReady = !opts.dns ? Promise.resolve() : new Promise((resolve) => {
+        dns = dgram.createSocket('udp4');
+        dns.on('error', () => {});
+        dns.on('message', (q, rinfo) => {
+            let a = null;
+            try { a = dnsAnswer(q); } catch (e) { a = null; }
+            if (a) dns.send(a, rinfo.port, rinfo.address);
+        });
+        dns.bind(0, '127.0.0.1', () => { fake.dnsServer = '127.0.0.1:' + dns.address().port; resolve(); });
+    });
+
+    return dnsReady.then(() => new Promise((resolve) => server.listen(0, '127.0.0.1', () => {
         const host = opts.host || '127.0.0.1';
         const base = (opts.tls ? 'https://' : 'http://') + host + ':' + server.address().port;
         fake.url = base;
         fake.port = server.address().port;
         fake.baseUrls = { auth: base + '/auth/v1/oauth2/', api: base + '/api/v1/', images: base + '/images/' };
         fake.fileUrl = (name) => base + '/files/' + name;
-        fake.close = () => new Promise((r) => { sockets.slice().forEach((s) => s.destroy()); server.close(() => r()); });
+        fake.urlAt = (h, name) => (opts.tls ? 'https://' : 'http://') + h + ':' + fake.port + '/files/' + name;
+        fake.close = () => new Promise((r) => {
+            if (dns) { try { dns.close(); } catch (e) { /* closed */ } dns = null; }
+            sockets.slice().forEach((s) => s.destroy());
+            server.close(() => r());
+        });
         resolve(fake);
-    }));
+    })));
 }
 
 /** a lease file that makes netx online (the fake is reached by its IP, or through opts.resolver) */
