@@ -11,6 +11,7 @@ iDrive 7 head unit. The app talks to it on `/run/cmocan-tidal.sock`; the contrac
 | `service.js` | root | the control socket, the state (`/var/opt/cmocan-tidal/state`, 0700), the TIDAL module (`lib/tidal.js`), the queue (`playback.js`), starts the two children |
 | `client.js` | 13150 (the tool's internet uid, `component.json` `uids`) | every HTTPS request, through `lib/netx.js`; keeps no file |
 | `tidal-player` | started as root with `MGU_RUN_AS=nobody MGU_GROUPS=mgu_alsa,audio MGU_AUDIO=alsa:plug:smartx:CarLifeMedia_CF_48_STEREO`; drops to nobody itself | one process per track: bytes on stdin, commands on fd 3, `MGU {json}` events on stdout |
+| `tidal-video` | the same, with `MGU_GROUPS=mgu_alsa,audio,video MGU_VIDEO=shm:cmocan-tidal MGU_VIDEO_DECODER=auto` (and `MGU_BASE_MS` after a seek) | one process per video instead of `tidal-player`: MPEG-TS on stdin, the pictures to `/dev/shm/mgu-video-cmocan-tidal` (built in `native/tidal-video`) |
 
 - **The player's fd 3** stays open for the player's whole life: its closing means quit (`docs/PROTOCOL.md` section 2),
   so a player never outlives a service that died. `player.js` closes it with `destroy()`, never `end()` (on Node
@@ -46,6 +47,33 @@ iDrive 7 head unit. The app talks to it on `/run/cmocan-tidal.sock`; the contrac
 - **Limits** (`systemd/cmocan-tidal.service`): `LimitCORE=1`, `MemoryLimit=160M`, `CPUQuota=100%`, `TasksMax=32`,
   `Nice=5`, idle I/O, `StartLimitBurst=10` in 600 s, `Restart=on-failure`, no `+` commands. Node with
   `--max-old-space-size=64`. The player is in `crashNames`.
+
+## Videos (contract 4)
+
+- **In the lists**: `favorites {kind: "videos"}` (TIDAL's `users/<id>/favorites/videos`), and the videos among a
+  playlist's items (`playlists/<uuid>/items`, which holds tracks and videos; `/tracks` would leave the videos out)
+  and a mix page's lists (`TRACK_LIST` by each item's type, `VIDEO_LIST`, `MIXED_TYPES_LIST`) are items with
+  `kind: "video"`, `album` null and `coverId` the video's picture (`imageId`). Tracks are as before (no `kind`). An
+  item of another type is dropped. Albums and search stay tracks only.
+- **`play`** takes `kinds` (`track` or `video` for each id); without it every id is a track. The queue remembers each
+  item's kind (`queue.json` gets `kinds` when a video is in it), so `next`, `prev`, `resume` after a restart and the
+  lookup for `status.player.track` (`tidal.video(id)`) use the right one. Videos and tracks have separate id spaces.
+- **The stream**: `tidal.videoUrl(id, height)` asks `videos/<id>/urlpostpaywall` (`videoquality=HIGH`) for the HLS
+  master playlist; the service fetches it, chooses the variant closest to `prefs.videoHeight` (480, 720 by default,
+  1080; never above it while a lower one exists, else the lowest; `lib/tidal/hls.js`), fetches that variant's
+  playlist and then each MPEG-TS segment in order, through `client.js` like a track's bytes, into the one
+  `tidal-video`'s stdin with the pipes' backpressure. `status.player.duration` is the variant's total.
+- **Breaks**: inside a segment the download continues with `Range` as a track's does (growing waits, for 2 minutes,
+  then `offline`); a segment the server refuses (an HTTP error) is tried once more and then **skipped**, with a log
+  line (the player's demuxer finds its way past the gap); a 401/403/410 asks TIDAL for a new master once and goes on
+  at the same segment with the same picture size.
+- **Seek**: a new `tidal-video` starts at the segment holding the position (by the sum of the segments' durations),
+  with `MGU_BASE_MS` that segment's start and `MGU_START_MS` the position; the playlists are not fetched again. At
+  or past the end: the next item, as for a track.
+- **`status.player.video`** is `{file, width, height}` once the player's `video` event says the picture is open,
+  null otherwise (a track, no picture, the player gone). The 90 s watch, `pause`, `resume`, `next`, `prev`, `stop`
+  are the same as for tracks.
+- `cleanup.js` removes the frame file a video player left (`/dev/shm/mgu-video-cmocan-tidal`) when the service ends.
 
 ## Status and login (contract 2)
 
@@ -87,6 +115,9 @@ stream addresses carry a token in the query); the value after a name that holds 
 | `pause: track ...`, `resume: track ...`, `stop: track ...`, `queue: the last track is over` | |
 | `track 17927870: not available, skipped` | a track passed over |
 | `track 17927864: offline (the download broke 121 s ago: ...)` | a track ended with an error: its code (`docs/PROTOCOL.md`), and why |
+| `play: video 143792065 (2 of 14)`, `video 143792065: 1280x720, 30 segments, 175 s (3.1 Mbit/s)`, `playing video 143792065 (720p, msdk)` | a video: started, the variant chosen, its sound and picture started (the decoder, or `no picture`) |
+| `seek: video 143792065 to 92.5 s (segment 16 of 30, from 90 s)` | a seek in a video |
+| `video ...: segment 4 of 30 failed (HTTP 500); again in 1000 ms`, `video ...: segment 4 of 30 skipped (HTTP 500)`, `video ...: segment 4 of 30 broke at byte ...`, `video ...: downloaded, 30 segments, ... bytes, 1 skipped` | a video's segments |
 | `track ...: download broke at byte ... (...); again in ... ms`, `track ...: downloaded, ... bytes` | the download |
 | `player 1234: {"ev":"open",...}`, `player: tidal-player: ...` | the player's events (not its ticks) and its own log |
 | `player 1234: exited, code 0` | each player's end: its exit code (`docs/PROTOCOL.md` section 2) or the signal |
@@ -109,8 +140,9 @@ internet.
 In Docker, `make test` (Node 8.9.4 x86-64 and Node 22): `tests/service_socket.test.js` (C1),
 `service_children.test.js` (C2), `service_login.test.js` (C3), `service_library.test.js` (C4),
 `service_playback.test.js` (C5, and seek), `service_watch.test.js` (C6), `service_state.test.js` (C7),
-`tool_package.test.js` (C8), `service_log.test.js` (the log). They run the real service in a temp folder, unprivileged, with
-`tests/fakes/fake_tidal_module.js` (TIDAL and a file server that cuts, refuses and serves Range),
+`tool_package.test.js` (C8), `service_log.test.js` (the log), `service_video.test.js` (videos), and
+`tidal_video.test.js` (the TIDAL module's videos and `lib/tidal/hls.js`). They run the real service in a temp folder, unprivileged, with
+`tests/fakes/fake_tidal_module.js` (TIDAL, a file server that cuts, refuses and serves Range, and an HLS server),
 `tests/fakes/fake_netx.js` (plain HTTP, in the client child) and `tests/fakes/fake_player.js`;
 `tests/fakes/service_harness.js` starts them and fails a test that leaves a child running.
 
@@ -126,9 +158,9 @@ bmw-test-apps `511c5e0`; see `docs/reference-notes.md`):
 | `player.js` | `aurelm-tvhplayer/player.js`, `aurelm-emby/player.js` (one process per stream; quit, SIGTERM, SIGKILL; `MGU {json}` events) |
 | `playback.js` | `aurelm-tvhplayer/playback.js`, `aurelm-emby/playback.js` (a broken stream tried again for 2 minutes, growing waits); ours continues with HTTP Range |
 | `sockgroup.js` | `aurelm-tvhplayer/sockgroup.js` (the socket in the app's own group), app name and paths changed |
-| `cleanup.js`, `check.js` | `aurelm-tvhplayer/cleanup.js`, `check.js` (no firewall, no frame file in ours) |
+| `cleanup.js`, `check.js` | `aurelm-tvhplayer/cleanup.js`, `check.js` (no firewall in ours) |
 | `systemd/*` | `aurelm-tvhplayer.socket`, `.service` and `aurelm-music.service` (limits) |
 | `component.json` | `aurelm-tvhplayer/component.json`, in mgu-store's format (`deploy/README.md`, "Artifacts") |
 
 `state.js` and `log.js` are new. `lib/`, `cacert.pem` are stream A's; `tidal-player` and `FFMPEG-LICENSE` are stream B's
-(`native/tidal-player/build/`).
+(`native/tidal-player/build/`); `tidal-video` is built in `native/tidal-video/build/out/`.
