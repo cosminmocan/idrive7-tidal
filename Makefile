@@ -16,10 +16,12 @@ test-render:
 	@sh tools/test-render.sh
 
 # the end-to-end test (task I1, tests/e2e.test.js): the fake TIDAL, the real service with its client.js child, the
-# real player writing WAVs, the app's client and model; in the player's test image (ubuntu:18.04 amd64, Node 8.10),
+# real player writing WAVs, the real video player (task V1d: software decode, its frame file in /dev/shm), the
+# app's client and model; in the player's test image (ubuntu:18.04 amd64, Node 8.10),
 # unprivileged. Not part of `make test` (there it skips)
 e2e:
 	@$(MAKE) -s -C native/tidal-player target
+	@$(MAKE) -s -C native/tidal-video target
 	@docker image inspect tidal-player-test:1 >/dev/null 2>&1 || sh native/tidal-player/build.sh image
 	@sh tools/e2e/run.sh
 

@@ -235,7 +235,8 @@ function assertHeader(hd, w, h, what) {
     assert.strictEqual(hd.nslot, 3, what + ': 3 slots');
     assert(hd.slot < 3, what + ': slot ' + hd.slot);
     assert.strictEqual(hd.format, 0, what + ': I420');
-    assert.strictEqual(hd.matrix, 1, what + ': BT.709');
+    // the clip says no colour matrix: BT.709 from 720 lines, BT.601 below (tidal-video, as players do)
+    assert.strictEqual(hd.matrix, h >= 720 ? 1 : 0, what + ': ' + (h >= 720 ? 'BT.709' : 'BT.601'));
     assert.strictEqual(hd.range, 0, what + ': limited range');
     assert.strictEqual(hd.size, 64 + 3 * w * h * 3 / 2, what + ': the header and 3 slots');
 }
@@ -430,7 +431,7 @@ test('start: the fake TIDAL, the real service with client.js and the player, the
     // the references play meanwhile (in real time, as the service's players do)
     ALL.forEach((id) => { X.refs[id] = reference(id); X.refs[id].catch(() => {}); });
 
-    const fake = X.fake = await createFakeTidal({ loginInterval: 1 });
+    const fake = X.fake = await createFakeTidal({ loginInterval: 1, dns: true });
     if (VERBOSE) {
         const push = fake.log.push.bind(fake.log);
         fake.log.push = (e) => { if (/^\/files\//.test(e.path)) console.log(stamp() + 'fake: GET ' + e.path + ' ' + (e.headers.range || '')); return push(e); };
